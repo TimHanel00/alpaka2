@@ -18,6 +18,7 @@ template<uint32_t T_dim>
 using VecDev = alpaka::Vec<uint32_t, T_dim>;
 float error=0;
 double initFlops=0;
+std::size_t bufSize=0;
 namespace examples::Reduce
 {
     /*initializes input array and returns expected result
@@ -30,7 +31,7 @@ namespace examples::Reduce
         for(IdxType i(0);i<A.getExtents().product();i++)
         {
             auto lIdx = alpaka::mapToND(A.getExtents(), i);
-            A.getMdSpan()[lIdx] = static_cast<float>(i+1);
+            A.getMdSpan()[lIdx] = static_cast<Data>(i+1);
         }
         auto firstIndex = alpaka::mapToND(A.getExtents(), static_cast<IdxType>(0));
         Data acc = A.getMdSpan()[firstIndex];
@@ -41,21 +42,25 @@ namespace examples::Reduce
             acc=reduce::operate(operationType{},acc,A.getMdSpan()[i]);
             //acc=Reduce::;
         }
-        auto n=static_cast<float>(A.getExtents().product());
+        auto n=static_cast<Data>(A.getExtents().product());
 
         auto const endTEndT = std::chrono::high_resolution_clock::now();
         initFlops=(A.getExtents().product()/std::chrono::duration<double>(endTEndT - initbeginT).count())/1e9;
+        bufSize=A.getExtents().product();
         return {acc,(n*(n+1))/2};//gauschen Formula for validation is returned
     }
+    /*  actualLowerBound = for loop accumulated value
+     *  actualUpperBound = gaussschen approximation ((n*(n+1))/2)
+     */
     template<typename Data>
    int validate(Data transfer,Data actualLowerBound, Data actualUpperBound)
     {
         error=std::fabs(transfer-actualUpperBound);
-        if(std::fabs(transfer-actualUpperBound)<1e-9)
+        if(std::fabs(transfer-actualUpperBound)<1e-9||transfer==actualUpperBound||transfer==actualLowerBound)
         {
-            std::cout<<"No deviation to Ground Truth"<<std::endl;
             return 0;
         }
+
         if(actualUpperBound < actualLowerBound)
         {
             std::swap(actualLowerBound,actualUpperBound);
@@ -63,11 +68,9 @@ namespace examples::Reduce
 
         if(transfer>actualLowerBound&&transfer<actualUpperBound)
         {
-            std::cout<<"Deviation within reasonable limits"<<std::endl;
             return 0;
         }
 
-        std::cout<<"Invalid Output: device: "<<transfer<<" vs validate: "<<actualUpperBound<<std::endl;
         return 0;
     }
 
@@ -84,15 +87,14 @@ auto example(T_Cfg const& cfg) -> int
     onHost::Device devAcc = platform.makeDevice(0);
     onHost::Platform platformHost = onHost::makePlatform(api::cpu);
     onHost::Device devHost = platformHost.makeDevice(0);
-
     //specify nr of run12
-    std::size_t nr_of_Runs=12;
+
+    std::size_t nr_of_Runs=14;
     std::vector<std::size_t> data={64};
     //std::vector<std::size_t> data={65536};
 
     for(auto i=1;i<nr_of_Runs;i++)
     {
-
         data.push_back(data[i-1]*4);
     }
     for(std::size_t & i : data)
@@ -102,11 +104,12 @@ auto example(T_Cfg const& cfg) -> int
         {
             auto bufHostA = onHost::alloc<dType>(devHost, extent);
             std::vector<dType> valData=examples::Reduce::initReduce<reduce::sum,dType>(bufHostA);
+            auto const beginT = std::chrono::high_resolution_clock::now();
+            //reduction call
             auto constexpr numLoads=4;
             auto constexpr stride=4;
-            auto result=reduction<numLoads,stride>(reduce::sum{} ,exec,devHost,devAcc,bufHostA);
-
-
+            auto result=reduction<4,4>(reduce::sum{} ,exec,devHost,devAcc,bufHostA);
+            examples::Reduce::validate( result,valData[0],valData[1]);
         }
 
 

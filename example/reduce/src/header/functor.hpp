@@ -15,53 +15,12 @@ namespace reduce {
         struct xor_ { template<typename T> T operator()(T const& a, T const& b) const { return a ^ b; } };
         struct bitwise_and { template<typename T> T operator()(T const& a, T const& b) const { return a & b; } };
         struct bitwise_or { template<typename T> T operator()(T const& a, T const& b) const { return a | b; } };
-        template <typename Lambda, typename T>
-        struct lambda {
-            Lambda op;
-            T neutral;
 
-            lambda(Lambda&& op, T neutral)
-                : op(std::forward<Lambda>(op)), neutral(neutral) {}
-
-            constexpr T operator()(T const& a, T const& b) const {
-                return op(a, b);
-            }
-
-            constexpr T get_neutral() const {
-                return neutral;
-            }
-        };
-
-    // Generic operate function: Works with functors and lambdas
-    template <typename Op, typename T>
-    constexpr auto operate(Op&& operation, T const& op1, T const& op2) -> T {
-        return std::forward<Op>(operation)(op1, op2);
-    }
-    template <typename OperationType>
-    ALPAKA_FN_HOST_ACC auto neutral_element_byte() ->uint8_t
-    {
-        if constexpr (std::is_same_v<OperationType, reduce::sum>) {
-            return 0x00; // Neutral element for addition
-        } else if constexpr (std::is_same_v<OperationType, reduce::multiply>) {
-            return 0xFF; // Neutral element for multiplication
-        } else if constexpr (std::is_same_v<OperationType, reduce::max_element>) {
-            return 0xFF; // Neutral element for max (smallest possible value)
-        } else if constexpr (std::is_same_v<OperationType, reduce::min_element>) {
-            return 0xFF; // Neutral element for min (largest possible value)
-        } else if constexpr (std::is_same_v<OperationType, reduce::all>) {
-            return 0xFF; // Neutral element for logical AND (all true)
-        } else if constexpr (std::is_same_v<OperationType, reduce::any>) {
-            return 0x00; // Neutral element for logical OR (any true)
-        } else if constexpr (std::is_same_v<OperationType, reduce::xor_>) {
-            return 0x00; // Neutral element for XOR
-        } else if constexpr (std::is_same_v<OperationType, reduce::bitwise_and>) {
-            return 0xFF; // Neutral element for bitwise AND (all bits set)
-        } else if constexpr (std::is_same_v<OperationType, reduce::bitwise_or>) {
-            return 0x00; // Neutral element for bitwise OR
-        } else {
-            static_assert(std::is_same_v<OperationType, void>, "Unsupported operation");
-        }
-    }
+// Generic operate function: Works with functors and lambdas
+template <typename Op, typename T>
+constexpr auto operate(Op&& operation, T const& op1, T const& op2) -> T {
+    return std::forward<Op>(operation)(op1, op2);
+}
     template <typename T, typename OperationType>
 ALPAKA_FN_HOST_ACC auto neutral_element(const OperationType& type) -> T
     {

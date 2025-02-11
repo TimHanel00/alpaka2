@@ -83,9 +83,9 @@ public:
     template<typename TAcc,typename operationType>
     ALPAKA_FN_ACC auto operator()(TAcc const& acc, const operationType type,auto const dataBuf,auto destinationBuf,auto const start,auto const end)-> void
     {
-        printf("unique: %li \n",static_cast<unsigned long int>(12679));
         using namespace alpaka;
         using namespace reduce;
+
         using IdxType=std::remove_reference_t<decltype(dataBuf.getExtents().x())>;
         using IdxVec = std::remove_reference_t<decltype(dataBuf.getExtents())>;
         using DataType = std::remove_const_t<std::remove_reference_t<decltype(dataBuf[0])>>;
@@ -93,12 +93,10 @@ public:
         auto numFrames = IdxVec{acc[frame::count]};
 
         auto frameExtent = IdxVec{acc[frame::extent]};
+        //printf("threadCount: %li%, frameExtent: %li%\n",acc[layer::thread].count().x(), frameExtent.x());
         auto sdata = onAcc::getDynSharedMem<DataType>(acc);
         auto traverseInFrame = onAcc::makeIdxMap(acc, onAcc::worker::threadsInBlock, IdxRange{frameExtent});
-        printf("nr of BLs: %li \n",acc[alpaka::layer::block].count().x());
-        printf("BlockIdx: %li \n",acc[alpaka::layer::block].idx().x());
-        printf("nr of threads %li \n",acc[alpaka::layer::thread].count().x());//this is giving different numbers in newest version
-        printf("threadIDx %li \n",acc[alpaka::layer::thread].idx().x());
+
         auto const blockDataExtent = acc[alpaka::layer::block].count() * frameExtent;
         auto const frameDomainExtent = numFrames * frameExtent;
         auto traverseOverFrames= onAcc::makeIdxMap(
@@ -111,44 +109,37 @@ public:
             IdxRange{IdxVec{0}, blockDataExtent, frameExtent});
         for(auto elemIdxInFrame : traverseInFrame)
         {
-            //std::cout<<elemIdxInFrame.x()<<std::endl;
-            //printf("unique EL: %li \n",elemIdxInFrame.x());
             sdata[elemIdxInFrame.x()]=reduce::neutral_element<DataType>(type);
         }
-
-        int id=(acc[alpaka::layer::block].count()*acc[alpaka::layer::block].idx() +acc[alpaka::layer::thread].idx()).x();
         for(auto frameIdx : traverseOverFrames)
         {
-            printf("unique: %li \n",frameIdx.x()*frameExtent.x());
             for(auto elemIdxInFrame : traverseInFrame)
             {
-                printf("unique: %li \n",frameIdx.x()*frameExtent.x() + elemIdxInFrame.x());
-                //std::cout<<"unique: "<<frameIdx*frameExtent + elemIdxInFrame<<std::endl;
-                for(auto [iter]:onAcc::makeIdxMap(
+                auto idxContainer=onAcc::makeIdxMap(
                                         acc,
-                                        //workergroup gives you a unique Id since every worker gets a unique Id by doing frameIdx+elemIdx,so multiplying that *4 gives a unique strided index
                                         onAcc::WorkerGroup{frameIdx*frameExtent + elemIdxInFrame,frameDomainExtent},
-                                        IdxRange{start,end,IdxVec{stride}}))
+                                        IdxRange{start,end,IdxVec{stride}});
+                auto iter=idxContainer.begin();
+                while(iter!=idxContainer.end())
                 {
-                    printf("unique: %li \n",frameIdx.x()*frameExtent.x() + elemIdxInFrame.x());
-                    //std::cout<<"unique: "<<frameIdx*frameExtent + elemIdxInFrame<<std::endl;
-                    auto res=accFunctor<stride,DataType>(type,dataBuf,iter);
-                    sdata[elemIdxInFrame.x()]=reduce::operate(type,sdata[elemIdxInFrame.x()],res);
-
+                    auto result = multiLoadUnrolling<stride, DataType>(type,
+                       dataBuf, iter, std::make_index_sequence<numLoads>{}
+                   );
+                    sdata[elemIdxInFrame.x()]=reduce::operate(type,sdata[elemIdxInFrame.x()],result);
                 };
+
             }
 
         }
+
         onAcc::syncBlockThreads(acc);
-        int i=0;
 
         for(auto [DataElemIdxInFrame] :
                 onAcc::makeIdxMap(acc, onAcc::worker::threadsInBlock, IdxRange{acc[layer::thread].count(),frameExtent.x()}))
             {
-
                 sdata[acc[layer::thread].idx().x()]=reduce::operate(type,sdata[acc[layer::thread].idx().x()],sdata[DataElemIdxInFrame]);
-                i++;
             }
+
         onAcc::syncBlockThreads(acc);
         auto const [local_i] = acc[layer::thread].idx();
         auto const [blockSize] = acc[layer::thread].count();
