@@ -243,6 +243,10 @@ namespace alpaka::onHost
                 FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
                 T_KernelBundle const& kernelBundle) const
             {
+# ifdef ENABLE_AUTOTUNE
+                auto threadSpec=alapaka::onHost::tune(device,executor,dataBlocking,kernelBundle);
+                return threadSpec;
+#endif
                 auto numThreadBlocks = dataBlocking.getThreadSpec().m_numBlocks;
 #if 0
                using IdxType = typename T_NumBlocks::type;

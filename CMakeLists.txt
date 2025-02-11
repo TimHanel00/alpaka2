@@ -83,7 +83,8 @@ include("${_alpaka_ROOT_DIR}/cmake/addLibrary.cmake")
 # check for CUDA/HIP language support
 include(CheckLanguage)
 
-add_library(alpaka INTERFACE)
+add_library(alpaka INTERFACE
+        include/alpaka/tune/tuner.h)
 target_include_directories(${PROJECT_NAME} INTERFACE $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_20)
 
@@ -305,4 +306,8 @@ endif()
 option(alpaka_EXEC_GpuHip "Enable/Disable HIP executor" ON)
 if(NOT alpaka_EXEC_GpuHip)
     target_compile_definitions(alpaka INTERFACE ALPAKA_DISABLE_EXEC_GpuHip)
+endif()
+option(ENABLE_AUTOTUNE "Enable Autotuning for Kernels" OFF)
+if(ENABLE_SINGLETON)
+    add_definitions(-DENABLE_AUTOTUNE)
 endif()

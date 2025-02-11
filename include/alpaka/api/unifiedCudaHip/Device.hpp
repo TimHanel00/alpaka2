@@ -212,23 +212,23 @@ namespace alpaka::onHost
                 unifiedCudaHip::Device<T_Platform> const& device,
                 T_Mapping const& executor,
                 FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
-                T_KernelBundle const& kernelBundle) const requires alpaka::concepts::CVector<T_NumThreads>
-            {
-                return dataBlocking.getThreadSpec();
-            }
-
-            auto operator()(
-                unifiedCudaHip::Device<T_Platform> const& device,
-                T_Mapping const& executor,
-                FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
                 T_KernelBundle const& kernelBundle) const
             {
                 auto numThreadBlocks = dataBlocking.getThreadSpec().m_numBlocks;
-#        if 0
+                auto constexpr n=16u;//options 1u,2u,4u,16u,32u
+                static auto const maxBlocks = device.m_properties.m_multiProcessorCount*16u;
+# ifdef ENABLE_AUTOTUNE
+                auto threadSpec=alapaka::onHost::tune(device,executor,dataBlocking,kernelBundle);
+                return threadSpec;
+#endif
+#define Costum
+# ifdef Costum
+                if(numThreadBlocks.product() > maxBlocks)numThreadBlocks.x()=maxBlocks;
+                return ThreadSpec{numThreadBlocks, dataBlocking.getThreadSpec().m_numThreads};
+#endif
+#        if 1
                 using IdxType = typename T_NumBlocks::type;
                 // @todo get this number from device properties
-                static auto const maxBlocks = device.m_properties.m_multiProcessorCount * 16u;
-
                 while(numThreadBlocks.product() > maxBlocks)
                 {
                     uint32_t maxIdx = 0u;
