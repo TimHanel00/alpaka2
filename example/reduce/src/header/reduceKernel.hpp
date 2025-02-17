@@ -115,18 +115,17 @@ public:
         {
             for(auto elemIdxInFrame : traverseInFrame)
             {
-                auto idxContainer=onAcc::makeIdxMap(
-                                        acc,
-                                        onAcc::WorkerGroup{frameIdx*frameExtent + elemIdxInFrame,frameDomainExtent},
-                                        IdxRange{start,end,IdxVec{stride}});
-                auto iter=idxContainer.begin();
-                while(iter!=idxContainer.end())
-                {
-                    auto result = multiLoadUnrolling<stride, DataType>(type,
-                       dataBuf, iter, std::make_index_sequence<numLoads>{}
-                   );
-                    sdata[elemIdxInFrame.x()]=reduce::operate(type,sdata[elemIdxInFrame.x()],result);
-                };
+                auto innerWorkgroup=onAcc::WorkerGroup{frameIdx*frameExtent + elemIdxInFrame, frameDomainExtent};
+                onAcc::forEach<64>(
+                    acc,
+                    innerWorkgroup,
+                    IdxVec{dataDomainExtent},
+                    [&](auto const&, auto&& l_a) constexpr
+                    {
+                        //printf("%li sum \n",sum);
+                        sdata[elemIdxInFrame.x()] +=l_a.load().sum();
+                    },
+                    dataBuf);
 
             }
 

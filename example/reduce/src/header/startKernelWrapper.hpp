@@ -4,8 +4,8 @@
 
 #ifndef STARTKERNELWRAPPER_HPP
 #define STARTKERNELWRAPPER_HPP
+#include "alpaka/tune/tunable.h"
 #include "reduceKernel.hpp"
-
 /*
  * rounds a 1Dim integerType Vector to the closest n aligend Nr
  */
@@ -43,28 +43,7 @@ template<std::size_t numLoads=4,std::size_t stride=4,typename operationType,type
     onHost::memcpy(queue, bufAccA, bufHost);
     onHost::memcpy(queue, destBuf, destHost);
     //wait until memory transfers are complete
-    onHost::wait(queue);
 
-    if(bufHost.getExtents().product()<stride*numLoads)
-    {
-        Reduce<IdxType{1},IdxType{1},T> onlyKernel{static_cast<uint32_t>(bufHost.getExtents().product()*sizeof(T))};
-        auto const taskKernel
-       = KernelBundle{onlyKernel, type,bufAccA.getMdSpan(),destBuf.getMdSpan(),alpaka::Vec<std::size_t,1>{0},bufHost.getExtents().product()};
-        auto lastKernelFrame = onHost::FrameSpec{static_cast<IdxType>(1),static_cast<IdxType>(1)};
-        onHost::wait(queue);
-        auto const beginT = std::chrono::high_resolution_clock::now();
-        onHost::enqueue(queue, exec, lastKernelFrame, taskKernel);
-        auto const endT = std::chrono::high_resolution_clock::now();
-        onHost::wait(queue);
-        onHost::memcpy(queue, destHost, destBuf,alpaka::Vec{static_cast<T>(1)});
-        onHost::wait(queue);
-        auto nr_of_operations=bufHost.getExtents().product();
-
-        double timeInside=std::chrono::duration<double>(endT - beginT).count();
-        double kernelOps=((nr_of_operations/timeInside)/1e9);
-        //std::cout<<"AccTypeSmall,"<<core::demangledName(exec)<<",size,"<<nr_of_operations<<",GFLOP,"<<kernelOps<<std::endl;
-        return destHost.getMdSpan()[firstIndex];
-    }
     //how many frame cells do we need (numLods*stride elements are calculated at once = in one Cell)
     auto nr_of_FrameCells=IdxVec{bufHost.getExtents().x()/(stride*numLoads)};
     //handle edge cases where the number of Elements is too small for one FrameExtent
@@ -93,9 +72,10 @@ template<std::size_t numLoads=4,std::size_t stride=4,typename operationType,type
     }
     //std::cout<<"frameExentTMP: "<<frameExtentTmp.x()<<std::endl;
     //use only 1 Block for the final Kernel, if frameExtent<remElements we ensure that all elements are covered with a frameSpec-strided inner loop
-    auto lastKernelFrame = onHost::FrameSpec{static_cast<IdxType>(1),static_cast<IdxType>(frameExtentTmp),static_cast<IdxType>(alterFrameExtent)};
-
-
+    auto lastKernelFrame = onHost::FrameSpec{
+        static_cast<IdxType>(1),
+        static_cast<IdxType>(frameExtentTmp),
+        static_cast<IdxType>(alterFrameExtent)};
     // Instantiate the kernel object with its respective dynamic shared memory given inside {}
     Reduce<stride,numLoads,T> kernel1{static_cast<uint32_t>(trueFrameExtent.x()*sizeof(T))};
     // Instantiate the final Kernel object with the maximum shared memory it may require
@@ -104,13 +84,13 @@ template<std::size_t numLoads=4,std::size_t stride=4,typename operationType,type
 
         //with the data transfers to device completed we can now instantiate our Kernel Bundles (i.e. specify parameters for the Kernel function)
         auto const taskKernel
-        = KernelBundle{kernel1, type,bufAccA.getMdSpan(),destBuf.getMdSpan(),alpaka::Vec<std::size_t,1>{0},VecFirstExtent};
+        = KernelBundle{kernel1,tune::BlockThreadSizeTune{}, type,bufAccA.getMdSpan(),destBuf.getMdSpan(),alpaka::Vec<std::size_t,1>{0},VecFirstExtent};
         auto const taskKernelLeftOver
             = KernelBundle{kernel2, type,bufAccA.getMdSpan(),destBuf.getMdSpan(),VecFirstExtent,bufHost.getExtents()};
+        onHost::wait(queue);
         auto const beginT = std::chrono::high_resolution_clock::now();
             //enqueue both Kernels queue ensures sequential execution
             onHost::enqueue(queue, exec, firstKernelFrame, taskKernel);
-            if(remElements.product()>0)onHost::enqueue(queue, exec, lastKernelFrame, taskKernelLeftOver);
             onHost::wait(queue);
 
         auto const endT = std::chrono::high_resolution_clock::now();

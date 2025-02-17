@@ -84,7 +84,8 @@ include("${_alpaka_ROOT_DIR}/cmake/addLibrary.cmake")
 include(CheckLanguage)
 
 add_library(alpaka INTERFACE
-        include/alpaka/tune/tuner.h)
+        include/alpaka/tune/tuner.h
+        include/alpaka/tune/tunable.h)
 target_include_directories(${PROJECT_NAME} INTERFACE $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_20)
 

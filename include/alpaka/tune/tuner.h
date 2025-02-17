@@ -1,6 +1,7 @@
 //
 // Created by tim on 05.02.25.
 //
+#define ENABLE_AUTOTUNE
 #ifdef ENABLE_AUTOTUNE
 #ifndef TUNER_H
 #define TUNER_H
@@ -80,6 +81,7 @@ namespace alpaka::onHost::tune{
                 FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
                 T_KernelBundle const& kernelBundle){
                 static Tuner tuner();
+                //Tuning steps that are general
                 return threadSpec=tuner.tune(device,executor,dataBlocking,kernelBundle);
 
             }

@@ -7,14 +7,10 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 project(babelstream LANGUAGES CXX)
 
 if(NOT TARGET alpaka::alpaka)
-    option(alpaka_USE_SOURCE_TREE "Use alpaka's source tree instead of an alpaka installation" OFF)
-    if(alpaka_USE_SOURCE_TREE)
+    option(alpaka_USE_SOURCE_TREE "Use alpaka's source tree instead of an alpaka installation" ON)
         # Don't build the benchmarks recursively
         set(alpaka_BUILD_BENCHMARKS OFF)
         add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../.." "${CMAKE_BINARY_DIR}/alpaka")
-    else()
-        find_package(alpaka REQUIRED)
-    endif()
 endif()
 
 set(_TARGET_NAME "babelstream")

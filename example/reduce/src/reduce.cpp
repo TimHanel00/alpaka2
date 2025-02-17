@@ -70,7 +70,8 @@ namespace examples::Reduce
         {
             return 0;
         }
-
+        std::cout<<"error "<<bufSize<<std::endl;
+        std::cout<<"device: "<<transfer<<"vs validate: " <<actualUpperBound<<std::endl;
         return 0;
     }
 
@@ -89,7 +90,7 @@ auto example(T_Cfg const& cfg) -> int
     onHost::Device devHost = platformHost.makeDevice(0);
     //specify nr of run12
 
-    std::size_t nr_of_Runs=14;
+    std::size_t nr_of_Runs=12;
     std::vector<std::size_t> data={64};
     //std::vector<std::size_t> data={65536};
 
