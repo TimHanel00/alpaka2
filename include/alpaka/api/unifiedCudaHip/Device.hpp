@@ -207,13 +207,13 @@ namespace alpaka::onHost
                 unifiedCudaHip::Device<T_Platform> const& device,
                 T_Mapping const& executor,
                 FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
-                T_KernelBundle const& kernelBundle) const
+                T_KernelBundle & kernelBundle) const
             {
                 auto numThreadBlocks = dataBlocking.getThreadSpec().m_numBlocks;
                 auto constexpr n=16u;//options 1u,2u,4u,16u,32u
                 static auto const maxBlocks = device.m_properties.m_multiProcessorCount*16u;
 # ifdef ENABLE_AUTOTUNE
-                auto threadSpec=alapaka::onHost::tune(device,executor,dataBlocking,kernelBundle);
+                auto threadSpec=alapaka::tuneWithContext(device,executor,dataBlocking,kernelBundle);
                 return threadSpec;
 #endif
 #define Costum

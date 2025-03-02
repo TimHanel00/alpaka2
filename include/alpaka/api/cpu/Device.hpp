@@ -244,7 +244,7 @@ namespace alpaka::onHost
                 T_KernelBundle const& kernelBundle) const
             {
 # ifdef ENABLE_AUTOTUNE
-                auto threadSpec=alapaka::onHost::tune(device,executor,dataBlocking,kernelBundle);
+                auto threadSpec=alpaka::tuneWithContext(device,executor,dataBlocking,kernelBundle);
                 return threadSpec;
 #endif
                 auto numThreadBlocks = dataBlocking.getThreadSpec().m_numBlocks;

@@ -4,8 +4,10 @@
 
 #ifndef STARTKERNELWRAPPER_HPP
 #define STARTKERNELWRAPPER_HPP
-#include "alpaka/tune/tunable.h"
+#include "alpaka/tune/tuneable.hpp"
+#include "alpaka/tune/tuner.hpp"
 #include "reduceKernel.hpp"
+
 /*
  * rounds a 1Dim integerType Vector to the closest n aligend Nr
  */
@@ -81,19 +83,29 @@ template<std::size_t numLoads=4,std::size_t stride=4,typename operationType,type
     // Instantiate the final Kernel object with the maximum shared memory it may require
     Reduce<IdxType{1},IdxType{1},T> kernel2{static_cast<uint32_t>(frameExtentTmp.x()*sizeof(T))};
 
+        auto &tuner=alpaka::TunerWrapper::init<std::size_t,float_t>();
+        tuner.loadConfig("./config/reduce.json");
 
         //with the data transfers to device completed we can now instantiate our Kernel Bundles (i.e. specify parameters for the Kernel function)
-        auto const taskKernel
-        = KernelBundle{kernel1,tune::BlockThreadSizeTune{}, type,bufAccA.getMdSpan(),destBuf.getMdSpan(),alpaka::Vec<std::size_t,1>{0},VecFirstExtent};
+        auto taskKernel
+        = KernelBundle{kernel1, type,bufAccA.getMdSpan(),destBuf.getMdSpan(),
+            alpaka::tune::Tuneable(static_cast<std::size_t>(0),"test"),VecFirstExtent};
         auto const taskKernelLeftOver
-            = KernelBundle{kernel2, type,bufAccA.getMdSpan(),destBuf.getMdSpan(),VecFirstExtent,bufHost.getExtents()};
+            = KernelBundle{kernel2, type,bufAccA.getMdSpan(),destBuf.getMdSpan(),VecFirstExtent.x(),bufHost.getExtents()};
         onHost::wait(queue);
         auto const beginT = std::chrono::high_resolution_clock::now();
+        {
+            auto event=tuner.createTimeEvent(taskKernel);
+            tuner.setGridSizeTuning(taskKernel,alpaka::tune::GridSizeTune<std::size_t>(64));
+            tuner.setThreadBlockTuning(taskKernel,alpaka::tune::GridSizeTune<std::size_t>(54));
             //enqueue both Kernels queue ensures sequential execution
             onHost::enqueue(queue, exec, firstKernelFrame, taskKernel);
             onHost::wait(queue);
 
+
+        }
         auto const endT = std::chrono::high_resolution_clock::now();
+        tuner.storeConfig("./config/reduce.json");
             //copy back results
             onHost::memcpy(queue, destHost, destBuf,alpaka::Vec{static_cast<T>(1)});
             onHost::wait(queue);
