@@ -245,6 +245,7 @@ namespace alpaka::onHost
             {
 # ifdef ENABLE_AUTOTUNE
                 auto threadSpec=alpaka::tuneWithContext(device,executor,dataBlocking,kernelBundle);
+                std::cout<<"After ThreadSpec"<<std::endl;
                 return threadSpec;
 #endif
                 auto numThreadBlocks = dataBlocking.getThreadSpec().m_numBlocks;

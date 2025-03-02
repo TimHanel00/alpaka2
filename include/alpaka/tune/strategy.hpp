@@ -10,7 +10,7 @@ namespace alpaka::tune::strategy
 {
     struct bestRecorded{
         template<typename TGridSize,typename TthreadBlockSize,typename tuneables,typename KernelRun,typename T_Device,typename T_Exec>
-        auto operator()(TGridSize &gridSize=std::nullopt,TthreadBlockSize & threadBlockSize=std::nullopt,std::vector<tuneables> &tuningParameters,std::vector<std::shared_ptr<KernelRun>> history,T_Device const& device, T_Exec const& exec) const {
+        auto operator()(TGridSize &gridSize,TthreadBlockSize & threadBlockSize,std::vector<tuneables> &tuningParameters,std::vector<std::shared_ptr<KernelRun>> history,T_Device const& device, T_Exec const& exec) const {
             if(history.empty()){return;}
             auto selectedRun = history[0];
 
@@ -19,12 +19,12 @@ namespace alpaka::tune::strategy
                     selectedRun = run;  // Update selectedRun to the run with the smaller metric
                 }
             }
-            tuningParameters= std::copy(selectedRun->tuneables.begin(),selectedRun->tuneables.end());
+            std::copy(selectedRun->tuneables.begin(),selectedRun->tuneables.end(),tuningParameters.begin());
         }
     };
     struct initialValues{
         template<typename TGridSize,typename TthreadBlockSize,typename tuneables,typename KernelRun,typename T_Device,typename T_Exec>
-         auto operator()(TGridSize &gridSize=std::nullopt,TthreadBlockSize & threadBlockSize=std::nullopt,std::vector<tuneables> &tuningParameters,std::vector<std::shared_ptr<KernelRun>> history,T_Device const& device, T_Exec const& exec) const {
+         auto operator()(TGridSize &gridSize,TthreadBlockSize & threadBlockSize,std::vector<tuneables> &tuningParameters,std::vector<std::shared_ptr<KernelRun>> history,T_Device const& device, T_Exec const& exec) const {
             return tuningParameters;
         }
     };

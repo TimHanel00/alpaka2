@@ -213,7 +213,7 @@ namespace alpaka::onHost
                 auto constexpr n=16u;//options 1u,2u,4u,16u,32u
                 static auto const maxBlocks = device.m_properties.m_multiProcessorCount*16u;
 # ifdef ENABLE_AUTOTUNE
-                auto threadSpec=alapaka::tuneWithContext(device,executor,dataBlocking,kernelBundle);
+                auto threadSpec=alpaka::tuneWithContext(device,executor,dataBlocking,kernelBundle);
                 return threadSpec;
 #endif
 #define Costum

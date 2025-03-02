@@ -83,21 +83,22 @@ template<std::size_t numLoads=4,std::size_t stride=4,typename operationType,type
     // Instantiate the final Kernel object with the maximum shared memory it may require
     Reduce<IdxType{1},IdxType{1},T> kernel2{static_cast<uint32_t>(frameExtentTmp.x()*sizeof(T))};
 
-        auto &tuner=alpaka::TunerWrapper::init<std::size_t,float_t>();
+        auto &tuner = Tuner<>::getInstance();
         tuner.loadConfig("./config/reduce.json");
 
         //with the data transfers to device completed we can now instantiate our Kernel Bundles (i.e. specify parameters for the Kernel function)
         auto taskKernel
         = KernelBundle{kernel1, type,bufAccA.getMdSpan(),destBuf.getMdSpan(),
-            alpaka::tune::Tuneable(static_cast<std::size_t>(0),"test"),VecFirstExtent};
+            IdxVec{0},VecFirstExtent};
         auto const taskKernelLeftOver
             = KernelBundle{kernel2, type,bufAccA.getMdSpan(),destBuf.getMdSpan(),VecFirstExtent.x(),bufHost.getExtents()};
         onHost::wait(queue);
         auto const beginT = std::chrono::high_resolution_clock::now();
         {
             auto event=tuner.createTimeEvent(taskKernel);
-            tuner.setGridSizeTuning(taskKernel,alpaka::tune::GridSizeTune<std::size_t>(64));
-            tuner.setThreadBlockTuning(taskKernel,alpaka::tune::GridSizeTune<std::size_t>(54));
+            tuner.setGridSizeTuning(taskKernel,alpaka::tune::GridSizeTune<std::size_t>(56));
+            tuner.setThreadBlockTuning(taskKernel,alpaka::tune::ThreadBlockSizeTune<std::size_t>(64));
+            std::cout<<"after Setup"<<std::endl;
             //enqueue both Kernels queue ensures sequential execution
             onHost::enqueue(queue, exec, firstKernelFrame, taskKernel);
             onHost::wait(queue);

@@ -82,12 +82,7 @@ include("${_alpaka_ROOT_DIR}/cmake/addLibrary.cmake")
 
 # check for CUDA/HIP language support
 include(CheckLanguage)
-include_directories(${PROJECT_NAME} INTERFACE ${VCPKG_INSTALLED_DIR}/include)
-add_library(alpaka INTERFACE
-        include/alpaka/tune/tuner.hpp
-        include/alpaka/tune/tuneable.hpp
-        include/alpaka/tune/strategy.hpp
-        include/alpaka/tune/exampleGPT.h)
+add_library(alpaka INTERFACE)
 target_include_directories(${PROJECT_NAME} INTERFACE $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_20)
 
