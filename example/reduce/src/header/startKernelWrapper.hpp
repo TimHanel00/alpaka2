@@ -82,10 +82,8 @@ template<std::size_t numLoads=4,std::size_t stride=4,typename operationType,type
     Reduce<stride,numLoads,T> kernel1{static_cast<uint32_t>(trueFrameExtent.x()*sizeof(T))};
     // Instantiate the final Kernel object with the maximum shared memory it may require
     Reduce<IdxType{1},IdxType{1},T> kernel2{static_cast<uint32_t>(frameExtentTmp.x()*sizeof(T))};
-
         auto &tuner = Tuner<>::getInstance();
         tuner.loadConfig("./config/reduce.json");
-
         //with the data transfers to device completed we can now instantiate our Kernel Bundles (i.e. specify parameters for the Kernel function)
         auto taskKernel
         = KernelBundle{kernel1, type,bufAccA.getMdSpan(),destBuf.getMdSpan(),
@@ -96,14 +94,11 @@ template<std::size_t numLoads=4,std::size_t stride=4,typename operationType,type
         auto const beginT = std::chrono::high_resolution_clock::now();
         {
             auto event=tuner.createTimeEvent(taskKernel);
-            tuner.setGridSizeTuning(taskKernel,alpaka::tune::GridSizeTune<std::size_t>(56));
+            tuner.setGridSizeTuning(taskKernel,alpaka::tune::GridSizeTune<std::size_t>(1));
             tuner.setThreadBlockTuning(taskKernel,alpaka::tune::ThreadBlockSizeTune<std::size_t>(64));
-            std::cout<<"after Setup"<<std::endl;
             //enqueue both Kernels queue ensures sequential execution
             onHost::enqueue(queue, exec, firstKernelFrame, taskKernel);
             onHost::wait(queue);
-
-
         }
         auto const endT = std::chrono::high_resolution_clock::now();
         tuner.storeConfig("./config/reduce.json");

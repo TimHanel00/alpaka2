@@ -43,7 +43,7 @@ namespace alpaka::tune
 
         explicit GridSizeTune(T initial_value = 64,
                               std::optional<IdxRange<T_Begin, T_End, T_Stride>> idxRange = std::nullopt)
-            : Tuneable<T>(gridSize, "gridSize", idxRange), gridSize(initial_value) {}
+            : gridSize(initial_value),Tuneable<T>(initial_value, "gridSize", idxRange){}
     };
 
     template <typename T = std::size_t,typename T_End = alpaka::Vec<T,1u>,
@@ -54,7 +54,7 @@ namespace alpaka::tune
 
         explicit ThreadBlockSizeTune(T initial_value = 256,
                                      std::optional<IdxRange<T_Begin, T_End, T_Stride>> idxRange = std::nullopt)
-            : Tuneable<T>(blockThreadSize, "blockThreadSize", idxRange), blockThreadSize(initial_value) {}
+            : blockThreadSize(initial_value),Tuneable<T>(initial_value, "blockThreadSize", idxRange){}
     };
 
     template <typename T = std::size_t>

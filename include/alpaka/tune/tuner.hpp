@@ -133,8 +133,8 @@ struct Tuner
             std::cout<<"warning no Time Event for Kernel "<<alpaka::core::demangledName<T_KernelBundle>(KernelBundle)<<"specified"<<std::endl;
 
         }
-        activeKernels[key]->threadBlockSize=threadBlocktuning;
-
+        activeKernels[key]->threadBlockSize=std::optional<alpaka::tune::ThreadBlockSizeTune<T>>(threadBlocktuning);
+        std::cout<<activeKernels[key]->gridSize->value<<std::endl;
     }
     template<typename T_KernelBundle,typename T>
     void setGridSizeTuning(const T_KernelBundle & KernelBundle,const alpaka::tune::GridSizeTune<T> & gridSizeTuning)
@@ -145,7 +145,7 @@ struct Tuner
             std::cout<<"warning no Time Event for Kernel "<<alpaka::core::demangledName<T_KernelBundle>(KernelBundle)<<"specified"<<std::endl;
 
         }
-        activeKernels[key]->gridSize=gridSizeTuning;
+        activeKernels[key]->gridSize=std::optional<alpaka::tune::GridSizeTune<T>>(gridSizeTuning);
     }
     void loadConfig(const std::string& filename) {
     std::ifstream file(filename);
@@ -300,58 +300,44 @@ struct Tuner
                 T_Device const& device,
                 T_Executor const& executor,
                 alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
-                T_KernelBundle & kernelBundle)
+                const T_KernelBundle & kernelBundle)
     {
-        std::cout<<"in Tune"<<std::endl;
-        std::vector<T_tuneables> tuneables=extractTuneables(kernelBundle.m_args);
-        std::cout<<"in Tune 2"<<std::endl;
-        auto key = alpaka::core::demangledName<T_KernelBundle>(kernelBundle);
-        std::cout<<"kernel Name "<<alpaka::core::demangledName<T_KernelBundle>(kernelBundle)<<std::endl;
-        std::cout<<"in Tune 3"<<std::endl;
-        auto kernel=getKernelFromHistory(kernelBundle,device,executor);
-        if(kernel==std::nullopt)
-        {
-            std::cout<<"zero"<<std::endl;
-        }
 
-        std::cout<<"in Tune 4"<<std::endl;
+        std::vector<T_tuneables> tuneables=extractTuneables(kernelBundle.m_args);
+        auto key = alpaka::core::demangledName<T_KernelBundle>(kernelBundle);
+        auto kernel=getKernelFromHistory(kernelBundle,device,executor);
+
         KernelData actualKernel;
-        std::cout<<"in Tune 5"<<std::endl;
         if(kernel==std::nullopt)
         {
-            std::cout<<"in Tune 5.5"<<std::endl;
             actualKernel=createKernelData(kernelBundle,device,executor);
-            std::cout<<"in Tune 6.5"<<std::endl;
             tuningHistory[actualKernel.toHash()]=actualKernel;
         }
         else
         {
             actualKernel=*kernel;
         }
-        std::cout<<"in Tune 7"<<std::endl;
-        auto kernelRunPtr=activeKernels[key];
         for(auto& kernels : activeKernels)
         {
             std::cout<<kernels.first<<std::endl;
             std::cout<<kernels.second<<std::endl;
         }
-        std::cout<<key<<std::endl;
-        std::cout<<kernelRunPtr<<std::endl;
-        std::cout<<"in Tune 8"<<std::endl;
-        kernelRunPtr->tuneables=tuneables;
-        std::cout<<"in Tune 9"<<std::endl;
         T_NumBlocks numblocks=dataBlocking.getThreadSpec().m_numBlocks;
         T_NumThreads numthreads=dataBlocking.getThreadSpec().m_numThreads;
-        std::cout<<"in Tune 10"<<std::endl;
-        strategy(kernelRunPtr->gridSize,kernelRunPtr->threadBlockSize,kernelRunPtr->tuneables,actualKernel.runs,device,executor);//execute strategy
-        std::cout<<"in Tune 11"<<std::endl;
+        if(!activeKernels.contains(key))
+        {
+            return alpaka::onHost::ThreadSpec{numblocks, numthreads};
+        }
+        auto kernelRunPtr=activeKernels[key];
+        kernelRunPtr->tuneables=tuneables;
+
         if (kernelRunPtr->gridSize!=std::nullopt){
             numblocks=static_cast<T_NumBlocks>(kernelRunPtr->gridSize->value);
         }
         if(kernelRunPtr->threadBlockSize!=std::nullopt){
             numthreads=static_cast<T_NumBlocks>(kernelRunPtr->threadBlockSize->value);
         }
-        std::cout<<"in Tune 2"<<std::endl;
+        strategy(kernelRunPtr->gridSize,kernelRunPtr->threadBlockSize,kernelRunPtr->tuneables,actualKernel.runs,device,executor);//execute strategy
         updateArgsWithValues(kernelBundle,kernelRunPtr->tuneables);
         tuningHistory[actualKernel.toHash()].runs.push_back(kernelRunPtr); //TODO implement logic so that same Parameter Kernel is not Run twice
         return alpaka::onHost::ThreadSpec{numblocks, numthreads};
