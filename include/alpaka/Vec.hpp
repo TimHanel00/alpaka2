@@ -781,7 +781,6 @@ namespace alpaka
 
     template<typename T>
     constexpr bool isCVector_v = IsCVector<T>::value;
-
     namespace concepts
     {
         template<typename T>

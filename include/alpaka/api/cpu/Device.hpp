@@ -18,11 +18,9 @@
 #include "alpaka/onHost/mem/Data.hpp"
 #include "alpaka/onHost/mem/View.hpp"
 #include "alpaka/onHost/trait.hpp"
-
 #include <cstdint>
 #include <memory>
 #include <sstream>
-
 namespace alpaka::onHost
 {
     namespace cpu
@@ -105,6 +103,7 @@ namespace alpaka::onHost
     namespace trait
 
     {
+
         template<typename T_Platform>
         struct IsMappingSupportedBy::Op<exec::CpuSerial, cpu::Device<T_Platform>> : std::true_type
         {
@@ -223,9 +222,8 @@ namespace alpaka::onHost
             typename T_NumBlocks,
             typename T_NumThreads,
             typename T_KernelBundle>
-        requires exec::traits::isSeqExecutor_v<T_Mapping>
         struct AdjustThreadSpec::
-            Op<cpu::Device<T_Platform>, T_Mapping, FrameSpec<T_NumBlocks, T_NumThreads>, T_KernelBundle>
+            Op<cpu::Device<T_Platform>, T_Mapping, FrameSpec<T_NumBlocks, T_NumThreads>, T_KernelBundle,!trait::useTuner_v>
         {
             auto operator()(
                 cpu::Device<T_Platform> const& device,
@@ -243,11 +241,8 @@ namespace alpaka::onHost
                 FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
                 T_KernelBundle const& kernelBundle) const
             {
-# ifdef ENABLE_AUTOTUNE
-                auto threadSpec=alpaka::tuneWithContext(device,executor,dataBlocking,kernelBundle);
-                std::cout<<threadSpec.m_numBlocks<<" "<<threadSpec.m_numThreads<<std::endl;
-                return threadSpec;
-#endif
+
+                std::cout<<" ICH CALLE WEITERHIN BULL"<<std::endl;
                 auto numThreadBlocks = dataBlocking.getThreadSpec().m_numBlocks;
 #if 0
                using IdxType = typename T_NumBlocks::type;
@@ -280,7 +275,8 @@ namespace alpaka::onHost
             cpu::Device<T_Platform>,
             exec::CpuOmpBlocksAndThreads,
             FrameSpec<T_NumBlocks, T_NumThreads>,
-            T_KernelBundle>
+            T_KernelBundle,
+        !trait::useTuner_v>
         {
             auto operator()(
                 cpu::Device<T_Platform> const& device,

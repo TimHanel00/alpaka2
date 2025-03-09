@@ -89,9 +89,8 @@ auto example(T_Cfg const& cfg) -> int
     onHost::Platform platformHost = onHost::makePlatform(api::cpu);
     onHost::Device devHost = platformHost.makeDevice(0);
     //specify nr of run12
-
-    std::size_t nr_of_Runs=12;
-    std::vector<std::size_t> data={64};
+    std::size_t nr_of_Runs=1;
+    std::vector<std::size_t> data={16777216};
     //std::vector<std::size_t> data={65536};
 
     for(auto i=1;i<nr_of_Runs;i++)

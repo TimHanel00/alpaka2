@@ -82,7 +82,10 @@ include("${_alpaka_ROOT_DIR}/cmake/addLibrary.cmake")
 
 # check for CUDA/HIP language support
 include(CheckLanguage)
-add_library(alpaka INTERFACE)
+add_library(alpaka INTERFACE
+        include/alpaka/tune/tupleHandle.h
+        include/alpaka/tune/tunerCpu.hpp
+        include/alpaka/tune/tunerGpu.hpp)
 target_include_directories(${PROJECT_NAME} INTERFACE $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_20)
 
