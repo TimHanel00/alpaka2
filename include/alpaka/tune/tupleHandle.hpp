@@ -24,47 +24,85 @@ void processArgs(std::vector<std::string>& specifierStrings, const std::string& 
     specifierStrings.push_back(str);
     processArgs(specifierStrings, rest...);
 }
-// 1) Primary template
-template<typename X>
+template<typename>
 struct is_tuneable : std::false_type {};
 
-// 2) Partial specialization for any instantiation of alpaka::tune::Tuneable<...>
 template<typename T, typename T_End, typename T_Begin, typename T_Stride>
-struct is_tuneable< alpaka::tune::Tuneable<T, T_End, T_Begin, T_Stride> >
-    : std::true_type {};
+struct is_tuneable<alpaka::tune::Tuneable<T, T_End, T_Begin, T_Stride>> : std::true_type {};
 
-// 3) The variable template convenience alias
-template<typename X>
-constexpr bool is_tuneable_v = is_tuneable<X>::value;
-template<typename Arg,typename T>
-void addIfTuneable(
-    Arg& arg,
-    std::vector<std::shared_ptr<alpaka::tune::Tuneable<T>>>& result)
+template<typename T>
+constexpr bool is_tuneable_v = is_tuneable<T>::value;
+
+template<typename>
+struct tuneable_underlying {};
+
+template<typename T, typename T_End, typename T_Begin, typename T_Stride>
+struct tuneable_underlying<alpaka::tune::Tuneable<T, T_End, T_Begin, T_Stride>> {
+    using type = T;
+};
+// Helper: transform a tuple by applying a callable that receives an index and the element.
+template <typename Tuple, typename F, std::size_t... Is>
+auto tuple_transform_with_index(Tuple&& tup, F f, std::index_sequence<Is...>)
 {
-    if constexpr (is_tuneable_v<Arg>) {
-        // Create a shared_ptr that does NOT own 'arg'
-        // We supply a no-op deleter to avoid double-free
-        auto ptr = std::shared_ptr<Arg>(&arg, [](Arg*){ /* no-op */ });
-        result.push_back(ptr);
-    }
+    return std::make_tuple(f(std::integral_constant<std::size_t, Is>{}, std::get<Is>(std::forward<Tuple>(tup)))...);
 }
 
-template<typename T,typename TKernelFn, typename... TArgs>
-auto extractTuneables(const alpaka::KernelBundle<TKernelFn, TArgs...>& kb)
-    -> std::vector<std::shared_ptr<alpaka::tune::Tuneable<T>>>
+template<typename T, typename TKernelFn, typename... TArgs>
+auto recreate(const alpaka::KernelBundle<TKernelFn, TArgs...>& kb,
+              const std::vector<alpaka::tune::Tuneable<T>>& newTuneables)
 {
-    std::vector<std::shared_ptr<alpaka::tune::Tuneable<T>>> result;
-
-    // Access the underlying tuple
-    auto& argsTuple = kb.m_args;
-
-    // For each element in 'argsTuple', check if it's a tuneable.
-    std::apply(
-        [&](auto&... elems) {
-            (addIfTuneable(elems, result), ...);
+    size_t tune_idx = 0;
+    auto new_args = tuple_transform_with_index(kb.m_args,
+        [&]<typename I, typename Elem>(I /*index*/, const Elem& elem) -> auto {
+            using ElemType = std::decay_t<Elem>;
+            if constexpr (is_tuneable_v<ElemType>) {
+                // Replace the tuneable with its 'value' (assume order matches).
+                return newTuneables[tune_idx++].value;
+            } else {
+                return elem;
+            }
         },
-        argsTuple
-    );
-    return result;
+        std::make_index_sequence<sizeof...(TArgs)>{});
+
+    // Reconstruct a new KernelBundle from the same kernel function and the new tuple.
+    // We use std::move on the elements to ensure they bind to the rvalue reference parameters.
+    return std::apply(
+        [&]<typename... U>(U&&... elems) {
+            return alpaka::KernelBundle<TKernelFn, std::decay_t<U>...>(
+                kb.m_kernelFn, std::move(elems)...);
+        },
+        new_args);
+}
+
+// 1) Primary template
+
+
+
+template<typename T, typename TKernelFn, typename... TArgs, std::size_t... Is>
+void extractTuneables_impl(
+    const alpaka::KernelBundle<TKernelFn, TArgs...>& kb,
+    std::vector<alpaka::tune::Tuneable<T>>& vec,
+    std::index_sequence<Is...>)
+{
+    (void)std::initializer_list<int>{
+        ( [&]() -> int {
+             using ElemType = std::decay_t<std::tuple_element_t<Is, typename alpaka::KernelBundle<TKernelFn, TArgs...>::ArgTuple>>;
+             if constexpr (is_tuneable_v<ElemType>) {
+                 using Underlying = typename tuneable_underlying<ElemType>::type;
+                 static_assert(std::is_same_v<Underlying, T>,
+                               "Inconsistent tuneable underlying type encountered!");
+                 vec.push_back(std::get<Is>(kb.m_args));
+             }
+             return 0;
+         }() )...
+    };
+}
+
+template<typename T, typename TKernelFn, typename... TArgs>
+std::vector<alpaka::tune::Tuneable<T>> extractTuneables(const alpaka::KernelBundle<TKernelFn, TArgs...>& kb)
+{
+    std::vector<alpaka::tune::Tuneable<T>> vec;
+    extractTuneables_impl(kb, vec, std::make_index_sequence<sizeof...(TArgs)>{});
+    return vec;
 }
 #endif //TUPLEHANDLE_H

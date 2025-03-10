@@ -49,7 +49,7 @@ namespace alpaka::onHost
             {
                 return m_idx != other.m_idx;
             }
-
+            DeviceProperties m_properties;
         private:
             void _()
             {
@@ -58,7 +58,7 @@ namespace alpaka::onHost
 
             Handle<T_Platform> m_platform;
             uint32_t m_idx = 0u;
-            DeviceProperties m_properties;
+
             std::vector<std::weak_ptr<cpu::Queue<Device>>> queues;
             std::mutex queuesGuard;
 

@@ -5,7 +5,6 @@
 #pragma once
 
 #include "alpaka/core/config.hpp"
-
 #if ALPAKA_LANG_CUDA || ALPAKA_LANG_HIP
 #    include "alpaka/api/unifiedCudaHip/Queue.hpp"
 #    include "alpaka/core/UniformCudaHip.hpp"

@@ -9,15 +9,12 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include <unordered_map>
+#include <utility>
 namespace alpaka::tune
 {
 
-// Placeholder for IdxRange
 
-    // Interface for tunable objects
     inline std::size_t globalId=0;
-    // Generic Tuneable class template
     template <typename T = std::size_t,
               typename T_End = alpaka::Vec<T,1u>,
               typename T_Begin = alpaka::Vec<T,1u>,
@@ -28,7 +25,6 @@ namespace alpaka::tune
         bool userDef;
         IdxRange<T_Begin, T_End, T_Stride> idxRange;
 
-        // Helper function to provide a default IdxRange
         static IdxRange<T_Begin, T_End, T_Stride> defaultIdxRange(T value) {
             return IdxRange<T_Begin, T_End, T_Stride>{T_Begin{0}, T_End{value}, T_Stride{1}};
         }
@@ -58,29 +54,29 @@ namespace alpaka::tune
         }
 
         // Constructor with idxRange and custom name
-        explicit Tuneable(const std::string& name,IdxRange<T_Begin, T_End, T_Stride> idxRange)
-            : name(name),
+        explicit Tuneable(std::string  name,IdxRange<T_Begin, T_End, T_Stride> idxRange)
+            : name(std::move(name)),
               userDef(true),
               idxRange(std::move(idxRange)) {
             value = (this->idxRange.m_end().product() - this->idxRange.m_begin().product()) / T(2);
         }
 
         // Constructor with value and custom name
-        explicit Tuneable(T value, const std::string& name)
+        explicit Tuneable(T value, std::string  name)
             : value(value),
-              name(name),
+              name(std::move(name)),
               userDef(false),
               idxRange(defaultIdxRange(value)) {}
 
         // Constructor with value, custom name, and idxRange
-        explicit Tuneable(T value, const std::string& name, IdxRange<T_Begin, T_End, T_Stride> idxRange)
+        explicit Tuneable(T value, std::string  name, IdxRange<T_Begin, T_End, T_Stride> idxRange)
             : value(value),
-              name(name),
+              name(std::move(name)),
               userDef(true),
               idxRange(std::move(idxRange)) {}
 
         // Getter for name
-        std::string getName() const { return name; }
+        [[nodiscard]] std::string getName() const { return name; }
         bool operator==(const Tuneable& other) const {
             return value == other.value &&
                    name == other.name;
@@ -99,14 +95,20 @@ namespace alpaka::tune
     struct GridSizeTune : Tuneable<T> {
         T gridSize;
         explicit GridSizeTune()
-            : gridSize(T(64)),Tuneable<T>(T(64), "gridSize"){}
+            : Tuneable<T>(T(64), "gridSize"), gridSize(T(64))
+        {}
         explicit GridSizeTune(T initial_value)
-            : gridSize(initial_value),Tuneable<T>(initial_value, "gridSize"){}
+            : Tuneable<T>(initial_value, "gridSize"), gridSize(initial_value)
+        {}
         explicit GridSizeTune(IdxRange<T_Begin, T_End, T_Stride> idxRange)
-            : gridSize(T(64)),Tuneable<T>(T(64), "gridSize", idxRange){}
+            : Tuneable<T>(T(64), "gridSize", idxRange)
+            , gridSize(T(64))
+        {}
         explicit GridSizeTune(T initial_value,
                               IdxRange<T_Begin, T_End, T_Stride> idxRange)
-            : gridSize(initial_value),Tuneable<T>(initial_value, "gridSize", idxRange){}
+            : Tuneable<T>(initial_value, "gridSize", idxRange)
+            , gridSize(initial_value)
+        {}
         void setGrid(const IdxRange<T_Begin, T_End, T_Stride> &idxRange)
         {
             this->idxRange=std::optional<IdxRange<T_Begin, T_End, T_Stride>>(idxRange);
@@ -119,13 +121,20 @@ namespace alpaka::tune
     struct ThreadBlockSizeTune : Tuneable<T> {
         T blockThreadSize;
         explicit ThreadBlockSizeTune()
-            : blockThreadSize(T(256)),Tuneable<T>(T(256), "gridSize"){}
+            : Tuneable<T>(T(256), "gridSize"), blockThreadSize(T(256))
+        {}
         explicit ThreadBlockSizeTune(T initial_value,IdxRange<T_Begin, T_End, T_Stride> idxRange)
-            : blockThreadSize(initial_value),Tuneable<T>(initial_value, "blockThreadSize", idxRange){}
+            : Tuneable<T>(initial_value, "blockThreadSize", idxRange)
+            , blockThreadSize(initial_value)
+        {}
         explicit ThreadBlockSizeTune(IdxRange<T_Begin, T_End, T_Stride> idxRange)
-            : blockThreadSize(T(256)),Tuneable<T>(T(256), "blockThreadSize", idxRange){}
+            : Tuneable<T>(T(256), "blockThreadSize", idxRange)
+            , blockThreadSize(T(256))
+        {}
         explicit ThreadBlockSizeTune(T initial_value)
-            : blockThreadSize(initial_value),Tuneable<T>(initial_value, "blockThreadSize"){}
+            : Tuneable<T>(initial_value, "blockThreadSize")
+            , blockThreadSize(initial_value)
+        {}
         void setBlock(const IdxRange<T_Begin, T_End, T_Stride> &idxRange)
         {
             this->idxRange=std::optional<IdxRange<T_Begin, T_End, T_Stride>>(idxRange);

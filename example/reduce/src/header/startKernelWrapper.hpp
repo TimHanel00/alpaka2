@@ -84,22 +84,28 @@ template<std::size_t numLoads=4,std::size_t stride=4,typename operationType,type
     Reduce<IdxType{1},IdxType{1},T> kernel2{static_cast<uint32_t>(frameExtentTmp.x()*sizeof(T))};
         //with the data transfers to device completed we can now instantiate our Kernel Bundles (i.e. specify parameters for the Kernel function)
     //auto tune=alpaka::tune::Tuneable<std::size_t>(5);
+    Tuner<std::size_t,float_t,DevAcc,Exec> tuner(devAcc,exec);
+
+    tuner.setDynamicRuns(10);
     auto taskKernel
         = KernelBundle{kernel1,type,bufAccA.getMdSpan(),destBuf.getMdSpan(),IdxVec{0},VecFirstExtent,alpaka::tune::Tuneable<std::size_t>(2)};//this causes errors.
         auto const taskKernelLeftOver
             = KernelBundle{kernel2, type,bufAccA.getMdSpan(),destBuf.getMdSpan(),VecFirstExtent.x(),bufHost.getExtents(),alpaka::tune::Tuneable<std::size_t>(2)};
-        auto& tuner=Tuner<std::size_t, double_t, tune::strategy::bestRecorded>::getInstance();
         onHost::wait(queue);
-
+        auto session=tuner.createTuningSession(taskKernel,firstKernelFrame,alpaka::tune::strategy::randomSearch{});
+        session.withGridSizeTune(tune::GridSizeTune{}).withBlockSizeTune(tune::ThreadBlockSizeTune{}).withRunSpecifiers(bufHost.getExtents().product());
+    //auto session=tuner.createTuningSession(taskKernel,firstKernelFrame,alpaka::tune::strategy::randomSearch{})->
+            //withGridSizeTune(tune::GridSizeTune<std::size_t>{}).
+            //withBlockSizeTune(tune::ThreadBlockSizeTune<std::size_t>{}).
+            //withRunSpecifiers(bufHost.getExtents().product());
+        auto results =session.invoke();//performs tuning step
+        auto newKernelBundle=results.m_kernelBundle;
+        auto newFrameSpec=results.m_frameSpec;
         auto const beginT = std::chrono::high_resolution_clock::now();
         {
-            auto event=tuner.createTimeEvent(taskKernel);
-        std::cout<<" after create event "<<std::endl;
-            tuner.setRunSpecifiers(taskKernel,bufHost.getExtents().product());//ensures that runs are grouped according to the buffer extent
-            tuner.setGridSizeTuning(taskKernel, alpaka::tune::GridSizeTune{});
-            tuner.setThreadBlockTuning(taskKernel,alpaka::tune::ThreadBlockSizeTune{IdxType(64),IdxRange{IdxVec{16},IdxVec{256},IdxVec{16}}});
+            auto event=session.createTimeEvent();//creates a tuning event for the current kernel call will in unique circumstance be used
             //enqueue both Kernels queue ensures sequential execution
-            onHost::enqueue(queue, exec, firstKernelFrame, taskKernel);
+            onHost::enqueue(queue, exec, newFrameSpec, newKernelBundle);
             onHost::wait(queue);
         }
         auto const endT = std::chrono::high_resolution_clock::now();
