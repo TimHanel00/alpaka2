@@ -242,7 +242,6 @@ namespace alpaka::onHost
                 T_KernelBundle const& kernelBundle) const
             {
 
-                std::cout<<" ICH CALLE WEITERHIN BULL"<<std::endl;
                 auto numThreadBlocks = dataBlocking.getThreadSpec().m_numBlocks;
 #if 0
                using IdxType = typename T_NumBlocks::type;

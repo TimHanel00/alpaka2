@@ -12,20 +12,6 @@
 #include "alpaka/onHost/Handle.hpp"
 namespace alpaka::onHost
 {
-    namespace trait
-    {
-# ifdef ENABLE_AUTOTUNE
-        struct useTuner : std::true_type
-        {
-        };
-#else
-        struct useTuner : std::false_type
-        {
-        };
-
-#endif
-        inline constexpr bool useTuner_v = useTuner::value;
-    }
     namespace internal
     {
         struct MakePlatform
@@ -157,7 +143,7 @@ namespace alpaka::onHost
         }
         struct AdjustThreadSpec
         {
-            template<typename T_Device, typename T_Mapping, typename T_FrameSpec, typename T_KernelBundle,bool T_UseTuner = trait::useTuner_v>
+            template<typename T_Device, typename T_Mapping, typename T_FrameSpec, typename T_KernelBundle>
             struct Op
             {
                 auto operator()(

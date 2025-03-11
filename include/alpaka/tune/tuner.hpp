@@ -12,7 +12,7 @@
 #include <variant>
 #ifdef ENABLE_AUTOTUNE
 
-#include "tupleHandle.hpp"
+#include <alpaka/tune/tupleHandle.hpp>
 
 #include <alpaka/tune/strategy.hpp>
 
@@ -24,25 +24,13 @@
 #include "../../../tomlplusplus/include/toml++/toml.h"
 namespace alpaka
 {
-
-template<typename T_map,typename T_key>
-auto &getKeySafe(const T_map & map,T_key & key)
-{
-    if(map.find(key)==map.end())
-    {
-        std::cout<<" active Kernel could not be found, make sure you specified a time or performance Event for the Tuner"<<std::endl;
-        throw std::runtime_error("key not found");
-    }
-    return map.at(key);
-}
-
     //storage container used for history and tuningSession
-    template<typename T_integer,typename T_floating>
-    struct KernelRun
+template<typename T_integer,typename T_floating>
+struct KernelRun
 {
-    std::vector<alpaka::tune::Tuneable<T_integer>> tuneables;
-    std::optional<alpaka::tune::GridSizeTune<T_integer>> gridSize{std::nullopt};
-    std::optional<alpaka::tune::ThreadBlockSizeTune<T_integer>> threadBlockSize{std::nullopt};
+    std::vector<tune::Tuneable<T_integer>> tuneables;
+    std::optional<tune::GridSizeTune<T_integer>> gridSize{std::nullopt};
+    std::optional<tune::ThreadBlockSizeTune<T_integer>> threadBlockSize{std::nullopt};
     T_floating metric;
     std::vector<std::string> runSpecifiers;
     std::string toHash()
@@ -76,8 +64,8 @@ auto &getKeySafe(const T_map & map,T_key & key)
         // Destructor: Stops the timer and records the duration
         ~TimeEvent()
         {
-            auto endTime = std::chrono::high_resolution_clock::now();
-            auto timeDuration = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime - startTime);
+            auto const endTime = std::chrono::high_resolution_clock::now();
+            auto const timeDuration = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime - startTime);
             kernelRun.metric=timeDuration.count();
         }
     };
@@ -151,16 +139,17 @@ static TimeEvent<KernelRun<T_Integer,T_floating>> createTimeEvent(KernelRun<T_In
         return TimeEvent(run);
     }
 #define MetricUndefined std::numeric_limits<float>::quiet_NaN()
-    template<typename T_Integer,typename T_floating,typename T_NumFrames,typename T_FrameExtent,typename T_Tuner,typename T_KernelBundle,typename T_Strategy>
+    template<typename T_Integer,typename T_Tuner,typename T_Strategy>
 struct TuningSession
 {
-    KernelRun<T_Integer,T_floating> kernelRun;
+        using T_floating = double_t;
+        KernelRun<T_Integer,T_floating> kernelRun;
         T_Tuner &tuner;
-        const alpaka::onHost::FrameSpec<T_NumFrames,T_FrameExtent> &frameSpec;
-        const T_KernelBundle &kernelBundle;
         T_Strategy strategy;
-    TuningSession(T_Tuner & tuner,const T_KernelBundle & bundle,const alpaka::onHost::FrameSpec<T_NumFrames,T_FrameExtent> & frameSpec,T_Strategy strategy): kernelRun(KernelRun<T_Integer, T_floating>{})
-        , tuner(tuner),frameSpec(frameSpec),kernelBundle(bundle),strategy(strategy)
+        T_Integer dynamicRuns;
+
+    TuningSession(T_Tuner & tuner,T_Strategy strategy): kernelRun(KernelRun<T_Integer, T_floating>{})
+        , tuner(tuner),strategy(strategy)
     {
             kernelRun.metric=MetricUndefined;
     }
@@ -173,7 +162,12 @@ struct TuningSession
         TuningSession& withRunSpecifiers(T_Specifiers... specifiers)
         {
             processArgs(kernelRun.runSpecifiers,specifiers...);
-            kernelRun.tuneables = extractTuneables<T_Integer>(kernelBundle);
+
+            return *this;
+        }
+        TuningSession& withGridSizeTune()
+        {
+            kernelRun.gridSize=std::move(alpaka::tune::GridSizeTune<T_Integer>{});
             return *this;
         }
         TuningSession& withGridSizeTune(tune::GridSizeTune<T_Integer> tune)
@@ -181,18 +175,30 @@ struct TuningSession
             kernelRun.gridSize=std::move(tune);
             return *this;
         }
+        TuningSession& withBlockSizeTune()
+        {
+            kernelRun.threadBlockSize=std::move(tune::ThreadBlockSizeTune<T_Integer>{});
+            return *this;
+        }
         TuningSession& withBlockSizeTune(tune::ThreadBlockSizeTune<T_Integer> tune)
         {
             kernelRun.threadBlockSize=std::move(tune);
             return *this;
         }
-        using KernelData=typename ALPAKA_TYPEOF(tuner)::KernelData;
-        auto invoke()
+        TuningSession& withDynamicRuns(std::size_t runs)
         {
-            alpaka::onHost::FrameSpec<T_NumFrames,T_FrameExtent> frameSpec=this->frameSpec;
-            alpaka::tune::applyCustomThreadSpec(kernelRun,frameSpec);
+            dynamicRuns=static_cast<T_Integer>(runs);
+            return *this;
+        }
+        using KernelData=typename ALPAKA_TYPEOF(tuner)::KernelData;
+        template<typename T_Queue,typename T_Exec,typename T_NumFrames,typename T_FrameExtent,typename T_KernelBundle>
+        auto invoke(T_Queue queue,T_Exec exec,const alpaka::onHost::FrameSpec<T_NumFrames,T_FrameExtent> &frameSpec,const T_KernelBundle &kernelBundle)
+        {
+            kernelRun.tuneables = extractTuneables<T_Integer>(kernelBundle);
+            alpaka::onHost::FrameSpec<T_NumFrames,T_FrameExtent> dyna_frameSpec=frameSpec;
+            alpaka::tune::applyCustomThreadSpec(kernelRun,dyna_frameSpec);
             //acts like a guard only valid configs are used for the device
-            alpaka::onHost::FrameSpec<T_NumFrames,T_FrameExtent> spec=tuner.adjustThreadSpec(frameSpec,kernelRun);
+            alpaka::onHost::FrameSpec<T_NumFrames,T_FrameExtent> spec=tuner.adjustThreadSpec(dyna_frameSpec,kernelRun);
             auto actualKernel=tuner.getKernelFromHistory(kernelRun,kernelBundle);
 
             bool initilized =true;
@@ -201,7 +207,7 @@ struct TuningSession
                 actualKernel = std::make_shared<KernelData>(tuner.createKernelData(kernelRun, kernelBundle));
                 if(tuner.numberOfRuns==0)
                 {   //no run of kernel recorded and no dynamic runs will be recorded
-                    return TuningResult{recreate<T_Integer>(kernelBundle,kernelRun.tuneables),frameSpec};
+                    return TuningResult{recreate<T_Integer>(kernelBundle,kernelRun.tuneables),dyna_frameSpec};
                 }
                 initilized=false;
             }
@@ -209,7 +215,7 @@ struct TuningSession
             {
 
                 //current user defined parameters havent been used yet
-                return TuningResult{recreate<T_Integer>(kernelBundle,kernelRun.tuneables),frameSpec};
+                return TuningResult{recreate<T_Integer>(kernelBundle,kernelRun.tuneables),dyna_frameSpec};
             }
             if(tuner.numberOfRuns>0)
             {
@@ -334,16 +340,14 @@ struct Tuner
     {
         T_integer index=0;
         std::vector<std::shared_ptr<tune::Tuneable<T_integer>>> sharedParams=makeSharedParameterInterface(run);
-        alpaka::onHost::Queue queue = device.makeQueue();
+        auto queue = device.makeQueue();
         while(index<numberOfRuns)
         {
-
             strategy(sharedParams,run,data->runs);
 
             alpaka::tune::applyCustomThreadSpec(run,spec);
             {
                 auto bundle = recreate<T_integer>(kernelBundle, run.tuneables);
-
                 auto event=createTimeEvent(run);
                 onHost::enqueue(queue, exec, spec, bundle);
                 onHost::wait(queue);
@@ -404,17 +408,24 @@ struct Tuner
         void loadConfig(const std::string& filename) {
         std::ifstream file(filename);
         if (!file) {
-            std::cout<<"could not find specified config :: continue with empty tuning history"<<std::endl;
+            std::cout << "[DEBUG] Could not find specified config (" << filename
+                      << ") :: continuing with empty tuning history" << std::endl;
             tuningHistory.clear();
             return;
-            //throw std::runtime_error("Failed to open file for reading: " + filename);
+            // throw std::runtime_error("Failed to open file for reading: " + filename);
         }
 
         toml::table config = toml::parse(file);
-        if(!loadMultiple)tuningHistory.clear();
+
+        if (!loadMultiple) {
+            std::cout << "[DEBUG] loadMultiple is false, clearing tuning history." << std::endl;
+            tuningHistory.clear();
+        }
 
         for (const auto& [key, value] : config) {
-            if (!value.is_table()) continue;
+            if (!value.is_table()) {
+                continue;
+            }
             const toml::table& kernelTable = *value.as_table();
 
             KernelData kernelData;
@@ -423,58 +434,54 @@ struct Tuner
             kernelData.kernel = kernelTable["kernel"].value_or("");
             kernelData.targetMetric = kernelTable["targetMetric"].value_or("");
 
-            if (kernelTable.contains("specifiers") && kernelTable["specifiers"].is_array())
-            {
-                for (const auto& specifier : *kernelTable["specifiers"].as_array())
-                {
+
+            if (kernelTable.contains("specifiers") && kernelTable["specifiers"].is_array()) {
+                for (const auto& specifier : *kernelTable["specifiers"].as_array()) {
                     std::string spec = specifier.value_or("");
                     kernelData.specifiers.emplace_back(spec);
                 }
             }
+
             if (kernelTable.contains("runs") && kernelTable["runs"].is_array()) {
+
                 for (const auto& runValue : *kernelTable["runs"].as_array()) {
-                    if (!runValue.is_table()) continue;
+                    if (!runValue.is_table()) {
+                        continue;
+                    }
 
                     const toml::table& runTable = *runValue.as_table();
-                    auto run = std::make_shared<KernelRun<T_integer,T_floating>>();
-                    run->metric = runTable["metric"].value_or(T_floating{});
-
+                    auto run = KernelRun<T_integer, T_floating>();
+                    run.metric = runTable["metric"].value_or(T_floating{});
 
                     if (runTable.contains("tuneables") && runTable["tuneables"].is_array()) {
                         for (const auto& tuneableVal : *runTable["tuneables"].as_array()) {
-                            // If it's stored as a table, handle that here
                             if (!tuneableVal.is_table()) {
-                                // skip or handle differently
                                 continue;
                             }
                             const toml::table& tuneableTable = *tuneableVal.as_table();
-
-                            // Expect exactly one key-value pair per table
                             for (auto&& [key, val] : tuneableTable) {
-                                std::string name = key.data();  // The tuneable name
-
+                                std::string name = key.data();
                                 T_integer value_tuneAble = val.value_or(T_integer{});
-
                                 if (name == "gridSize") {
-                                    run->gridSize = alpaka::tune::GridSizeTune<T_integer>(value_tuneAble);
+                                    run.gridSize = alpaka::tune::GridSizeTune<T_integer>(value_tuneAble);
                                 }
                                 else if (name == "blockThreadSize") {
-                                    run->threadBlockSize = alpaka::tune::ThreadBlockSizeTune<T_integer>(value_tuneAble);
+                                    run.threadBlockSize = alpaka::tune::ThreadBlockSizeTune<T_integer>(value_tuneAble);
                                 }
                                 else {
-                                    // Any other tuneable
-                                    run->tuneables.push_back(alpaka::tune::Tuneable<T_integer>(value_tuneAble, name));
+                                    run.tuneables.push_back(alpaka::tune::Tuneable<T_integer>(value_tuneAble, name));
                                 }
                             }
                         }
                     }
 
-                    std::string kernelKey=run->toHash();
-                    kernelData.runs[kernelKey]=run;
+                    std::string kernelKey = run.toHash();
+                    kernelData.runs[kernelKey] = std::move(run);
                 }
             }
 
-            tuningHistory[kernelData.toHash()] = kernelData;
+            std::string dataHash = kernelData.toHash();
+            tuningHistory[dataHash] = kernelData;
         }
     }
 
@@ -489,13 +496,14 @@ struct Tuner
             std::cout << "  - Executor: " << kernelData.executor << std::endl;
             std::cout << "  - Kernel: " << kernelData.kernel << std::endl;
             std::cout << "  - Target Metric: " << kernelData.targetMetric << std::endl;
-
+            std::cout << "Checking kernelData.specifiers size: " << kernelData.specifiers.size() << std::endl;
+#endif
             kernelTable.emplace("device", kernelData.device);
             kernelTable.emplace("executor", kernelData.executor);
             kernelTable.emplace("kernel", kernelData.kernel);
             kernelTable.emplace("targetMetric", kernelData.targetMetric);
-            std::cout << "Checking kernelData.specifiers size: " << kernelData.specifiers.size() << std::endl;
-#endif
+
+
 
 
             toml::array specifiers_array;
@@ -550,7 +558,8 @@ struct Tuner
 
                 runsArray.push_back(runTable);
             }
-
+            std::cout<<" written Runs for Kernel: "<<key.substr(0,20)<<std::endl;
+            std::cout<<runsArray.size()<<std::endl;
             kernelTable.emplace("runs", runsArray);
             config.emplace(key, kernelTable);
         }

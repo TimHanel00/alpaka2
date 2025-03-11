@@ -105,7 +105,8 @@ namespace alpaka::tune::strategy
             {
                 for(auto & parameter : tuningParameters)
                 {
-                    auto dim=decltype(parameter->idxRange)::dim();
+                    constexpr auto dim=static_cast<std::size_t>(1);
+                    //@TODO make this dynamic but ALPAKA_TYPE_OF(parameter->idxRange)::dim() did no get deduced correctly on GPU
                     using type=std::size_t;
                     auto initialValue=parameter->value;
                     for(auto i= static_cast<type>(0);i<dim; ++i)
@@ -126,6 +127,7 @@ namespace alpaka::tune::strategy
                         }
 
                     }
+
 
                 }
 
