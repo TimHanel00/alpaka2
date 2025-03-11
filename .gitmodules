@@ -1,3 +1,6 @@
 [submodule "tomlplusplus"]
 	path = tomlplusplus
 	url = https://github.com/marzer/tomlplusplus.git
+[submodule "toml11"]
+	path = toml11
+	url = https://github.com/ToruNiina/toml11.git
