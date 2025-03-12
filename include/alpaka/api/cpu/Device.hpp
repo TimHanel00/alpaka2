@@ -223,7 +223,7 @@ namespace alpaka::onHost
             typename T_NumThreads,
             typename T_KernelBundle>
         struct AdjustThreadSpec::
-            Op<cpu::Device<T_Platform>, T_Mapping, FrameSpec<T_NumBlocks, T_NumThreads>, T_KernelBundle,!trait::useTuner_v>
+            Op<cpu::Device<T_Platform>, T_Mapping, FrameSpec<T_NumBlocks, T_NumThreads>, T_KernelBundle>
         {
             auto operator()(
                 cpu::Device<T_Platform> const& device,
@@ -274,8 +274,7 @@ namespace alpaka::onHost
             cpu::Device<T_Platform>,
             exec::CpuOmpBlocksAndThreads,
             FrameSpec<T_NumBlocks, T_NumThreads>,
-            T_KernelBundle,
-        !trait::useTuner_v>
+            T_KernelBundle>
         {
             auto operator()(
                 cpu::Device<T_Platform> const& device,

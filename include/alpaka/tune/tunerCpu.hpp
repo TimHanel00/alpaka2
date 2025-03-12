@@ -14,11 +14,13 @@ namespace alpaka::tune{
     {
         template<typename T_Device, typename T_Exec, typename T_FrameSpec, typename T_KernelRun>
     struct Op {
-            auto operator()(T_Device &,
+            auto operator()(T_Device & device,
                             T_Exec const & exec,
                             T_FrameSpec const & dataBlocking,
                             T_KernelRun & kernelRun)
             {
+                std::cout<<" Device: "<<alpaka::core::demangledName<T_Device>(device)<<std::endl;
+                std::cout<<"Exec: "<<alpaka::core::demangledName<T_Exec>(exec)<<std::endl;
                 return dataBlocking.getThreadSpec();
             }
         };
@@ -30,13 +32,13 @@ namespace alpaka::tune{
         typename T_NumThreads,
         typename T_KernelRun>
         struct tunerAdjust::Op<
-        alpaka::onHost::Device<alpaka::onHost::cpu::Device<T_Platform>>,
+        alpaka::onHost::cpu::Device<T_Platform>,
         alpaka::exec::CpuSerial,
         alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads>,
         T_KernelRun>
     {
         auto operator()(
-            alpaka::onHost::Device<alpaka::onHost::cpu::Device<T_Platform>> & device,//@TODO fix this its a bug with that extra wrapped layer
+            alpaka::onHost::cpu::Device<T_Platform> & device,//@TODO fix this its a bug with that extra wrapped layer
             alpaka::exec::CpuSerial const& executor,
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
             T_KernelRun & kernelRun)
@@ -66,13 +68,13 @@ namespace alpaka::tune{
         typename T_NumThreads,
         typename T_KernelRun>
         struct tunerAdjust::Op<
-        alpaka::onHost::Device<alpaka::onHost::cpu::Device<T_Platform>>,
+        alpaka::onHost::cpu::Device<T_Platform>,
         T_Mapping,
         alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads>,
         T_KernelRun>
             {
         auto operator()(
-            alpaka::onHost::Device<alpaka::onHost::cpu::Device<T_Platform>> & device,//@TODO fix this its a bug with that extra wrapped layer
+            alpaka::onHost::cpu::Device<T_Platform> & device,//@TODO fix this its a bug with that extra wrapped layer
             T_Mapping const& executor,
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
             T_KernelRun & kernelRun)
@@ -98,13 +100,13 @@ namespace alpaka::tune{
         //ompBlocksAndThreads
         template<typename T_Platform, typename T_NumBlocks, typename T_NumThreads, typename T_KernelRun>
              struct tunerAdjust::Op<
-                 alpaka::onHost::Device<alpaka::onHost::cpu::Device<T_Platform>>,
+                 alpaka::onHost::cpu::Device<T_Platform>,
                  exec::CpuOmpBlocksAndThreads,
                  alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads>,
                  T_KernelRun>
         {
             auto operator()(
-            alpaka::onHost::Device<alpaka::onHost::cpu::Device<T_Platform>> & device,
+            alpaka::onHost::cpu::Device<T_Platform> & device,
             exec::CpuOmpBlocksAndThreads const& executor,
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
             T_KernelRun & kernelRun)
@@ -141,6 +143,7 @@ namespace alpaka::tune{
             ALPAKA_TYPEOF(executor),
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads>,
             T_KernelRun>{}(deviceHandle, executor, dataBlocking,run);
+
 
     }
 };

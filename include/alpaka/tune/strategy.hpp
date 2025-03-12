@@ -32,8 +32,6 @@ namespace alpaka::tune::strategy
             auto maxVal  = range.m_end[i];
             auto step    = range.m_stride[i];
 
-            // Calculate how many discrete steps we have.
-            // This assumes that (maxVal - minVal) is an exact multiple of step.
             auto numSteps = (maxVal - minVal) / step;
 
             // If there are no steps (or only one valid value), use minVal.
@@ -44,7 +42,7 @@ namespace alpaka::tune::strategy
             else
             {
                 // Choose a random step index between 0 and numSteps - 1.
-                std::uniform_int_distribution<decltype(minVal)> dis(0, numSteps - 1);
+                std::uniform_int_distribution<decltype(minVal)> dis(0, numSteps);
                 auto k = dis(gen);
                 // Set the i-th component as minVal + k * step.
                 result[i] = minVal + k * step;
@@ -63,10 +61,10 @@ namespace alpaka::tune::strategy
         auto maxVal  = range.m_end[i];
         auto step    = range.m_stride[i];
         result[i]=(result[i]+step);
-        if(value>maxVal)
+        if(result[i]<minVal||result[i]>maxVal)
         {
             valid=false;
-            return value;
+            return maxVal;
         }
 
         return T(result.product());
@@ -81,11 +79,11 @@ namespace alpaka::tune::strategy
         auto minVal  = range.m_begin[i];
         auto maxVal  = range.m_end[i];
         auto step    = range.m_stride[i];
-        result[i]=(result[i]+step);
-        if(value<minVal)
+        result[i]=(result[i]-step);
+        if(result[i]<minVal||result[i]>maxVal)
         {
             valid=false;
-            return value;
+            return minVal;
         }
 
         return T(result.product());
@@ -99,6 +97,7 @@ namespace alpaka::tune::strategy
             for(auto & parameter : tuningParameters)
             {
                 parameter->value=randomIdx(parameter->idxRange).x();
+                std::cout<<parameter->value<<std::endl;
                 index++;
             }
             if(history.contains(kernelRun.toHash()))
@@ -127,6 +126,7 @@ namespace alpaka::tune::strategy
                         }
 
                     }
+                    parameter->value=initialValue;
 
 
                 }
