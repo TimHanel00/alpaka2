@@ -30,6 +30,7 @@ template<std::size_t numLoads=4,std::size_t stride=4,typename operationType,type
     {
         throw std::runtime_error("Error: Can not reduce an empty Buffer!");
     }
+
     onHost::Queue queue = devAcc.makeQueue();
     //define destination Buffer Size
     IdxVec destinationExtent = IdxVec{1};
@@ -86,7 +87,7 @@ template<std::size_t numLoads=4,std::size_t stride=4,typename operationType,type
     //auto tune=alpaka::tune::Tuneable<std::size_t>(5);
 
     auto taskKernel= KernelBundle{kernel1,type,bufAccA.getMdSpan(),destBuf.getMdSpan(),IdxVec{0},VecFirstExtent,alpaka::tune::Tuneable<std::size_t>(2)};//this causes errors.
-    /*
+
     TuningSession session{tune::strategy::randomSearch{}};
     auto result=session.withBlockSizeTune(tune::ThreadBlockSizeTune{})
                     .withGridSizeTune(tune::GridSizeTune{})
@@ -96,7 +97,7 @@ template<std::size_t numLoads=4,std::size_t stride=4,typename operationType,type
                                     .enqueue(queue, exec,firstKernelFrame,taskKernel);
 
     auto newKernelBundle=result.m_kernelBundle;
-    auto newFrameSpec=result.m_frameSpec;*/
+    auto newFrameSpec=result.m_frameSpec;
     auto const taskKernelLeftOver= KernelBundle{kernel2, type,bufAccA.getMdSpan(),destBuf.getMdSpan(),VecFirstExtent.x(),bufHost.getExtents(),alpaka::tune::Tuneable<std::size_t>(2)};
     onHost::wait(queue);
 
@@ -104,7 +105,7 @@ template<std::size_t numLoads=4,std::size_t stride=4,typename operationType,type
     {
         //auto event=session.createTimeEvent();//creates a tuning event for the current kernel call will in unique circumstance be used
         //enqueue both Kernels queue ensures sequential execution
-        onHost::enqueue(queue, exec, firstKernelFrame, taskKernel);
+        onHost::enqueue(queue, exec, newFrameSpec, newKernelBundle);
         onHost::wait(queue);
     }
 

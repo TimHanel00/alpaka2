@@ -81,7 +81,7 @@ public:
     //! \param dataDomainExtent The number of elements.
     //! \param sharedMemExtents
     template<typename TAcc,typename operationType>
-    ALPAKA_FN_ACC auto operator()(TAcc const& acc, const operationType type,auto const dataBuf,auto destinationBuf,auto const start,auto const end,auto tuneable)-> void
+    ALPAKA_FN_ACC auto operator()(TAcc const& acc, const operationType type,auto const dataBuf,auto destinationBuf,auto const start,auto const end,auto tuneable)const-> void
     {
         using namespace alpaka;
         using namespace reduce;
