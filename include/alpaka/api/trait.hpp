@@ -39,7 +39,7 @@ namespace alpaka
             template<typename T_Type, typename T_Api>
             struct Op
             {
-                constexpr uint32_t operator()(T_Api const) const
+                consteval uint32_t operator()(T_Api const) const
                 {
                     static_assert(sizeof(T_Api) && false, "Missing definition of GetArchSimdWidth for API.");
                     return 1u;
@@ -67,7 +67,7 @@ namespace alpaka
             template<typename T_Api>
             struct Op
             {
-                constexpr uint32_t operator()(T_Api const) const
+                consteval uint32_t operator()(T_Api const) const
                 {
                     static_assert(sizeof(T_Api) && false, "GetCachelineSize for the current used API is not defined.");
                     return 42u;
@@ -82,7 +82,7 @@ namespace alpaka
      * @return number of elements that can be processed in parallel in a vector register
      */
     template<typename T_Type>
-    constexpr uint32_t getArchSimdWidth(auto const api)
+    consteval uint32_t getArchSimdWidth(auto const api)
     {
         return trait::GetArchSimdWidth::Op<T_Type, ALPAKA_TYPEOF(api)>{}(api);
     }
@@ -113,7 +113,7 @@ namespace alpaka
      *
      * @return cacheline size in bytes
      */
-    constexpr uint32_t getCachelineSize(auto const api)
+    consteval uint32_t getCachelineSize(auto const api)
     {
         return trait::GetCachelineSize::Op<ALPAKA_TYPEOF(api)>{}(api);
     }

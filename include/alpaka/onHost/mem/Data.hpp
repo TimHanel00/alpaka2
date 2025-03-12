@@ -59,8 +59,8 @@ namespace alpaka::onHost
         typename T_Type,
         alpaka::concepts::Vector T_Extents,
         alpaka::concepts::Vector T_Pitches,
-        alpaka::concepts::CVector T_MemAlignmentInByte = CVec<size_t, 0u>>
-    struct Data : std::enable_shared_from_this<Data<T_BaseHandle, T_Type, T_Extents, T_Pitches, T_MemAlignmentInByte>>
+        alpaka::concepts::Alignment T_MemAlignment = Alignment<>>
+    struct Data : std::enable_shared_from_this<Data<T_BaseHandle, T_Type, T_Extents, T_Pitches, T_MemAlignment>>
     {
     public:
         Data(
@@ -130,7 +130,7 @@ namespace alpaka::onHost
 
         static consteval auto getAlignment()
         {
-            return CVec < size_t, T_MemAlignmentInByte{}.x() == 0u ? alignof(type) : T_MemAlignmentInByte{}.x() > {};
+            return T_MemAlignment{};
         }
 
         friend struct alpaka::internal::GetApi;
@@ -147,8 +147,8 @@ namespace alpaka::internal
         typename T_Type,
         alpaka::concepts::Vector T_Extents,
         alpaka::concepts::Vector T_Pitches,
-        concepts::CVector T_MemAlignmentInByte>
-    struct GetApi::Op<onHost::Data<T_BaseHandle, T_Type, T_Extents, T_Pitches, T_MemAlignmentInByte>>
+        concepts::Alignment T_MemAlignmen>
+    struct GetApi::Op<onHost::Data<T_BaseHandle, T_Type, T_Extents, T_Pitches, T_MemAlignmen>>
     {
         inline constexpr auto operator()(auto&& data) const
         {

@@ -61,12 +61,12 @@ auto example(T_Cfg const& cfg) -> int
 
     // simulation defines
     // {Y, X}
-    constexpr IdxVec numNodes{1024, 1024};
+    constexpr IdxVec numNodes{64, 64};
     constexpr IdxVec haloSize{2, 2};
     constexpr IdxVec extent = numNodes + haloSize;
 
     constexpr uint32_t numTimeSteps = 4000;
-    constexpr double tMax = 0.0001;
+    constexpr double tMax = 0.1;
 
     // x, y in [0, 1], t in [0, tMax]
     constexpr double dx = 1.0 / static_cast<double>(extent[1] - 1);
@@ -160,9 +160,9 @@ auto example(T_Cfg const& cfg) -> int
 #ifdef PNGWRITER_ENABLED
         if((step - 1) % 100 == 0)
         {
-            alpaka::wait(computeQueue);
-            alpaka::memcpy(dumpQueue, uBufHost, uCurrBufAcc);
-            alpaka::wait(dumpQueue);
+            alpaka::onHost::wait(computeQueue);
+            alpaka::onHost::memcpy(dumpQueue, uBufHost, uCurrBufAcc);
+            alpaka::onHost::wait(dumpQueue);
             writeImage(step - 1, uBufHost.getMdSpan());
         }
 #endif

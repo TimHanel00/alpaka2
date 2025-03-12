@@ -11,6 +11,3 @@
 #include "alpaka/api/unifiedCudaHip/Queue.hpp"
 #include "alpaka/api/unifiedCudaHip/atomic.hpp"
 #include "alpaka/api/unifiedCudaHip/math.hpp"
-#ifdef ENABLE_AUTOTUNE
-#include "alpaka/tune/tunerGpu.hpp"
-#endif

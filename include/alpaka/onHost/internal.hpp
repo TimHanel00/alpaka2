@@ -10,6 +10,7 @@
 #include "alpaka/core/common.hpp"
 #include "alpaka/onHost/DeviceProperties.hpp"
 #include "alpaka/onHost/Handle.hpp"
+
 namespace alpaka::onHost
 {
     namespace internal
@@ -141,6 +142,7 @@ namespace alpaka::onHost
                 std::decay_t<decltype(blockCfg)>,
                 KernelBundle<TKernelFn, TArgs...>>{}(queue, executor, blockCfg, kernelBundle);
         }
+
         struct AdjustThreadSpec
         {
             template<typename T_Device, typename T_Mapping, typename T_FrameSpec, typename T_KernelBundle>

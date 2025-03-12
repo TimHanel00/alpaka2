@@ -96,18 +96,16 @@ struct CopyKernel
     //! \tparam TAcc The accelerator environment to be executed on.
     //! \tparam T The data type
     //! \param acc The accelerator to be executed on.
-    //! \param a Pointer for vector a
-    //! \param c Pointer for vector c
+    //! \param a MdSpan for vector a
+    //! \param c MdSpan for vector c
     template<typename TAcc>
     ALPAKA_FN_ACC void operator()(TAcc const& acc, auto const a, auto c, auto arraySize) const
     {
-        // for(auto [index] : onAcc::makeIdxMap(acc, onAcc::worker::threadsInGrid, IdxRange{arraySize}))
-        //     c[index] = a[index];
-        onAcc::forEach<64>(
+        auto simdGrid = onAcc::SimdForEach{onAcc::worker::threadsInGrid};
+        simdGrid.concurrent<64>(
             acc,
-            onAcc::worker::threadsInGrid,
             alpaka::Vec{arraySize},
-            [](auto const&, auto const& in, auto& out) constexpr { out = in.load(); },
+            [](auto const&, auto const in, auto out) constexpr { out = in.load(); },
             a,
             c);
     }
@@ -125,20 +123,16 @@ struct MultKernel
     template<typename TAcc>
     ALPAKA_FN_ACC void operator()(TAcc const& acc, auto b, auto const c, auto arraySize) const
     {
-        using T = typename ALPAKA_TYPEOF(b)::element_type;
+        using T = trait::GetValueType_t<ALPAKA_TYPEOF(b)>;
         T const scalar = static_cast<T>(scalarVal);
-#if 0
-        for(auto [i] : onAcc::makeIdxMap(acc, onAcc::worker::threadsInGrid, IdxRange{arraySize}))
-            b[i] = scalar * c[i];
-#else
-        onAcc::forEach<64>(
+
+        auto simdGrid = onAcc::SimdForEach{onAcc::worker::threadsInGrid};
+        simdGrid.concurrent<64>(
             acc,
-            onAcc::worker::threadsInGrid,
             alpaka::Vec{arraySize},
-            [&](auto const&, auto& out, auto& in) constexpr { out = scalar * in.load(); },
+            [&](auto const&, auto out, auto const& in) constexpr { out = scalar * in.load(); },
             b,
             c);
-#endif
     }
 };
 
@@ -155,19 +149,15 @@ struct AddKernel
     template<typename TAcc>
     ALPAKA_FN_ACC void operator()(TAcc const& acc, auto const a, auto const b, auto c, auto arraySize) const
     {
-#if 0
-        for(auto [i] : onAcc::makeIdxMap(acc, onAcc::worker::threadsInGrid, IdxRange{arraySize}))
-            c[i] = a[i] + b[i];
-#else
-        onAcc::forEach<64>(
+        auto simdGrid = onAcc::SimdForEach{onAcc::worker::threadsInGrid};
+        simdGrid.concurrent<64>(
             acc,
-            onAcc::worker::threadsInGrid,
             alpaka::Vec{arraySize},
-            [&](auto const&, auto& l_a, auto const& l_b, auto& l_c) constexpr { l_c = l_a.load() + l_b.load(); },
+            [&](auto const&, auto const& simdA, auto const& simdB, auto simdC) constexpr
+            { simdC = simdA.load() + simdB.load(); },
             a,
             b,
             c);
-#endif
     }
 };
 
@@ -184,21 +174,17 @@ struct TriadKernel
     template<typename TAcc>
     ALPAKA_FN_ACC void operator()(TAcc const& acc, auto a, auto const b, auto const c, auto arraySize) const
     {
-        using T = typename ALPAKA_TYPEOF(a)::element_type;
+        using T = trait::GetValueType_t<ALPAKA_TYPEOF(a)>;
         T const scalar = static_cast<T>(scalarVal);
-#if 0
-        for(auto [i] : onAcc::makeIdxMap(acc, onAcc::worker::threadsInGrid, IdxRange{arraySize}))
-            a[i] = b[i] + scalar * c[i];
-#else
-        onAcc::forEach<64>(
+
+        auto simdGrid = onAcc::SimdForEach{onAcc::worker::threadsInGrid};
+        simdGrid.concurrent<64>(
             acc,
-            onAcc::worker::threadsInGrid,
-            alpaka::Vec{arraySize},
-            [&](auto const&, auto&& l_a, auto&& l_b, auto&& l_c) constexpr { l_a = l_b.load() + scalar * l_c.load(); },
+            [&](auto const&, auto&& simdA, auto&& simdB, auto&& simdC) constexpr
+            { simdA = simdB.load() + scalar * simdC.load(); },
             a,
             b,
             c);
-#endif
     }
 };
 
@@ -229,7 +215,7 @@ struct DotKernel
     template<typename TAcc>
     ALPAKA_FN_ACC void operator()(TAcc const& acc, auto const a, auto const b, auto sum, auto arraySize) const
     {
-        using T = typename ALPAKA_TYPEOF(sum)::element_type;
+        using T = trait::GetValueType_t<ALPAKA_TYPEOF(sum)>;
         auto tbSum = onAcc::declareSharedMdArray<T, uniqueId()>(acc, CVec<uint32_t, blockThreadExtentMain>{});
 #if 1
         auto numFrames = acc[frame::count];
@@ -255,29 +241,17 @@ struct DotKernel
         {
             for(auto elemIdxInFrame : traverseInFrame)
             {
-#    if 0
-                for(auto [i] : onAcc::makeIdxMap(
-                        acc,
-                        onAcc::WorkerGroup{frameIdx + elemIdxInFrame, frameDataExtent},
-                        IdxRange{arraySize}))
-                {
-                    tbSum[elemIdxInFrame] += a[i] * b[i];
-                }
-#    else
-
-                onAcc::forEach<64>(
+                auto allThreads = onAcc::SimdForEach{onAcc::WorkerGroup{frameIdx + elemIdxInFrame, frameDataExtent}};
+                allThreads.template concurrent<64>(
                     acc,
-                    onAcc::WorkerGroup{frameIdx + elemIdxInFrame, frameDataExtent},
                     alpaka::Vec{arraySize},
-                    [&](auto const&, auto&& l_a, auto&& l_b, auto&& l_sum) constexpr
+                    [&](auto const&, auto&& simdA, auto&& simdB) constexpr
                     {
-                        auto simdSum = l_a.load() * l_b.load();
-                        tbSum[elemIdxInFrame] += simdSum.sum();
+                        auto tmp = simdA.load() * simdB.load();
+                        tbSum[elemIdxInFrame] += tmp.sum();
                     },
                     a,
-                    b,
-                    sum);
-#    endif
+                    b);
             }
         }
         // sync is required because we do not know which thread wrote whcih value
@@ -370,8 +344,18 @@ void testKernels(auto cfg)
     auto bufHostOutputB = onHost::allocMirror(devHost, bufAccInputB);
     auto bufHostOutputC = onHost::allocMirror(devHost, bufAccOutputC);
 
-    auto numBlocks = arraySize / (static_cast<Idx>(blockThreadExtentMain) * 64);
-    auto dataBlocking = onHost::FrameSpec{numBlocks, static_cast<Idx>(blockThreadExtentMain)};
+    /* Each frame will have 64 elements processed by each thread.
+     * The number of frames is calculated based on the array size and the number of elements processed by each thread.
+     *
+     * @todo The value is currently a magic number but should be derived from the SIMD width of the device and a factor
+     * to reflect the instruction level parallelism. This is currently not well abstracted in alpaka and requires that
+     * a kernel can reflect the concurrency bytes used for the `SimdForEach::concurrent()` back to the host, e.g. some
+     * as we use for dynamic shared memory.
+     */
+    constexpr uint32_t elementsPerFrameItem = 16u;
+
+    auto numFrames = core::divCeil(arraySize, static_cast<Idx>(blockThreadExtentMain) * elementsPerFrameItem);
+    auto dataBlocking = onHost::FrameSpec{numFrames, static_cast<Idx>(blockThreadExtentMain)};
 
     // To record runtime data generated while running the kernels
     RuntimeResults runtimeResults;

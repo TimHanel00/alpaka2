@@ -50,14 +50,14 @@ namespace alpaka::onHost
             {
                 return !(*this == other);
             }
-            Handle<T_Device> m_device;
+
         private:
             void _()
             {
                 static_assert(concepts::Queue<Queue>);
             }
 
-
+            Handle<T_Device> m_device;
             uint32_t m_idx = 0u;
             core::CallbackThread m_workerThread;
 

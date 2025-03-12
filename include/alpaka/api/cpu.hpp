@@ -9,6 +9,3 @@
 #include "alpaka/api/cpu/Platform.hpp"
 #include "alpaka/api/cpu/Queue.hpp"
 #include "alpaka/api/cpu/atomic.hpp"
-#ifdef ENABLE_AUTOTUNE
-#include "alpaka/tune/tunerCpu.hpp"
-#endif
