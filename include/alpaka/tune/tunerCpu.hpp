@@ -131,16 +131,16 @@ namespace alpaka::tune{
         };
     template<typename T_NumBlocks, typename T_NumThreads,typename T_KernelRun>
     static auto adjustThreadSpec(
-        auto & device,
+        auto & deviceHandle,
         auto const& executor,
         alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
         T_KernelRun &run)
     {
         return tunerAdjust::Op<
-            ALPAKA_TYPEOF(device),
+            ALPAKA_TYPEOF(deviceHandle),
             ALPAKA_TYPEOF(executor),
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads>,
-            T_KernelRun>{}(device, executor, dataBlocking,run);
+            T_KernelRun>{}(deviceHandle, executor, dataBlocking,run);
 
     }
 };

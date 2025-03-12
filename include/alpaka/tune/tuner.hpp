@@ -22,13 +22,7 @@
 #include <unordered_map>
 namespace alpaka
 {
-    template<typename T_Device,typename T_Exec,typename T_NumBlocks,typename T_NumThreads,typename T_KernelRun>
-    static alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> adjustThreadSpec(T_Device device,T_Exec exec,const alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> & frameSpec,T_KernelRun &run)
-    {
-        auto spec = alpaka::tune::adjustThreadSpec(device,exec,frameSpec,run);
-        return alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads>{T_NumBlocks(frameSpec.m_numFrames),
-                    T_NumThreads(frameSpec.m_frameExtent),T_NumBlocks(spec.m_numBlocks),T_NumThreads(spec.m_numThreads)};
-    }
+
 
     //storage container used for history and tuningSession
 template<typename T_integer,typename T_floating>
@@ -179,7 +173,7 @@ KernelData createKernelData(const std::string &exec,const std::string &device,co
         return data;
     };
     std::shared_ptr<KernelData> getKernelFromHistory(const std::string &exec,const std::string &device,
-                                                const auto &kernelRun,const std::string &bundle,
+                                                const std::string &bundle,const auto &kernelRun,
                                                  const std::string& targetMetric="time")
     {
         std::string lookUpHash = device +
@@ -221,10 +215,10 @@ KernelData createKernelData(const std::string &exec,const std::string &device,co
     std::unordered_map<std::uintptr_t,KernelData> kernelEvents;
     ~TuningHistory()
     {
-        storeConfig("./config/reduce.toml");
+        //storeConfig("./config/reduce.toml");
     }
     std::string filename;
-
+    /*
     template<bool loadMultiple = false>
 void loadConfig(const std::string& filename) {
     try {
@@ -411,6 +405,7 @@ void loadConfig(const std::string& filename) {
 
         file.close();
     }
+        */
     // Disallow copy and move operations
     TuningHistory(const TuningHistory&) = delete;
     TuningHistory& operator=(const TuningHistory&) = delete;
@@ -442,12 +437,14 @@ struct TuningSession
         TuningSession& operator=(const TuningSession&) = delete;
         TuningSession(TuningSession&&) noexcept = default;
         TuningSession& operator=(TuningSession&&) noexcept = default;*/
+
+        /*
         TuningSession& withConfig(const std::string &config)
         {
             processArgs(kernelRun.runSpecifiers);
             history.loadConfig(config);
             return *this;
-        }
+        }*/
         template<typename... T_Specifiers>
         TuningSession& withRunSpecifiers(T_Specifiers... specifiers)
         {
@@ -485,40 +482,56 @@ struct TuningSession
         {
             dynamicRuns_Nr=static_cast<T_Integer>(nrOfRuns);
         }
+        template<typename T_DeviceHandle,typename T_Exec,typename T_NumBlocks,typename T_NumThreads,typename T_KernelRun>
+        onHost::FrameSpec<T_NumBlocks, T_NumThreads> SessAdjustThreadSpec(T_DeviceHandle &device,T_Exec exec,const alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> & frameSpec,T_KernelRun &run)
+            {
+                auto spec = alpaka::tune::adjustThreadSpec(device,exec,frameSpec,run);
+                return alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads>{T_NumBlocks(frameSpec.m_numFrames),
+                            T_NumThreads(frameSpec.m_frameExtent),T_NumBlocks(spec.m_numBlocks),T_NumThreads(spec.m_numThreads)};
+            }
         using KernelData=typename ALPAKA_TYPEOF(history)::KernelData;
+        /** Enqueue and Execute a kernel for the tuning session will run @DynamicRuns times
+             * @param queue the kernel will be executed after all previous work in this queue is finished
+             * @param executor description how native worker threads will be mapped and grouped to compute grid layers (blocks,
+             * threads).
+             * @param specification thread or frame specification which provides a chunked description of the thread or frame
+             * index domain
+             * @param kernelBundle the compute kernel and there arguments
+         */
         template<typename T_Queue,typename T_Exec,typename T_NumFrames,typename T_FrameExtent,typename T_KernelBundle>
-        auto enqueue(const T_Queue &queue,T_Exec exec,const onHost::FrameSpec<T_NumFrames,T_FrameExtent> &frameSpec,const T_KernelBundle &kernelBundle)
+        auto enqueue(T_Queue &queue,T_Exec exec,const onHost::FrameSpec<T_NumFrames,T_FrameExtent> &frameSpec,const T_KernelBundle &kernelBundle)
         {
+            using Device=ALPAKA_TYPEOF(*queue->m_device);
             kernelName=typeid(T_KernelBundle).name();
             execName=alpaka::core::demangledName<T_Exec>(exec);
-            deviceName=alpaka::core::demangledName<ALPAKA_TYPEOF(*queue->m_device)>(*queue->m_device);
+            deviceName=alpaka::core::demangledName<Device>(*queue->m_device);
             kernelRun.tuneables = extractTuneables<T_Integer>(kernelBundle);
 
             alpaka::onHost::FrameSpec<T_NumFrames,T_FrameExtent> dyna_frameSpec=frameSpec;
             alpaka::tune::applyCustomThreadSpec(kernelRun,dyna_frameSpec);
             //acts like a guard only valid configs are used for the device
-            alpaka::onHost::FrameSpec<T_NumFrames,T_FrameExtent> spec=history.adjustThreadSpec(dyna_frameSpec,kernelRun);
+            alpaka::onHost::FrameSpec<T_NumFrames,T_FrameExtent> spec=SessAdjustThreadSpec(*queue->m_device,exec,dyna_frameSpec,kernelRun);
             auto actualKernel=history.getKernelFromHistory(deviceName,execName,kernelName,kernelRun);
 
             bool initilized =true;
             if(actualKernel==nullptr)
             {
                 actualKernel = std::make_shared<KernelData>(history.createKernelData(deviceName,execName,kernelName,kernelRun));
-                if(history.numberOfRuns==0)
+                if(dynamicRuns_Nr==0)
                 {   //no run of kernel recorded and no dynamic runs will be recorded
                     return TuningResult{recreate<T_Integer>(kernelBundle,kernelRun.tuneables),dyna_frameSpec};
                 }
                 initilized=false;
             }
-            if(history.numberOfRuns==0&&!actualKernel->runs.contains(kernelRun.toHash()))
+            if(dynamicRuns_Nr==0&&!actualKernel->runs.contains(kernelRun.toHash()))
             {
 
                 //current user defined parameters havent been used yet
                 return TuningResult{recreate<T_Integer>(kernelBundle,kernelRun.tuneables),dyna_frameSpec};
             }
-            if(history.numberOfRuns>0)
+            if(dynamicRuns_Nr>0)
             {
-                history.dynamicRuns(queue,exec,kernelBundle,kernelRun,actualKernel.get(),spec,strategy);
+                dynamicRuns(queue,exec,kernelBundle,kernelRun,actualKernel.get(),spec);
             }
             if(!initilized)
             {
@@ -549,7 +562,7 @@ struct TuningSession
                 alpaka::tune::applyCustomThreadSpec(run,spec);
                 {
                     auto bundle = recreate<T_Integer>(kernelBundle, run.tuneables);
-                    auto event=createTimeEvent(run);
+                    auto event=createTimeEvent();
                     onHost::enqueue(queue, exec, spec, bundle);
                     onHost::wait(queue);
                 }
