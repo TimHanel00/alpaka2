@@ -86,17 +86,17 @@ template<std::size_t numLoads=4,std::size_t stride=4,typename operationType,type
     //auto tune=alpaka::tune::Tuneable<std::size_t>(5);
 
     auto taskKernel= KernelBundle{kernel1,type,bufAccA.getMdSpan(),destBuf.getMdSpan(),IdxVec{0},VecFirstExtent,alpaka::tune::Tuneable<std::size_t>(2)};//this causes errors.
-
+    /*
     TuningSession session{tune::strategy::randomSearch{}};
-    session.withBlockSizeTune(tune::ThreadBlockSizeTune{})
+    auto result=session.withBlockSizeTune(tune::ThreadBlockSizeTune{})
                     .withGridSizeTune(tune::GridSizeTune{})
-                        .withRunSpecifiers(bufHost.getExtents().product()).withConfig("./config/reduce.toml")
-                            .withDynamicRuns(1);
+                        .withRunSpecifiers(bufHost.getExtents().product())
+                            .withConfig("./config/reduce.toml")
+                                .withDynamicRuns(1)
+                                    .enqueue(queue, exec,firstKernelFrame,taskKernel);
 
-    auto results=session.enqueue(queue, exec,firstKernelFrame,taskKernel);
-
-    auto newKernelBundle=results.m_kernelBundle;
-    auto newFrameSpec=results.m_frameSpec;
+    auto newKernelBundle=result.m_kernelBundle;
+    auto newFrameSpec=result.m_frameSpec;*/
     auto const taskKernelLeftOver= KernelBundle{kernel2, type,bufAccA.getMdSpan(),destBuf.getMdSpan(),VecFirstExtent.x(),bufHost.getExtents(),alpaka::tune::Tuneable<std::size_t>(2)};
     onHost::wait(queue);
 
@@ -104,7 +104,7 @@ template<std::size_t numLoads=4,std::size_t stride=4,typename operationType,type
     {
         //auto event=session.createTimeEvent();//creates a tuning event for the current kernel call will in unique circumstance be used
         //enqueue both Kernels queue ensures sequential execution
-        onHost::enqueue(queue, exec, newFrameSpec, newKernelBundle);
+        onHost::enqueue(queue, exec, firstKernelFrame, taskKernel);
         onHost::wait(queue);
     }
 

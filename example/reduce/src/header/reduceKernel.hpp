@@ -115,10 +115,11 @@ public:
         {
             for(auto elemIdxInFrame : traverseInFrame)
             {
-                auto innerWorkgroup=onAcc::WorkerGroup{frameIdx*frameExtent + elemIdxInFrame, frameDomainExtent};
-                onAcc::forEach<64>(
+                auto allThreads = onAcc::SimdForEach{
+                    onAcc::WorkerGroup{frameIdx*frameExtent + elemIdxInFrame, frameDomainExtent}
+                };
+                allThreads.template concurrent<64>(
                     acc,
-                    innerWorkgroup,
                     IdxVec{dataDomainExtent},
                     [&](auto const&, auto&& l_a) constexpr
                     {
