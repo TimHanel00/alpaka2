@@ -9,6 +9,19 @@
 #include "tuner.hpp"
 namespace alpaka::tune::strategy
 {
+
+    template <typename Tuple, typename F, std::size_t... I>
+    void for_each_impl(Tuple&& tup, F&& f, std::index_sequence<I...>)
+    {
+        (f(std::get<I>(std::forward<Tuple>(tup))), ...);
+    }
+
+    template <typename Tuple, typename F>
+    void for_each(Tuple&& tup, F&& f)
+    {
+        constexpr std::size_t N = std::tuple_size_v<std::remove_reference_t<Tuple>>;
+        for_each_impl(std::forward<Tuple>(tup), std::forward<F>(f), std::make_index_sequence<N>{});
+    }
     template<typename T_Begin, typename T_End, typename T_Stride>
     T_Begin randomIdx(const IdxRange<T_Begin, T_End, T_Stride>& range)
     {
@@ -90,19 +103,19 @@ namespace alpaka::tune::strategy
     }
     struct randomSearch
     {
-        template<typename tuneables,typename T_KernelRun,typename KernelRun>
-        auto operator()(std::vector<std::shared_ptr<tuneables>> &tuningParameters,T_KernelRun &kernelRun,std::unordered_map<std::string,KernelRun> &history) const
+        template<typename T_tuneables,typename T_KernelRun,typename KernelRun>
+        auto operator()(T_tuneables &&tuneables,T_KernelRun &kernelRun,std::unordered_map<std::string,KernelRun> &history) const
         {
             int index=0;
-            for(auto & parameter : tuningParameters)
+            for_each(tuneables, [&index](auto& parameter)
             {
                 parameter->value=randomIdx(parameter->idxRange).x();
                 std::cout<<parameter->value<<std::endl;
                 index++;
-            }
+            });
             if(history.contains(kernelRun.toHash()))
             {
-                for(auto & parameter : tuningParameters)
+                for_each(tuneables, [&history,&kernelRun](auto& parameter)
                 {
                     constexpr auto dim=static_cast<std::size_t>(1);
                     //@TODO make this dynamic but ALPAKA_TYPE_OF(parameter->idxRange)::dim() did no get deduced correctly on GPU
@@ -129,23 +142,24 @@ namespace alpaka::tune::strategy
                     parameter->value=initialValue;
 
 
-                }
+                });
 
             }
         };
     };
     //@TODO move to different namespace
     struct bestRecorded{
-        template<typename T_KernelRun,typename KernelRun>
-        auto operator()(T_KernelRun &kernelRun,std::unordered_map<std::string,KernelRun> &history) const
+        template<typename KernelRun>
+        auto operator()(std::unordered_map<std::string,KernelRun> &history)
         {
-            kernelRun = history.begin()->second;
+            auto kernelRun = history.begin()->second;
 
             for (auto& run : history) {
                 if (run.second.metric < kernelRun.metric) {
                     kernelRun = run.second;  // Update selectedRun to the run with the smaller metric
                 }
             }
+            return kernelRun;
         }
     };
     struct initialValues{

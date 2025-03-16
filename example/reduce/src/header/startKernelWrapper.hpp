@@ -30,7 +30,7 @@ template<std::size_t numLoads=4,std::size_t stride=4,typename operationType,type
     {
         throw std::runtime_error("Error: Can not reduce an empty Buffer!");
     }
-
+    alpaka::Vec<std::size_t,5>();
     onHost::Queue queue = devAcc.makeQueue();
     //define destination Buffer Size
     IdxVec destinationExtent = IdxVec{1};
@@ -62,9 +62,6 @@ template<std::size_t numLoads=4,std::size_t stride=4,typename operationType,type
     auto firstKernelFrame = onHost::FrameSpec{numFrames,trueFrameExtent};
     //whats the most data we can cover (calculate the End of the Range) we can cover with the current frame Spec
     auto const VecFirstExtent=IdxVec{roundAlign(bufHost.getExtents(),numFrames*trueFrameExtent.product()*stride*numLoads).x()};
-    //std::cout<<"trueFrameExt: "<<trueFrameExtent<<std::endl;
-    //std::cout<<"firstExt: "<<VecFirstExtent.x()<<std::endl;
-    //the remaining Elements that are not covered by the aligned first Kernel
     auto const remElements=bufHost.getExtents()-VecFirstExtent;
     //since for the last Kernel we use a stride size of 1 and a number of loads = 1 we dont have to worry about alignment
     auto frameExtentTmp=trueFrameExtent;
@@ -87,13 +84,13 @@ template<std::size_t numLoads=4,std::size_t stride=4,typename operationType,type
     //auto tune=alpaka::tune::Tuneable<std::size_t>(5);
 
     auto taskKernel= KernelBundle{kernel1,type,bufAccA.getMdSpan(),destBuf.getMdSpan(),IdxVec{0},VecFirstExtent,alpaka::tune::Tuneable<std::size_t>(2)};//this causes errors.
-
+    //.registerCompileTime(Reduce<stride,numLoads,T>::dynSharedMemBytes);
     TuningSession session{tune::strategy::randomSearch{}};
     auto result=session.withBlockSizeTune(tune::ThreadBlockSizeTune{})
                     .withGridSizeTune(tune::GridSizeTune{})
                         .withRunSpecifiers(bufHost.getExtents().product())
                             .withConfig("./config/reduce.toml")
-                                .withDynamicRuns(1)
+                                .withDynamicRuns(10)
                                     .enqueue(queue, exec,firstKernelFrame,taskKernel);
 
     auto newKernelBundle=result.m_kernelBundle;

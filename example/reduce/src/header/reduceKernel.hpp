@@ -70,7 +70,6 @@ class Reduce
 {
 public:
     uint32_t dynSharedMemBytes = 256u*4u;
-
     //! The kernel entry point.
     //!
     //! \tparam TAcc The accelerator environment to be executed on.

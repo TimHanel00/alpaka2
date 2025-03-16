@@ -13,7 +13,7 @@
 #ifdef ENABLE_AUTOTUNE
 
 #include <alpaka/tune/tupleHandle.hpp>
-
+#include <alpaka/tune/storageTypes.hpp>
 #include <alpaka/tune/strategy.hpp>
 #include "../../../toml11/include/toml.hpp"
 #include <chrono>
@@ -24,32 +24,6 @@ namespace alpaka
 {
 
 
-    //storage container used for history and tuningSession
-template<typename T_integer,typename T_floating>
-struct KernelRun
-{
-    std::vector<tune::Tuneable<T_integer>> tuneables;
-    std::optional<tune::GridSizeTune<T_integer>> gridSize{std::nullopt};
-    std::optional<tune::ThreadBlockSizeTune<T_integer>> threadBlockSize{std::nullopt};
-    T_floating metric;
-    std::string toHash()
-    {
-        std::string m;
-        for(auto const &tuneable : tuneables)
-        {
-            m+=std::to_string(tuneable.value);
-        }
-        if(threadBlockSize!=std::nullopt)
-        {
-            m+=std::to_string(threadBlockSize->value);
-        }
-        if(gridSize!=std::nullopt)
-        {
-            m+=std::to_string(gridSize->value);
-        }
-        return m;
-    }
-};
     template<typename T_KernelRun>
         struct TimeEvent
     {
@@ -65,86 +39,80 @@ struct KernelRun
         {
             auto const endTime = std::chrono::high_resolution_clock::now();
             auto const timeDuration = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime - startTime);
-            kernelRun.metric=timeDuration.count();
+            kernelRun.metric=convertToT<ALPAKA_TYPEOF(kernelRun.metric)>(timeDuration.count());
         }
     };
-    template<typename T_KernelBundle,typename T_FrameSpec>
-    struct TuningResult
-    {
-        T_KernelBundle m_kernelBundle;
-        T_FrameSpec m_frameSpec;
-    };
+
     namespace tune
     {
 
         template<typename T_KernelRun,typename T_FrameSpec>
-    static T_FrameSpec& applyCustomThreadSpec(const T_KernelRun& kernelRun,T_FrameSpec& spec)
+    static T_FrameSpec& applyCustomThreadSpec(T_KernelRun& kernelRun,T_FrameSpec& spec)
         {
             if(kernelRun.gridSize!=std::nullopt)
             {
-                spec.m_threadSpec.m_numBlocks=kernelRun.gridSize->value;
+                auto val=kernelRun.gridSize->value;
+                spec.m_threadSpec.m_numBlocks = ALPAKA_TYPEOF(spec.m_threadSpec.m_numBlocks)(val);
+
             }
             if(kernelRun.threadBlockSize!=std::nullopt)
             {
-                spec.m_threadSpec.m_numThreads=kernelRun.threadBlockSize->value;
+                auto val=kernelRun.threadBlockSize->value;
+                spec.m_threadSpec.m_numThreads = ALPAKA_TYPEOF(spec.m_threadSpec.m_numThreads)(val);
             }
             return spec;
         }
     }
-    template<typename T_Integer,typename T_floating>
-    static std::vector<std::shared_ptr<alpaka::tune::Tuneable<T_Integer>>> makeSharedParameterInterface(KernelRun<T_Integer,T_floating>& run)
-    {
-        std::vector<std::shared_ptr<alpaka::tune::Tuneable<T_Integer>>> ret;
+    template<typename TuneableType>
+    auto makeNonOwningTuneableTuple(TuneableType& t) {
+        using ValueType = std::remove_reference_t<TuneableType>;
+        using elementType=ALPAKA_TYPEOF(t.value);
+        if constexpr (alpaka::isVector_v<elementType>){
+            return flatten(t);
+        }else if constexpr (std::is_integral_v<elementType>)
+        {
+            return std::tuple(std::shared_ptr<ValueType>(&t, [](ValueType*) {}));
+        }
+        throw std::runtime_error("unrecognized tuneableType");
+    }
 
-        // Add each tuneable from the vector.
-        for(auto& tune : run.tuneables)
-        {
-            ret.push_back(
-                std::shared_ptr<alpaka::tune::Tuneable<T_Integer>>(
-                    &tune,
-                    [](alpaka::tune::Tuneable<T_Integer>* /*unused*/) { /* no deletion */ }
-                )
-            );
-        }
-        if(run.gridSize!=std::nullopt)
-        {
-            ret.push_back(
-                std::shared_ptr<alpaka::tune::Tuneable<T_Integer>>(
-                    static_cast<alpaka::tune::Tuneable<T_Integer>*>(&(*run.gridSize)),
-                    [](alpaka::tune::Tuneable<T_Integer>* /*unused*/) { /* no deletion */ }
-                )
-            );
-        }
-        if(run.threadBlockSize!=std::nullopt)
-        {
-            ret.push_back(
-                std::shared_ptr<alpaka::tune::Tuneable<T_Integer>>(
-                    static_cast<alpaka::tune::Tuneable<T_Integer>*>(&(*run.threadBlockSize)),
-                    [](alpaka::tune::Tuneable<T_Integer>* /*unused*/) { /* no deletion */ }
-                )
-            );
-        }
-        return ret;
+    template<bool grid, bool block, typename T_ActiveKernel>
+auto makeSharedParameterInterface(T_ActiveKernel& run) {
+        auto tuneableTuple = std::apply([](auto&... elems) {
+            return std::tuple_cat(makeNonOwningTuneableTuple(elems)...);
+        }, run.tuneables);
 
+        if constexpr (grid && block) {
+            auto gridTuple = makeNonOwningTuneableTuple(*run.gridSize);
+            auto blockTuple = makeNonOwningTuneableTuple(*run.threadBlockSize);
+            return std::tuple_cat(tuneableTuple, gridTuple, blockTuple);
+        } else if constexpr (grid) {
+            auto gridTuple = makeNonOwningTuneableTuple(*run.gridSize);
+            return std::tuple_cat(tuneableTuple, gridTuple);
+        } else if constexpr (block) {
+            auto blockTuple = makeNonOwningTuneableTuple(*run.threadBlockSize);
+            return std::tuple_cat(tuneableTuple, blockTuple);
+        } else {
+            return tuneableTuple;
+        }
     }
     template<typename T_TuningSession>
 static auto createTimeEvent(T_TuningSession &session)
     {
         return TimeEvent(session.kernelRun);
     }
-    template<typename T_Integer,typename T_floating>
-static TimeEvent<KernelRun<T_Integer,T_floating>> createTimeEvent(KernelRun<T_Integer,T_floating> &run)
+    template<typename T_KernelRun>
+static TimeEvent<T_KernelRun> createTimeEvent(T_KernelRun &run)
     {
         return TimeEvent(run);
     }
-    template<typename T_integer>
+
 struct TuningHistory
 {
-    using T_tuneables=alpaka::tune::Tuneable<T_integer>;
     using T_floating=std::double_t;
     struct KernelData
     {
-        std::unordered_map<std::string,KernelRun<T_integer,T_floating>> runs;
+        std::unordered_map<std::string,StorageKernelRun> runs;
         std::string device;
         std::string executor;
         std::string kernel;
@@ -161,7 +129,7 @@ struct TuningHistory
 
     TuningHistory()
     {}
-KernelData createKernelData(const std::string &exec,const std::string &device,const std::string &bundle,const auto &kernelRun,const std::vector<std::string> & sessionSpecs,const std::string& targetMetric="time")
+KernelData createKernelData(const std::string &exec,const std::string &device,const std::string &bundle,const std::vector<std::string> & sessionSpecs,const std::string& targetMetric="time")
     {
         KernelData data;
         data.kernel=bundle;
@@ -172,7 +140,7 @@ KernelData createKernelData(const std::string &exec,const std::string &device,co
         return data;
     };
     std::shared_ptr<KernelData> getKernelFromHistory(const std::string &exec,const std::string &device,
-                                                const std::string &bundle,const auto &kernelRun,const std::vector<std::string> & sessionSpecs,
+                                                const std::string &bundle,const std::vector<std::string> & sessionSpecs,
                                                  const std::string& targetMetric="time")
     {
         std::string lookUpHash = device +
@@ -185,31 +153,11 @@ KernelData createKernelData(const std::string &exec,const std::string &device,co
         if(m_tuningHistory.contains(lookUpHash))
         {
             // Return a non-owning shared_ptr by using a no-op deleter.
-            return std::shared_ptr<KernelData>(&m_tuningHistory[lookUpHash],
-                                               [](KernelData*) { /* no deletion performed */ });
+            return {&m_tuningHistory[lookUpHash],
+                                               [](KernelData*) { /* no deletion performed */ }};
         }
         return nullptr;
     }
-
-    using ThisTuner = TuningHistory<T_integer>;
-    auto createTuningSession()
-        {
-            // Define an alias for this Tuner type.
-            // Construct and return a TuningSession.
-            return std::move(TuningSession<T_integer, ThisTuner,alpaka::tune::strategy::randomSearch>(
-                *this,       // the tuner reference
-                alpaka::tune::strategy::randomSearch{}));
-        }
-    template<typename T_Strategy>
-    auto createTuningSession(T_Strategy strategy)
-    {
-        // Define an alias for this Tuner type.
-        return std::move(TuningSession<T_integer,ThisTuner,T_Strategy>(
-            *this,       // the tuner reference
-            strategy));
-        // Construct and return a TuningSession.
-    }
-
 
     std::unordered_map<std::uintptr_t,KernelData> kernelEvents;
     ~TuningHistory()
@@ -273,7 +221,7 @@ KernelData createKernelData(const std::string &exec,const std::string &device,co
                         const auto& runs =kernelTable.at("runs").as_array();
                         for (const auto& runValue : runs)
                         {
-                            KernelRun<T_integer,T_floating> run;
+                            StorageKernelRun run;
                             const auto& runTable = runValue.as_table();
                             run.metric=static_cast<std::size_t>(runTable.at("metric").as_floating());
                             if (runTable.contains("tuneables")) {
@@ -281,13 +229,13 @@ KernelData createKernelData(const std::string &exec,const std::string &device,co
                                     const auto& tuneables = runTable.at("tuneables").as_table();
                                     for (const auto& [tkey, tval] : tuneables) {
                                             if (tval.is_integer()) {
-                                                T_integer value_tuneAble = static_cast<T_integer>(tval.as_integer());
+                                                auto value_tuneAble = tval.as_string();
                                                 if (tkey == "gridSize") {
-                                                    run.gridSize = alpaka::tune::GridSizeTune<T_integer>(value_tuneAble);
+                                                    run.gridSize = alpaka::tune::StorageTuneable{tkey,value_tuneAble};
                                                 } else if (tkey == "blockThreadSize") {
-                                                    run.threadBlockSize = alpaka::tune::ThreadBlockSizeTune<T_integer>(value_tuneAble);
+                                                    run.threadBlockSize = alpaka::tune::StorageTuneable{tkey,value_tuneAble};
                                                 } else {
-                                                    run.tuneables.push_back(alpaka::tune::Tuneable<T_integer>(value_tuneAble, tkey));
+                                                    run.tuneables.push_back(alpaka::tune::StorageTuneable{tkey,value_tuneAble});
                                                 }
                                             }
 
@@ -341,7 +289,7 @@ KernelData createKernelData(const std::string &exec,const std::string &device,co
 
             toml::array specifiers_array;
             for (const auto& vec : kernelData.specifiers) {
-                specifiers_array.push_back(vec);
+                specifiers_array.emplace_back(vec);
             }
             kernelTable.emplace("specifiers", specifiers_array);
 
@@ -359,7 +307,7 @@ KernelData createKernelData(const std::string &exec,const std::string &device,co
                 std::cout << "  - Checking tuneables size: " << run.second.tuneables.size() << std::endl;
 #endif
                 for (const auto& tuneable : run.second.tuneables) {
-                    tuneablesTable.emplace(tuneable.getName(), toml::value(tuneable.value));
+                    tuneablesTable.emplace(tuneable.name, toml::value(tuneable.value));
                 }
 
                 if (run.second.threadBlockSize != std::nullopt) {
@@ -382,7 +330,7 @@ KernelData createKernelData(const std::string &exec,const std::string &device,co
                 }
                 runTable.emplace("tuneables", tuneablesTable);
 
-                runsArray.push_back(runTable);
+                runsArray.emplace_back(runTable);
             }
             kernelTable.emplace("runs", runsArray);
             config.emplace(key, kernelTable);
@@ -396,32 +344,34 @@ KernelData createKernelData(const std::string &exec,const std::string &device,co
 
         file.close();
     }
-    // Disallow copy and move operations
-    TuningHistory(const TuningHistory&) = delete;
-    TuningHistory& operator=(const TuningHistory&) = delete;
 
 };
+
 #define MetricUndefined std::numeric_limits<float>::quiet_NaN()
-    template<typename T_Integer=std::size_t,typename T_Strategy=alpaka::tune::strategy::randomSearch>
+    template<typename T_Strategy=alpaka::tune::strategy::randomSearch,typename T_GridSize=alpaka::tune::GridSizeTune<>,typename T_BlockSize=alpaka::tune::ThreadBlockSizeTune<>,bool grid=false,bool block=false>
 struct TuningSession
 {
 
-        using T_Tuner=TuningHistory<T_Integer>;
         using T_floating = double_t;
-        KernelRun<T_Integer,T_floating> kernelRun;
-        T_Tuner history;
+        using T_Integer=std::size_t;
+        ActiveKernelRun<T_GridSize,T_BlockSize,T_floating> run;
+        TuningHistory history;
+        using KernelData=typename TuningHistory::KernelData;
         T_Strategy strategy;
-        T_Integer dynamicRuns_Nr;
+        T_Integer dynamicRuns_Nr{0};
         std::string deviceName;
         std::string execName;
         std::string kernelName;
+        std::string config;
+        StorageKernelRun storeKernel;
+        std::shared_ptr<KernelData> ptrToHistory{nullptr};
         std::vector<std::string> sessionSpecifier;
-    TuningSession(){}
-    TuningSession(T_Strategy strategy): kernelRun(KernelRun<T_Integer, T_floating>{}),
-        strategy(strategy)
-    {
-        kernelRun.metric=MetricUndefined;
-    }
+        TuningSession()=default;
+        explicit TuningSession(T_Strategy strategy):
+            strategy(strategy)
+        {
+            run.metric=MetricUndefined;
+        }
         /*
         TuningSession(const TuningSession&) = delete;
         TuningSession& operator=(const TuningSession&) = delete;
@@ -430,7 +380,8 @@ struct TuningSession
 
         TuningSession& withConfig(const std::string &config)
         {
-            history.loadConfig(config);
+
+            this->config=config;
             return *this;
         }
         template<typename... T_Specifiers>
@@ -440,35 +391,58 @@ struct TuningSession
 
             return *this;
         }
-        TuningSession& withGridSizeTune()
+
+        template<bool gridSize=true,bool blockSize=true,typename T_newSession>
+        void copy(T_newSession &session)
         {
-            kernelRun.gridSize=std::move(alpaka::tune::GridSizeTune<T_Integer>{});
-            return *this;
+            session.config=config;
+            session.dynamicRuns_Nr=dynamicRuns_Nr;
+            session.sessionSpecifier=sessionSpecifier;
+            session.run.metric=this->run.metric;
+            if (gridSize)
+            {
+                session.run.gridSize=this->run.gridSize;
+            }
+            if (blockSize)
+            {
+                session.run.threadBlockSize=this->run.threadBlockSize;
+            }
         }
-        TuningSession& withGridSizeTune(tune::GridSizeTune<T_Integer> tune)
+        template<typename T,typename T_Begin,typename T_End,typename T_Stride>
+        auto withGridSizeTune(tune::GridSizeTune<T,T_Begin,T_End,T_Stride> tune)
         {
-            kernelRun.gridSize=std::move(tune);
-            return *this;
+            TuningSession<T_Strategy,tune::GridSizeTune<T,T_Begin,T_End,T_Stride>,T_BlockSize,true,block> ret{strategy};
+            this->template copy<false,true>(ret);
+            ret.run.gridSize=tune;
+            return ret;
+
         }
-        TuningSession& withBlockSizeTune()
+        auto withGridSizeTune()
         {
-            kernelRun.threadBlockSize=std::move(tune::ThreadBlockSizeTune<T_Integer>{});
-            return *this;
+            TuningSession<T_Strategy,tune::GridSizeTune<std::size_t>,T_BlockSize,true,block> ret{strategy};
+            this->template copy<false,true>(ret);
+            ret.run.gridSize=std::move(tune::GridSizeTune<T_Integer>{});
+            return ret;
         }
-        TuningSession& withBlockSizeTune(tune::ThreadBlockSizeTune<T_Integer> tune)
+        auto withBlockSizeTune()
         {
-            kernelRun.threadBlockSize=std::move(tune);
-            return *this;
+            TuningSession<T_Strategy,T_GridSize,tune::ThreadBlockSizeTune<T_Integer>,grid,true> ret{strategy};
+            this->template copy<true,false>(ret);
+            ret.run.threadBlockSize=std::move(tune::ThreadBlockSizeTune<T_Integer>{});
+            return ret;
         }
-        TuningSession& withDynamicRuns(std::size_t runs)
+        template<typename T,typename T_Begin,typename T_End,typename T_Stride>
+        auto withBlockSizeTune(tune::ThreadBlockSizeTune<T,T_Begin,T_End,T_Stride> tune)
+        {
+            TuningSession<T_Strategy,T_GridSize,tune::ThreadBlockSizeTune<T,T_Begin,T_End,T_Stride>,grid,true> ret{strategy};
+            this->template copy<true,false>(ret);
+            ret.run.threadBlockSize=tune;
+            return ret;
+        }
+        auto& withDynamicRuns(std::size_t runs)
         {
             dynamicRuns_Nr=static_cast<T_Integer>(runs);
             return *this;
-        }
-        template<typename T>
-            void setDynamicRuns(T nrOfRuns)
-        {
-            dynamicRuns_Nr=static_cast<T_Integer>(nrOfRuns);
         }
         template<typename T_DeviceHandle,typename T_Exec,typename T_NumBlocks,typename T_NumThreads,typename T_KernelRun>
         onHost::FrameSpec<T_NumBlocks, T_NumThreads> SessAdjustThreadSpec(T_DeviceHandle &device,T_Exec exec,const alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> & frameSpec,T_KernelRun &run)
@@ -477,9 +451,11 @@ struct TuningSession
                 return alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads>{T_NumBlocks(frameSpec.m_numFrames),
                             T_NumThreads(frameSpec.m_frameExtent),T_NumBlocks(spec.m_numBlocks),T_NumThreads(spec.m_numThreads)};
             }
-        using KernelData=typename ALPAKA_TYPEOF(history)::KernelData;
+
         /** Enqueue and Execute a kernel for the tuning session will run @DynamicRuns times
              * @param queue the kernel will be executed after all previous work in this queue is finished
+             * @param exec
+             * @param frameSpec
              * @param executor description how native worker threads will be mapped and grouped to compute grid layers (blocks,
              * threads).
              * @param specification thread or frame specification which provides a chunked description of the thread or frame
@@ -489,102 +465,114 @@ struct TuningSession
         template<typename T_Queue,typename T_Exec,typename T_NumFrames,typename T_FrameExtent,typename T_KernelBundle>
         auto enqueue(T_Queue &queue,T_Exec exec,const onHost::FrameSpec<T_NumFrames,T_FrameExtent> &frameSpec,const T_KernelBundle &kernelBundle)
         {
-
+            history.loadConfig(config);
             using Device=ALPAKA_TYPEOF(*queue->m_device);
             kernelName=typeid(T_KernelBundle).name();
             execName=alpaka::core::demangledName<T_Exec>(exec);
             deviceName=alpaka::core::demangledName<Device>(*queue->m_device);
-            kernelRun.tuneables = extractTuneables<T_Integer>(kernelBundle);
+            auto tuneableTuple = extractTuneables(kernelBundle);
+            using runType=ALPAKA_TYPEOF(this->run);
+            auto activeRun=ActiveKernelRun{this->run.gridSize,this->run.threadBlockSize,std::move(tuneableTuple)};
+
+
 
             alpaka::onHost::FrameSpec<T_NumFrames,T_FrameExtent> dyna_frameSpec=frameSpec;
-            alpaka::tune::applyCustomThreadSpec(kernelRun,dyna_frameSpec);
+
+            alpaka::tune::applyCustomThreadSpec(activeRun,dyna_frameSpec);
             //acts like a guard only valid configs are used for the device
-            alpaka::onHost::FrameSpec<T_NumFrames,T_FrameExtent> spec=SessAdjustThreadSpec(*queue->m_device,exec,dyna_frameSpec,kernelRun);
-            auto actualKernel=history.getKernelFromHistory(deviceName,execName,kernelName,kernelRun,sessionSpecifier);
+            alpaka::onHost::FrameSpec<T_NumFrames,T_FrameExtent> spec=SessAdjustThreadSpec(*queue->m_device,exec,dyna_frameSpec,activeRun);
+            ptrToHistory=history.getKernelFromHistory(deviceName,execName,kernelName,sessionSpecifier);
 
             bool initilized =true;
-            if(actualKernel==nullptr)
+            if(!ptrToHistory)
             {
-                actualKernel = std::make_shared<KernelData>(history.createKernelData(deviceName,execName,kernelName,kernelRun,sessionSpecifier));
+                ptrToHistory = std::make_shared<KernelData>(history.createKernelData(deviceName,execName,kernelName,sessionSpecifier));
                 if(dynamicRuns_Nr==0)
-                {   //no run of kernel recorded and no dynamic runs will be recorded
-                    return TuningResult{recreate<T_Integer>(kernelBundle,kernelRun.tuneables),dyna_frameSpec};
+                {   //no run of kernel recorded and no dynamic runs selected
+                    this->storeKernel=toStore(activeRun);
+                    return TuningResult{
+                        recreate(kernelBundle, activeRun.tuneables),
+                        spec
+                    };
                 }
                 initilized=false;
             }
-            if(dynamicRuns_Nr==0&&!actualKernel->runs.contains(kernelRun.toHash()))
+            if(dynamicRuns_Nr==0&&!ptrToHistory->runs.contains(activeRun.toHash()))
             {
 
                 //current user defined parameters havent been used yet
-                return TuningResult{recreate<T_Integer>(kernelBundle,kernelRun.tuneables),dyna_frameSpec};
+                this->storeKernel=toStore(activeRun);
+                return TuningResult{
+                    recreate(kernelBundle, activeRun.tuneables),
+                    spec
+                };
             }
+
             if(dynamicRuns_Nr>0)
-            {
-                dynamicRuns(queue,exec,kernelBundle,kernelRun,actualKernel.get(),spec);
-            }
+                dynamicRuns(queue,exec,kernelBundle,activeRun,ptrToHistory.get(),spec);
+
             if(!initilized)
             {
-                std::string key=actualKernel->toHash();
-                history.m_tuningHistory[key]=std::move(*actualKernel);
-                actualKernel=std::shared_ptr<KernelData>(&history.m_tuningHistory[key],
-                                               [](KernelData*) { /* no deletion performed */ });
+                std::string key=ptrToHistory->toHash();
+                history.m_tuningHistory[key]=std::move(*ptrToHistory);
+                ptrToHistory=std::shared_ptr<KernelData>(&history.m_tuningHistory[key],
+                                               [](KernelData*) { });
 
-                //actualKernel=&tuner.tuningHistory.at(key);
             }
-            alpaka::tune::strategy::bestRecorded{}(kernelRun,actualKernel->runs);
-            alpaka::tune::applyCustomThreadSpec(kernelRun,spec);
+            auto storeKernel=alpaka::tune::strategy::bestRecorded{}(ptrToHistory->runs);
+            toActive(activeRun,storeKernel); // load best values from history
+            alpaka::tune::applyCustomThreadSpec(activeRun,spec);
             std::cout<<" Selected GridSize: "<<spec.m_threadSpec.m_numBlocks<<"\n";
             std::cout<<" Selected ThreadBlockSize: "<<spec.m_threadSpec.m_numThreads<<"\n";
-            std::cout<<" Time Estimation: "<<kernelRun.metric/1e6<<" ms\n";
-            return TuningResult{recreate<T_Integer>(kernelBundle,kernelRun.tuneables),spec};
+            std::cout<<" Time Estimation: "<<activeRun.metric/1e6<<" ms\n";
+            this->storeKernel=toStore(activeRun);
+            return TuningResult{
+                recreate(kernelBundle, activeRun.tuneables),
+                spec
+            };
         }
         template<typename T_KernelBundle,typename T_kernelRun,typename T_NumBlocks,typename T_NumThreads>
-            void dynamicRuns(const auto &queue,auto exec,const T_KernelBundle &kernelBundle,T_kernelRun &run,KernelData *data,alpaka::onHost::FrameSpec<T_NumBlocks,T_NumThreads> &spec)
+        void dynamicRuns(const auto &queue,auto exec,const T_KernelBundle &kernelBundle,T_kernelRun &run,KernelData *data,alpaka::onHost::FrameSpec<T_NumBlocks,T_NumThreads> &spec)
         {
             T_Integer index=0;
-            std::vector<std::shared_ptr<tune::Tuneable<T_Integer>>> sharedParams=makeSharedParameterInterface(run);
+            auto sharedParams=makeSharedParameterInterface<grid,block,T_kernelRun>(run);
             while(index<dynamicRuns_Nr)
             {
                 strategy(sharedParams,run,data->runs);
 
                 alpaka::tune::applyCustomThreadSpec(run,spec);
                 {
-                    auto bundle = recreate<T_Integer>(kernelBundle, run.tuneables);
-                    auto event=createTimeEvent();
+                    auto bundle = recreate(kernelBundle, run.tuneables);
+                    auto event=createTimeEventFromActive(run);
                     onHost::enqueue(queue, exec, spec, bundle);
                     onHost::wait(queue);
                 }
                 if(!data->runs.contains(run.toHash())){
-                    data->runs[run.toHash()]=run;
+                    data->runs[run.toHash()]=toStore(run);
                 }
                 ++index;
             }
         }
     ~TuningSession()
     {
-            std::cout<<"TuningSession::~TuningSession()\n";
-        if(!std::isnan(kernelRun.metric)&&!kernelName.empty())
+        if(!this->storeKernel.metric.empty()&&!kernelName.empty())
         {
-            auto actualKernel=history.getKernelFromHistory(deviceName,execName,kernelName,kernelRun,sessionSpecifier);
-            if(actualKernel==nullptr)
+            if(ptrToHistory&&!ptrToHistory->runs.contains(this->storeKernel.toHash()))
             {
-                actualKernel = std::make_shared<KernelData>(history.createKernelData(deviceName,execName,kernelName,kernelRun,sessionSpecifier));
-                std::cout<<" created Kernel: "<<actualKernel->toHash()<<"\n";
-                std::string key=actualKernel->toHash();
-                history.m_tuningHistory[key]=std::move(*actualKernel);
-                actualKernel=std::shared_ptr<KernelData>(&history.m_tuningHistory[key],
-                                               [](KernelData*) { /* no deletion performed */ });
-            }
-            if(!actualKernel->runs.contains(kernelRun.toHash()))
-            {
-                actualKernel->runs[kernelRun.toHash()]=kernelRun;
+                ptrToHistory->runs[this->storeKernel.toHash()]=this->storeKernel;
             }
         }
     }
+        template<typename T_ActiveKernelRun>
+        static auto createTimeEventFromActive(T_ActiveKernelRun &activeRun)
+        {
+
+            return TimeEvent(activeRun);
+        }
         auto createTimeEvent()
         {
 
-            return TimeEvent(kernelRun);
+            return TimeEvent(this->storeKernel);
         }
 
 
