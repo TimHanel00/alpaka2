@@ -37,44 +37,39 @@ namespace alpaka::tune::strategy
         // (Using static so that the generator is not re-seeded on every call.)
         static std::random_device rd;
         static std::mt19937 gen(rd());
-
-        for (std::size_t i = 0; i < static_cast<std::size_t>(dim); ++i)
-        {
             // For each dimension, retrieve the minimum, maximum and stride.
-            auto minVal  = range.m_begin[i];
-            auto maxVal  = range.m_end[i];
-            auto step    = range.m_stride[i];
+        auto minVal  = range.m_begin[0];
+        auto maxVal  = range.m_end[0];
+        auto step    = range.m_stride[0];
 
-            auto numSteps = (maxVal - minVal) / step;
+        auto numSteps = (maxVal - minVal) / step;
 
-            // If there are no steps (or only one valid value), use minVal.
-            if(numSteps <= 0)
-            {
-                result[i] = minVal;
-            }
-            else
-            {
-                // Choose a random step index between 0 and numSteps - 1.
-                std::uniform_int_distribution<decltype(minVal)> dis(0, numSteps);
-                auto k = dis(gen);
-                // Set the i-th component as minVal + k * step.
-                result[i] = minVal + k * step;
-            }
+        // If there are no steps (or only one valid value), use minVal.
+        if(numSteps <= 0)
+        {
+            result[0] = minVal;
+        }
+        else
+        {
+            // Choose a random step index between 0 and numSteps - 1.
+            std::uniform_int_distribution<decltype(minVal)> dis(0, numSteps);
+            auto k = dis(gen);
+            // Set the i-th component as minVal + k * step.
+            result[0] = minVal + k * step;
         }
         return result;
     }
-    template<typename T,typename startIdx,typename T_Begin, typename T_End, typename T_Stride>
-    T getNextUpper(const T &value,const startIdx &idx,const IdxRange<T_Begin, T_End, T_Stride>& range,bool &valid)
+    template<typename T,typename T_Begin, typename T_End, typename T_Stride>
+    T getNextUpper(const T &value,const IdxRange<T_Begin, T_End, T_Stride>& range,bool &valid)
     {
         using VecType = T_Begin;
         // Create a result vector.
         VecType result{value};
-        auto i = static_cast<std::size_t>(idx);
-        auto minVal  = range.m_begin[i];
-        auto maxVal  = range.m_end[i];
-        auto step    = range.m_stride[i];
-        result[i]=(result[i]+step);
-        if(result[i]<minVal||result[i]>maxVal)
+        auto minVal  = range.m_begin[0];
+        auto maxVal  = range.m_end[0];
+        auto step    = range.m_stride[0];
+        result[0]=(result[0]+step);
+        if(result[0]<minVal||result[0]>maxVal)
         {
             valid=false;
             return maxVal;
@@ -82,18 +77,17 @@ namespace alpaka::tune::strategy
 
         return T(result.product());
     }
-    template<typename T,typename startIdx,typename T_Begin, typename T_End, typename T_Stride>
-    T getNextLower(const T &value,const startIdx &idx,const IdxRange<T_Begin, T_End, T_Stride>& range, bool &valid)
+    template<typename T,typename T_Begin, typename T_End, typename T_Stride>
+    T getNextLower(const T &value,const IdxRange<T_Begin, T_End, T_Stride>& range, bool &valid)
     {
         using VecType = T_Begin;
         // Create a result vector.
         VecType result{value};
-        auto i = static_cast<std::size_t>(idx);
-        auto minVal  = range.m_begin[i];
-        auto maxVal  = range.m_end[i];
-        auto step    = range.m_stride[i];
-        result[i]=(result[i]-step);
-        if(result[i]<minVal||result[i]>maxVal)
+        auto minVal  = range.m_begin[0];
+        auto maxVal  = range.m_end[0];
+        auto step    = range.m_stride[0];
+        result[0]=(result[0]-step);
+        if(result[0]<minVal||result[0]>maxVal)
         {
             valid=false;
             return minVal;
@@ -101,18 +95,22 @@ namespace alpaka::tune::strategy
 
         return T(result.product());
     }
-    struct randomSearch
+    struct randomSample
     {
-        template<typename T_tuneables,typename T_KernelRun,typename KernelRun>
-        auto operator()(T_tuneables &&tuneables,T_KernelRun &kernelRun,std::unordered_map<std::string,KernelRun> &history) const
+        template<typename T_tuneables,typename T_ActiveKernel,typename storageKernel>
+        auto operator()(T_tuneables &&tuneables,[[maybe_unused]]T_ActiveKernel &kernelRun,[[maybe_unused]]std::unordered_map<std::string,storageKernel> &history) const
         {
-            int index=0;
-            for_each(tuneables, [&index](auto& parameter)
+            for_each(tuneables, [](auto& parameter)
             {
-                parameter->value=randomIdx(parameter->idxRange).x();
-                std::cout<<parameter->value<<std::endl;
-                index++;
+                parameter.value=randomIdx(parameter.idxRange).x();
             });
+        }
+    };
+    struct exhaustiveSearch
+    {
+        template<typename T_tuneables,typename T_ActiveKernel,typename storageKernel>
+        auto operator()(T_tuneables &&tuneables,T_ActiveKernel &kernelRun,std::unordered_map<std::string,storageKernel> &history) const
+        {
             if(history.contains(kernelRun.toHash()))
             {
                 for_each(tuneables, [&history,&kernelRun](auto& parameter)
@@ -120,30 +118,41 @@ namespace alpaka::tune::strategy
                     constexpr auto dim=static_cast<std::size_t>(1);
                     //@TODO make this dynamic but ALPAKA_TYPE_OF(parameter->idxRange)::dim() did no get deduced correctly on GPU
                     using type=std::size_t;
-                    auto initialValue=parameter->value;
-                    for(auto i= static_cast<type>(0);i<dim; ++i)
+                    auto initialValue=parameter.value;
+                    bool valid=true;
+                    while(valid)
                     {
-                        bool valid=true;
-                        while(valid)
-                        {
 
-                            parameter->value=getNextUpper(parameter->value,i,parameter->idxRange,valid);
-                            if(!history.contains(kernelRun.toHash()))return;
-                        }
-                        parameter->value=initialValue;
-                        valid=true;
-                        while(valid)
-                        {
-                            parameter->value=getNextLower(parameter->value,i,parameter->idxRange,valid);
-                            if(!history.contains(kernelRun.toHash()))return;
-                        }
-
+                        parameter.value=getNextUpper(parameter.value,parameter.idxRange,valid);
+                        if(!history.contains(kernelRun.toHash()))return;
                     }
-                    parameter->value=initialValue;
+                    parameter.value=initialValue;
+                    valid=true;
+                    while(valid)
+                    {
+                        parameter.value=getNextLower(parameter.value,parameter.idxRange,valid);
+                        if(!history.contains(kernelRun.toHash()))
+                        {
 
+                            return;
+                        }
+                    }
 
+                    parameter.value=initialValue;
                 });
 
+            }
+        }
+    };
+    struct randomSearch
+    {
+        template<typename T_tuneables,typename T_ActiveKernel,typename storageKernel>
+        auto operator()(T_tuneables &&tuneables,T_ActiveKernel &kernelRun,std::unordered_map<std::string,storageKernel> &history) const
+        {
+            randomSample{}(tuneables,kernelRun,history);
+            if(history.contains(kernelRun.toHash()))
+            {
+                exhaustiveSearch{}(tuneables,kernelRun,history);
             }
         };
     };

@@ -71,7 +71,13 @@ namespace alpaka
             return flatten(t);
         }else if constexpr (std::is_integral_v<elementType>)
         {
-            return std::tuple(std::shared_ptr<ValueType>(&t, [](ValueType*) {}));
+            return std::tuple(alpaka::tune::FlatTuneableHandle<elementType>{
+                t.value,
+                t.name,
+                t.userDef,
+                t.idxRange.m_begin[0],
+                t.idxRange.m_end[0],
+                t.idxRange.m_stride[0]});
         }
         throw std::runtime_error("unrecognized tuneableType");
     }
@@ -128,8 +134,9 @@ struct TuningHistory
     std::unordered_map<std::string, KernelData> m_tuningHistory;
 
     TuningHistory()
-    {}
-KernelData createKernelData(const std::string &exec,const std::string &device,const std::string &bundle,const std::vector<std::string> & sessionSpecs,const std::string& targetMetric="time")
+    = default;
+
+    static KernelData createKernelData(const std::string &exec,const std::string &device,const std::string &bundle,const std::vector<std::string> & sessionSpecs,const std::string& targetMetric="time")
     {
         KernelData data;
         data.kernel=bundle;
@@ -161,9 +168,7 @@ KernelData createKernelData(const std::string &exec,const std::string &device,co
 
     std::unordered_map<std::uintptr_t,KernelData> kernelEvents;
     ~TuningHistory()
-    {
-        storeConfig("./config/reduce.toml");
-    }
+    = default;
 
     auto find_str(const auto & table,const auto & key)
     {
@@ -223,12 +228,11 @@ KernelData createKernelData(const std::string &exec,const std::string &device,co
                         {
                             StorageKernelRun run;
                             const auto& runTable = runValue.as_table();
-                            run.metric=static_cast<std::size_t>(runTable.at("metric").as_floating());
+                            run.metric=runTable.at("metric").as_string();
                             if (runTable.contains("tuneables")) {
                                 try {
                                     const auto& tuneables = runTable.at("tuneables").as_table();
                                     for (const auto& [tkey, tval] : tuneables) {
-                                            if (tval.is_integer()) {
                                                 auto value_tuneAble = tval.as_string();
                                                 if (tkey == "gridSize") {
                                                     run.gridSize = alpaka::tune::StorageTuneable{tkey,value_tuneAble};
@@ -237,7 +241,6 @@ KernelData createKernelData(const std::string &exec,const std::string &device,co
                                                 } else {
                                                     run.tuneables.push_back(alpaka::tune::StorageTuneable{tkey,value_tuneAble});
                                                 }
-                                            }
 
                                     }
                                 } catch (const std::exception& e) {
@@ -263,12 +266,22 @@ KernelData createKernelData(const std::string &exec,const std::string &device,co
                       << "): " << e.what() << std::endl;
             m_tuningHistory.clear();
         }
+#ifdef DEBUG
         std::cout<<"history size after load: "<<m_tuningHistory.size()<<std::endl;
+        for(auto const & [k,v]:m_tuningHistory)
+        {
+            std::cout<<" runs after history "<<v.runs.size()<<std::endl;
+            for(auto const & [k1,v1]:v.runs)
+            {
+                std::cout<<" tuneable Size: "<<v1.tuneables.size()<<std::endl;
+            }
+        }
+#endif
+
     }
 
     void storeConfig(const std::string& filename) {
         toml::table config;
-        std::cout<<" size history: "<<m_tuningHistory.size()<<std::endl;
         for (const auto& [key, kernelData] : m_tuningHistory) {
             toml::table kernelTable;
 #ifdef DEBUG
@@ -473,9 +486,6 @@ struct TuningSession
             auto tuneableTuple = extractTuneables(kernelBundle);
             using runType=ALPAKA_TYPEOF(this->run);
             auto activeRun=ActiveKernelRun{this->run.gridSize,this->run.threadBlockSize,std::move(tuneableTuple)};
-
-
-
             alpaka::onHost::FrameSpec<T_NumFrames,T_FrameExtent> dyna_frameSpec=frameSpec;
 
             alpaka::tune::applyCustomThreadSpec(activeRun,dyna_frameSpec);
@@ -521,6 +531,7 @@ struct TuningSession
             }
             auto storeKernel=alpaka::tune::strategy::bestRecorded{}(ptrToHistory->runs);
             toActive(activeRun,storeKernel); // load best values from history
+
             alpaka::tune::applyCustomThreadSpec(activeRun,spec);
             std::cout<<" Selected GridSize: "<<spec.m_threadSpec.m_numBlocks<<"\n";
             std::cout<<" Selected ThreadBlockSize: "<<spec.m_threadSpec.m_numThreads<<"\n";
@@ -547,21 +558,28 @@ struct TuningSession
                     onHost::enqueue(queue, exec, spec, bundle);
                     onHost::wait(queue);
                 }
+                std::string h=run.toHash();
+
                 if(!data->runs.contains(run.toHash())){
+                    std::cout<<"Generated through Dynamic Runs: "<<run.toHash()<<std::endl;
                     data->runs[run.toHash()]=toStore(run);
                 }
                 ++index;
             }
         }
     ~TuningSession()
-    {
-        if(!this->storeKernel.metric.empty()&&!kernelName.empty())
+    {   if(!kernelName.empty())
         {
-            if(ptrToHistory&&!ptrToHistory->runs.contains(this->storeKernel.toHash()))
+            if(!this->storeKernel.metric.empty())
             {
-                ptrToHistory->runs[this->storeKernel.toHash()]=this->storeKernel;
+                if(ptrToHistory&&!ptrToHistory->runs.contains(this->storeKernel.toHash()))
+                {
+                    ptrToHistory->runs[this->storeKernel.toHash()]=this->storeKernel;
+                }
             }
+            history.storeConfig(config);
         }
+
     }
         template<typename T_ActiveKernelRun>
         static auto createTimeEventFromActive(T_ActiveKernelRun &activeRun)

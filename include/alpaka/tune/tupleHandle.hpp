@@ -62,21 +62,20 @@ auto flattenImpl(TuneableType& tune, std::index_sequence<I...>) {
     using ElementType = typename VecType::type;
 
     return std::make_tuple(
-        FlatTuneableMirror<ElementType>(
+        alpaka::tune::FlatTuneableHandle<ElementType>(
             tune.value[I],
             tune.name + "_" + std::to_string(I),
             tune.userDef,
-            tune.idxRange.begin[I],
-            tune.idxRange.end[I],
-            tune.idxRange.stride[I]
+            tune.idxRange.m_begin[I],
+            tune.idxRange.m_end[I],
+            tune.idxRange.m_stride[I]
         )...
     );
 }
 
 template<typename T>
-requires alpaka::isVector_v<T>
-auto flatten(alpaka::tune::Tuneable<T>& tune) {
-    constexpr std::size_t dim = alpaka::getDim<T>;
+auto flatten(alpaka::tune::Tuneable<T,T,T,T>& tune) {
+    constexpr auto dim = alpaka::getDim(T{});
     return flattenImpl(tune, std::make_index_sequence<dim>{});
 }
 // Modified recreate: now newTuneables is a tuple of tuneables, each with a .value member.
@@ -119,37 +118,30 @@ auto extractTuneables_impl(
     const alpaka::KernelBundle<TKernelFn, TArgs...>& kb,
     std::index_sequence<Is...>)
 {
-    // The lambda below takes an index (as an std::integral_constant) so that
-    // the index can be used in a compile-time branch.
+    std::size_t tuneableIdx = 0;
+
     return std::tuple_cat(
         (
             [&]<std::size_t I>(std::integral_constant<std::size_t, I>) {
                 using ElemType = std::decay_t<
                     std::tuple_element_t<I, typename alpaka::KernelBundle<TKernelFn, TArgs...>::ArgTuple>
                 >;
-                if constexpr (is_tuneable_v<ElemType>) {
-                    // Get a non-const copy (to allow modification)
-                    auto tune = std::get<I>(kb.m_args);
 
-                    // Use a compile-time string literal for comparison.
+                if constexpr (is_tuneable_v<ElemType>) {
+                    auto tune = std::get<I>(kb.m_args);
                     constexpr std::string_view defaultName = "Tuneable: ";
 
-                    // We use a std::ostringstream to build the new name.
-                    // (std::to_string is not constexpr in C++20.)
                     std::ostringstream oss;
                     oss << tune.name;
-                    // If the name exactly matches the default, update it.
+
                     if (tune.name == defaultName)
-                        oss << I;
-                    // Append the index anyway.
-                    oss << I;
+                        oss << tuneableIdx;
+
                     tune.name = oss.str();
 
-                    // Return this tuneable wrapped in a tuple.
+                    tuneableIdx++;  // increment runtime counter
                     return std::make_tuple(tune);
-                }
-                else {
-                    // Return an empty tuple if not a tuneable.
+                } else {
                     return std::tuple<>();
                 }
             }(std::integral_constant<std::size_t, Is>{})

@@ -24,26 +24,36 @@ namespace alpaka::tune
     };
     template<typename T>
     concept IsIntegral = std::is_integral_v<T>;
-    template<typename T>
+
+    /**
+     *this is a 1 dim non-owning tuple handle for a tuneable object - these are used for defining strategies and
+     *allowing uniform access
+     * @tparam T a primitive type used to store the reference to the tuneable object in a tuple
+     *
+     */
+template<typename T>
     requires IsIntegral<T>
     struct FlatTuneableHandle {
-        std::shared_ptr<T> value;
+        ;
         std::string name;
         bool userDef;
-        IdxRange<T,T,T> idxRange;
+        IdxRange<alpaka::Vec<T,1>,alpaka::Vec<T,1>,alpaka::Vec<T,1>> idxRange;
 
         FlatTuneableHandle(T& val, const std::string& n, bool u, T &b, T &e, T &s)
-            : value(&val, [](T*){}), name(n), userDef(u), idxRange(b, e, s) {}
+            : value(val), name(n), userDef(u), idxRange(alpaka::Vec<T,1>{b}, alpaka::Vec<T,1>{e}, alpaka::Vec<T,1>{s}) {}
+        T& value;
     };
     inline std::size_t globalId=0;
-
     template<
-        typename T,
-        typename T_Begin  = alpaka::Vec<T,1>,
-        typename T_End    = alpaka::Vec<T,1>,
-        typename T_Stride = alpaka::Vec<T,1>>
-    requires IsIntegral<T>
+    typename T,
+    typename T_Begin  = alpaka::Vec<T,1>,
+    typename T_End    = alpaka::Vec<T,1>,
+    typename T_Stride = alpaka::Vec<T,1>>
     struct Tuneable
+    {};
+    template<typename T, typename T_Begin, typename T_End, typename T_Stride>
+    requires IsIntegral<T>
+    struct Tuneable<T, T_Begin, T_End, T_Stride>
     {
         static inline int globalId = 0;
 
@@ -134,18 +144,7 @@ namespace alpaka::tune
     };
 
     template<typename T>
-    concept IsAlpakaVec = requires
-    {
-        // One naive check: T has a static constexpr 'dim' plus a value_type.
-        // You might refine or replace this with something more robust
-        // that definitively identifies alpaka::Vec.
-        T::dim;
-        typename T::value_type;
-    }
-    && std::is_same_v<T, alpaka::Vec<typename T::value_type, T::dim>>;
-
-    template<typename T>
-requires IsAlpakaVec<T>
+    requires alpaka::isVector_v<T>
 struct Tuneable<T, T, T, T>
 {
     T value;
@@ -161,7 +160,7 @@ struct Tuneable<T, T, T, T>
         // and a vector of "1" for stride. Or you might do something else.
         T zero{};
         T ones{};
-        for(std::size_t i = 0; i < T::dim; ++i)
+        for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
         {
             zero[i] = 0;
             ones[i] = 1;
@@ -198,7 +197,7 @@ struct Tuneable<T, T, T, T>
     {
         // Example logic: set 'value' = (end - begin) / 2 in each dimension
         T half{};
-        for(std::size_t i = 0; i < T::dim; ++i)
+        for(auto i = 0; i < alpaka::getDim(T{}); ++i)
         {
             half[i] = (idxRange.m_end()[i] - idxRange.m_begin()[i]) / 2;
         }
@@ -211,7 +210,7 @@ struct Tuneable<T, T, T, T>
         , idxRange(std::move(ir))
     {
         T half{};
-        for(std::size_t i = 0; i < T::dim; ++i)
+        for(auto i = 0; i < alpaka::getDim(T{}); ++i)
         {
             half[i] = (idxRange.m_end()[i] - idxRange.m_begin()[i]) / 2;
         }
@@ -231,12 +230,8 @@ struct Tuneable<T, T, T, T>
         , userDef(true)
         , idxRange(std::move(ir))
     {}
-        [[nodiscard]] std::string valueToString() const { std::string s;
-        for(std::size_t i = 0; i < T::dim; ++i)
-        {
-            s+=std::to_string(value[i])+",";
-        } return s;}
-        [[nodiscard]] std::string toHash() const { return name+"*"+this->valueToString(); ;}
+        std::string toHash() const { return name+"*"+value.toString(); }
+
 
 
     bool operator==(const Tuneable& other) const
@@ -251,6 +246,9 @@ struct Tuneable<T, T, T, T>
         return Tuneable(value, name, idxRange);
     }
 };
+    template<typename T>
+requires alpaka::isVector_v<T>
+Tuneable(T) -> Tuneable<T, T, T, T>;
 
     // Specialized tunables
 
@@ -262,18 +260,18 @@ struct Tuneable<T, T, T, T>
     struct GridSizeTune : Tuneable<T, T_Begin, T_End, T_Stride> {
         T gridSize;
         constexpr explicit GridSizeTune()
-            : Tuneable<T>(T(64), "gridSize"), gridSize(T(64))
+            : Tuneable<T,T_Begin,T_End,T_Stride>(T(64), "gridSize"), gridSize(T(64))
         {}
         constexpr explicit GridSizeTune(T initial_value)
-            : Tuneable<T>(initial_value, "gridSize"), gridSize(initial_value)
+            : Tuneable<T,T_Begin,T_End,T_Stride>(initial_value, "gridSize"), gridSize(initial_value)
         {}
         constexpr explicit GridSizeTune(IdxRange<T_Begin, T_End, T_Stride> idxRange)
-            : Tuneable<T>(T(64), "gridSize", idxRange)
+            : Tuneable<T,T_Begin,T_End,T_Stride>(T(64), "gridSize", idxRange)
             , gridSize(T(64))
         {}
         constexpr explicit GridSizeTune(T initial_value,
                               IdxRange<T_Begin, T_End, T_Stride> idxRange)
-            : Tuneable<T>(initial_value, "gridSize", idxRange)
+            : Tuneable<T,T_Begin,T_End,T_Stride>(initial_value, "gridSize", idxRange)
             , gridSize(initial_value)
         {}
         constexpr void setGrid(const IdxRange<T_Begin, T_End, T_Stride> &idxRange)
@@ -282,22 +280,22 @@ struct Tuneable<T, T, T, T>
         }
     };
     template<typename T>
-    requires IsAlpakaVec<T>
+    requires alpaka::isVector_v<T>
     struct GridSizeTune<T, T, T, T> : Tuneable<T, T, T, T> {
         T gridSize;
         constexpr explicit GridSizeTune()
-            : Tuneable<T>(T(64), "gridSize"), gridSize(T(64))
+            : Tuneable<T, T, T, T>(T(64), "gridSize"), gridSize(T(64))
         {}
         constexpr explicit GridSizeTune(T initial_value)
-            : Tuneable<T>(initial_value, "gridSize"), gridSize(initial_value)
+            : Tuneable<T, T, T, T>(initial_value, "gridSize"), gridSize(initial_value)
         {}
         constexpr explicit GridSizeTune(IdxRange<T, T, T> idxRange)
-            : Tuneable<T>(T(64), "gridSize", idxRange)
+            : Tuneable<T, T, T, T>(T(64), "gridSize", idxRange)
             , gridSize(T(64))
         {}
         constexpr explicit GridSizeTune(T initial_value,
                               IdxRange<T, T, T> idxRange)
-            : Tuneable<T>(initial_value, "gridSize", idxRange)
+            : Tuneable<T, T, T, T>(initial_value, "gridSize", idxRange)
             , gridSize(initial_value)
         {}
         constexpr void setGrid(const IdxRange<T, T, T> &idxRange)
@@ -311,18 +309,18 @@ struct Tuneable<T, T, T, T>
     struct ThreadBlockSizeTune : Tuneable<T,T_Begin,T_End,T_Stride> {
         T blockThreadSize;
         constexpr explicit ThreadBlockSizeTune()
-            : Tuneable<T>(T(256), "gridSize"), blockThreadSize(T(256))
+            : Tuneable<T,T_Begin,T_End,T_Stride>(T(256), "gridSize"), blockThreadSize(T(256))
         {}
         constexpr explicit ThreadBlockSizeTune(T initial_value,IdxRange<T_Begin, T_End, T_Stride> idxRange)
-            : Tuneable<T>(initial_value, "blockThreadSize", idxRange)
+            : Tuneable<T,T_Begin,T_End,T_Stride>(initial_value, "blockThreadSize", idxRange)
             , blockThreadSize(initial_value)
         {}
         constexpr explicit ThreadBlockSizeTune(IdxRange<T_Begin, T_End, T_Stride> idxRange)
-            : Tuneable<T>(T(256), "blockThreadSize", idxRange)
+            : Tuneable<T,T_Begin,T_End,T_Stride>(T(256), "blockThreadSize", idxRange)
             , blockThreadSize(T(256))
         {}
         constexpr explicit ThreadBlockSizeTune(T initial_value)
-            : Tuneable<T>(initial_value, "blockThreadSize")
+            : Tuneable<T,T_Begin,T_End,T_Stride>(initial_value, "blockThreadSize")
             , blockThreadSize(initial_value)
         {}
         constexpr void setBlock(const IdxRange<T_Begin, T_End, T_Stride> &idxRange)
@@ -331,22 +329,22 @@ struct Tuneable<T, T, T, T>
         }
     };
     template <typename T>
-    requires IsAlpakaVec<T>
+    requires alpaka::isVector_v<T>
     struct ThreadBlockSizeTune<T, T, T, T> : Tuneable<T, T, T, T>  {
         T blockThreadSize;
         constexpr explicit ThreadBlockSizeTune()
-            : Tuneable<T>(T(256), "gridSize"), blockThreadSize(T(256))
+            : Tuneable<T, T, T, T>(T(256), "gridSize"), blockThreadSize(T(256))
         {}
         constexpr explicit ThreadBlockSizeTune(T initial_value,IdxRange<T, T, T> idxRange)
-            : Tuneable<T>(initial_value, "blockThreadSize", idxRange)
+            : Tuneable<T, T, T, T>(initial_value, "blockThreadSize", idxRange)
             , blockThreadSize(initial_value)
         {}
         constexpr explicit ThreadBlockSizeTune(IdxRange<T, T, T> idxRange)
-            : Tuneable<T>(T(256), "blockThreadSize", idxRange)
+            : Tuneable<T, T, T, T>(T(256), "blockThreadSize", idxRange)
             , blockThreadSize(T(256))
         {}
         constexpr explicit ThreadBlockSizeTune(T initial_value)
-            : Tuneable<T>(initial_value, "blockThreadSize")
+            : Tuneable<T, T, T, T>(initial_value, "blockThreadSize")
             , blockThreadSize(initial_value)
         {}
         constexpr void setBlock(const IdxRange<T, T, T> &idxRange)

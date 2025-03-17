@@ -83,14 +83,15 @@ template<std::size_t numLoads=4,std::size_t stride=4,typename operationType,type
         //with the data transfers to device completed we can now instantiate our Kernel Bundles (i.e. specify parameters for the Kernel function)
     //auto tune=alpaka::tune::Tuneable<std::size_t>(5);
 
-    auto taskKernel= KernelBundle{kernel1,type,bufAccA.getMdSpan(),destBuf.getMdSpan(),IdxVec{0},VecFirstExtent,alpaka::tune::Tuneable<std::size_t>(2)};//this causes errors.
+    auto taskKernel= KernelBundle{kernel1,type,bufAccA.getMdSpan(),destBuf.getMdSpan(),IdxVec{0},VecFirstExtent,
+        alpaka::tune::Tuneable{alpaka::Vec<std::size_t,3>{4,5,3}}};//this causes errors.
     //.registerCompileTime(Reduce<stride,numLoads,T>::dynSharedMemBytes);
     TuningSession session{tune::strategy::randomSearch{}};
     auto result=session.withBlockSizeTune(tune::ThreadBlockSizeTune{})
                     .withGridSizeTune(tune::GridSizeTune{})
                         .withRunSpecifiers(bufHost.getExtents().product())
                             .withConfig("./config/reduce.toml")
-                                .withDynamicRuns(10)
+                                .withDynamicRuns(1)
                                     .enqueue(queue, exec,firstKernelFrame,taskKernel);
 
     auto newKernelBundle=result.m_kernelBundle;

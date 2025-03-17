@@ -20,6 +20,24 @@ inline std::vector<std::string> split(const std::string& s, char delimiter = ','
         tokens.push_back(token);
     return tokens;
 }
+inline std::string remove(const std::string& s,const std::string &removeSeq = "")
+{
+    std::string ret;
+    for(auto h:s)
+    {
+        bool contained=false;
+        for(auto const& elem:removeSeq)
+        {
+            if(elem==h)
+            {
+                contained=true;
+                break;
+            }
+        }
+        if(!contained)ret+=h;
+    }
+    return ret;
+}
 template<typename T>
 T convertFromString(const std::string& s)
 {
@@ -32,9 +50,11 @@ T convertFromString(const std::string& s)
     }
     if constexpr (alpaka::isVector_v<T>)
     {
-        constexpr auto dim = alpaka::getDim<T>;
+        constexpr auto dim = alpaka::getDim(T{});
         using ElementType = typename T::type;
-        auto tokens = split(s, ',');
+        auto const newS=remove(s,"{}");
+        auto tokens = split(newS, ',');
+
         if (tokens.size() != dim)
             throw std::runtime_error("Mismatch between vector dimension and number of values");
         auto parse = [](const std::string& tok) {
@@ -198,11 +218,7 @@ StorageKernelRun toStore(ActiveKernelRun<T_GridSize, T_BlockSize, T_TuneableType
         {
 
             result.metric=convertToString(active.metric);
-        }else
-        {
-            std::__throw_runtime_error("No metric assigned to activeKernel!");
         }
-
 
         // Convert each tuneable in the tuple.
         std::apply([&result](auto const&... tuneable) {
