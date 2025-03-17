@@ -90,7 +90,12 @@ namespace alpaka::tune{
                 {
                     if(!kernelRun.gridSize->userDef)
                     {
-                        kernelRun.gridSize=alpaka::tune::GridSizeTune{VecType(device->m_properties.m_multiProcessorCount).x(),idxRangeG{1,device->m_properties.m_multiProcessorCount,1}};
+                        using begin=ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_begin);
+                        kernelRun.gridSize->idxRange.m_begin=begin(1);
+                        using end=ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_end);
+                        kernelRun.gridSize->idxRange.m_end=end(device.m_properties.m_multiProcessorCount);
+                        using stride=ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_stride);
+                        kernelRun.gridSize->idxRange.m_stride=stride(1);
                     }
                 }
                 auto const numThreads = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
@@ -116,16 +121,29 @@ namespace alpaka::tune{
                 //@TODO add specialization
                 if(kernelRun.threadBlockSize)
                 {
+                    kernelRun.threadBlockSize=std::nullopt;
+                }
+                /*
                     if(!kernelRun.threadBlockSize->userDef)
                     {
-                        kernelRun.threadBlockSize=alpaka::tune::ThreadBlockSizeTune{VecType(device->m_properties.m_multiProcessorCount).x(),idxRangeG{1,device->m_properties.m_multiProcessorCount,1}};
+                        using begin=ALPAKA_TYPEOF(kernelRun.threadBlockSize->idxRange.m_begin);
+                        kernelRun.threadBlockSize->idxRange.m_begin=begin(1);
+                        using end=ALPAKA_TYPEOF(kernelRun.threadBlockSize->idxRange.m_end);
+                        kernelRun.threadBlockSize->idxRange.m_end=end(device.m_properties.m_multiProcessorCount);
+                        using stride=ALPAKA_TYPEOF(kernelRun.threadBlockSize->idxRange.m_stride);
+                        kernelRun.threadBlockSize->idxRange.m_stride=stride(1);
                     }
-                }
+                }*/
                 if(kernelRun.gridSize)
                 {
                     if(!kernelRun.gridSize->userDef)
                     {
-                        kernelRun.gridSize=alpaka::tune::GridSizeTune{VecType(device->m_properties.m_multiProcessorCount).x(),idxRangeG{1,device->m_properties.m_multiProcessorCount,1}};
+                        using begin=ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_begin);
+                        kernelRun.gridSize->idxRange.m_begin=begin(1);
+                        using end=ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_end);
+                        kernelRun.gridSize->idxRange.m_end=end(device.m_properties.m_multiProcessorCount);
+                        using stride=ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_stride);
+                        kernelRun.gridSize->idxRange.m_stride=stride(1);
                     }
                 }
                 return dataBlocking.getThreadSpec();

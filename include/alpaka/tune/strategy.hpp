@@ -6,7 +6,7 @@
 #define STRATEGY_HPP
 #include <vector>
 #include <random>
-#include "tuner.hpp"
+#include "alpaka/tune/storageTypes.hpp"
 namespace alpaka::tune::strategy
 {
 
@@ -146,8 +146,8 @@ namespace alpaka::tune::strategy
     };
     struct randomSearch
     {
-        template<typename T_tuneables,typename T_ActiveKernel,typename storageKernel>
-        auto operator()(T_tuneables &&tuneables,T_ActiveKernel &kernelRun,std::unordered_map<std::string,storageKernel> &history) const
+        template<typename T_tuneables,typename T_ActiveKernel>
+        auto operator()(T_tuneables &&tuneables,T_ActiveKernel &kernelRun,std::unordered_map<std::string,StorageKernelRun> &history) const
         {
             randomSample{}(tuneables,kernelRun,history);
             if(history.contains(kernelRun.toHash()))

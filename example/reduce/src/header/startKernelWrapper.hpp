@@ -16,6 +16,24 @@ auto ALPAKA_FN_HOST_ACC roundAlign(Vec vec,N n)
 {
     return n*(vec/n);
 }
+class ExampleKernel
+{
+public:
+    //! The kernel entry point.
+    //!
+    //! \tparam TAcc The accelerator environment to be executed on.
+    //! \param acc The accelerator to be executed on.
+    //! \param type
+    //! \param dataBuf The greyScale Image
+    //! \param destinationBuf
+    //! \param dataDomainExtent The number of elements.
+    //! \param sharedMemExtents
+    template<typename TAcc>
+    ALPAKA_FN_ACC auto operator()(TAcc const& acc)const-> void
+    {
+
+    }
+};
 template<std::size_t numLoads=4,std::size_t stride=4,typename operationType,typename Exec,typename DevHost,typename DevAcc,typename BufType> auto reduction(const operationType &type,Exec & exec,DevHost & devHost,DevAcc& devAcc,BufType &bufHost)
 {
     using namespace alpaka;
@@ -82,41 +100,44 @@ template<std::size_t numLoads=4,std::size_t stride=4,typename operationType,type
     Reduce<IdxType{1},IdxType{1},T> kernel2{static_cast<uint32_t>(frameExtentTmp.x()*sizeof(T))};
         //with the data transfers to device completed we can now instantiate our Kernel Bundles (i.e. specify parameters for the Kernel function)
     //auto tune=alpaka::tune::Tuneable<std::size_t>(5);
-
+    auto testFrame = onHost::FrameSpec{alpaka::Vec{4,5,6},alpaka::Vec{3,2,7}};
     auto taskKernel= KernelBundle{kernel1,type,bufAccA.getMdSpan(),destBuf.getMdSpan(),IdxVec{0},VecFirstExtent,
         alpaka::tune::Tuneable{alpaka::Vec<std::size_t,3>{4,5,3}}};//this causes errors.
+    auto testKernelExample=KernelBundle{ExampleKernel{}};
     //.registerCompileTime(Reduce<stride,numLoads,T>::dynSharedMemBytes);
+    std::cout<<" 1"<<std::endl;
     TuningSession session{tune::strategy::randomSearch{}};
-    auto result=session.withBlockSizeTune(tune::ThreadBlockSizeTune{})
-                    .withGridSizeTune(tune::GridSizeTune{})
+    auto result=session.withBlockSizeTune(testFrame.m_frameExtent)
+                    .withGridSizeTune(testFrame.m_numFrames)
                         .withRunSpecifiers(bufHost.getExtents().product())
                             .withConfig("./config/reduce.toml")
                                 .withDynamicRuns(1)
-                                    .enqueue(queue, exec,firstKernelFrame,taskKernel);
-
-    auto newKernelBundle=result.m_kernelBundle;
-    auto newFrameSpec=result.m_frameSpec;
-    auto const taskKernelLeftOver= KernelBundle{kernel2, type,bufAccA.getMdSpan(),destBuf.getMdSpan(),VecFirstExtent.x(),bufHost.getExtents(),alpaka::tune::Tuneable<std::size_t>(2)};
-    onHost::wait(queue);
-
-    auto const beginT = std::chrono::high_resolution_clock::now();
-    {
-        //auto event=session.createTimeEvent();//creates a tuning event for the current kernel call will in unique circumstance be used
-        //enqueue both Kernels queue ensures sequential execution
-        onHost::enqueue(queue, exec, newFrameSpec, newKernelBundle);
+                                    .enqueue(queue, exec,testFrame,testKernelExample);
+        std::cout<<" awdoawdk"<<std::endl;
+        auto newKernelBundle=result.m_kernelBundle;
+        auto newFrameSpec=result.m_frameSpec;
+        auto const taskKernelLeftOver= KernelBundle{kernel2, type,bufAccA.getMdSpan(),destBuf.getMdSpan(),VecFirstExtent.x(),bufHost.getExtents(),alpaka::tune::Tuneable<std::size_t>(2)};
         onHost::wait(queue);
-    }
 
-    auto const endT = std::chrono::high_resolution_clock::now();
-    //copy back results
-    onHost::memcpy(queue, destHost, destBuf,alpaka::Vec{static_cast<T>(1)});
-    onHost::wait(queue);
-    auto nr_of_operations=bufHost.getExtents().product();
+        auto const beginT = std::chrono::high_resolution_clock::now();
+        {
+            //auto event=session.createTimeEvent();//creates a tuning event for the current kernel call will in unique circumstance be used
+            //enqueue both Kernels queue ensures sequential execution
+            onHost::enqueue(queue, exec, firstKernelFrame, taskKernel);
+            onHost::wait(queue);
+        }
 
-    double timeInside=std::chrono::duration<double>(endT - beginT).count();
-    double kernelOps=((nr_of_operations/timeInside)/1e9);
-    std::cout<<"AccType,"<<core::demangledName(exec)<<",size,"<<nr_of_operations<<",GFLOP,"<<kernelOps<<std::endl;
-    return destHost.getMdSpan()[firstIndex];
+        auto const endT = std::chrono::high_resolution_clock::now();
+    std::cout<<" 2"<<std::endl;
+        //copy back results
+        onHost::memcpy(queue, destHost, destBuf,alpaka::Vec{static_cast<T>(1)});
+        onHost::wait(queue);
+        auto nr_of_operations=bufHost.getExtents().product();
+
+        double timeInside=std::chrono::duration<double>(endT - beginT).count();
+        double kernelOps=((nr_of_operations/timeInside)/1e9);
+        std::cout<<"AccType,"<<core::demangledName(exec)<<",size,"<<nr_of_operations<<",GFLOP,"<<kernelOps<<std::endl;
+        return destHost.getMdSpan()[firstIndex];
 }
 
 #endif //STARTKERNELWRAPPER_HPP

@@ -405,18 +405,18 @@ struct TuningSession
             return *this;
         }
 
-        template<bool gridSize=true,bool blockSize=true,typename T_newSession>
+        template<bool copyGridSize=false,bool copyBlockSize=false,typename T_newSession>
         void copy(T_newSession &session)
         {
             session.config=config;
             session.dynamicRuns_Nr=dynamicRuns_Nr;
             session.sessionSpecifier=sessionSpecifier;
             session.run.metric=this->run.metric;
-            if (gridSize)
+            if constexpr (copyGridSize)
             {
                 session.run.gridSize=this->run.gridSize;
             }
-            if (blockSize)
+            else if constexpr (copyBlockSize)
             {
                 session.run.threadBlockSize=this->run.threadBlockSize;
             }
@@ -425,30 +425,49 @@ struct TuningSession
         auto withGridSizeTune(tune::GridSizeTune<T,T_Begin,T_End,T_Stride> tune)
         {
             TuningSession<T_Strategy,tune::GridSizeTune<T,T_Begin,T_End,T_Stride>,T_BlockSize,true,block> ret{strategy};
-            this->template copy<false,true>(ret);
+            this->template copy<false,block>(ret);
             ret.run.gridSize=tune;
+            return ret;
+
+        }
+        template<typename T,auto dim>
+        auto withGridSizeTune(alpaka::Vec<T,dim> tune)
+        {
+            using VecType=ALPAKA_TYPEOF(tune);
+            TuningSession<T_Strategy,tune::GridSizeTune<VecType,VecType,VecType,VecType>,T_BlockSize,true,block> ret{strategy};
+            this->template copy<false,block>(ret);
+            ret.run.gridSize=std::move(tune::GridSizeTune<VecType,VecType,VecType,VecType>{tune});
             return ret;
 
         }
         auto withGridSizeTune()
         {
-            TuningSession<T_Strategy,tune::GridSizeTune<std::size_t>,T_BlockSize,true,block> ret{strategy};
-            this->template copy<false,true>(ret);
-            ret.run.gridSize=std::move(tune::GridSizeTune<T_Integer>{});
+            TuningSession<T_Strategy,tune::GridSizeTune<>,T_BlockSize,true,block> ret{strategy};
+            this->template copy<false,block>(ret);
+            ret.run.gridSize=std::move(tune::GridSizeTune{});
             return ret;
         }
         auto withBlockSizeTune()
         {
-            TuningSession<T_Strategy,T_GridSize,tune::ThreadBlockSizeTune<T_Integer>,grid,true> ret{strategy};
-            this->template copy<true,false>(ret);
-            ret.run.threadBlockSize=std::move(tune::ThreadBlockSizeTune<T_Integer>{});
+            TuningSession<T_Strategy,T_GridSize,tune::ThreadBlockSizeTune<>,grid,true> ret{strategy};
+            this->template copy<grid,false>(ret);
+            ret.run.threadBlockSize=std::move(tune::ThreadBlockSizeTune{});
+            return ret;
+        }
+        template<typename T,auto dim>
+        auto withBlockSizeTune(alpaka::Vec<T,dim> tune)
+        {
+            using VecType=ALPAKA_TYPEOF(tune);
+            TuningSession<T_Strategy,T_GridSize,tune::ThreadBlockSizeTune<VecType,VecType,VecType,VecType>,grid,true> ret{strategy};
+            this->template copy<grid,false>(ret);
+            ret.run.threadBlockSize=std::move(tune::ThreadBlockSizeTune<VecType,VecType,VecType,VecType>{tune});
             return ret;
         }
         template<typename T,typename T_Begin,typename T_End,typename T_Stride>
         auto withBlockSizeTune(tune::ThreadBlockSizeTune<T,T_Begin,T_End,T_Stride> tune)
         {
             TuningSession<T_Strategy,T_GridSize,tune::ThreadBlockSizeTune<T,T_Begin,T_End,T_Stride>,grid,true> ret{strategy};
-            this->template copy<true,false>(ret);
+            this->template copy<grid,false>(ret);
             ret.run.threadBlockSize=tune;
             return ret;
         }
@@ -464,7 +483,6 @@ struct TuningSession
                 return alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads>{T_NumBlocks(frameSpec.m_numFrames),
                             T_NumThreads(frameSpec.m_frameExtent),T_NumBlocks(spec.m_numBlocks),T_NumThreads(spec.m_numThreads)};
             }
-
         /** Enqueue and Execute a kernel for the tuning session will run @DynamicRuns times
              * @param queue the kernel will be executed after all previous work in this queue is finished
              * @param exec
@@ -484,7 +502,6 @@ struct TuningSession
             execName=alpaka::core::demangledName<T_Exec>(exec);
             deviceName=alpaka::core::demangledName<Device>(*queue->m_device);
             auto tuneableTuple = extractTuneables(kernelBundle);
-            using runType=ALPAKA_TYPEOF(this->run);
             auto activeRun=ActiveKernelRun{this->run.gridSize,this->run.threadBlockSize,std::move(tuneableTuple)};
             alpaka::onHost::FrameSpec<T_NumFrames,T_FrameExtent> dyna_frameSpec=frameSpec;
 

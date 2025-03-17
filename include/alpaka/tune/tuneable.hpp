@@ -309,7 +309,7 @@ Tuneable(T) -> Tuneable<T, T, T, T>;
     struct ThreadBlockSizeTune : Tuneable<T,T_Begin,T_End,T_Stride> {
         T blockThreadSize;
         constexpr explicit ThreadBlockSizeTune()
-            : Tuneable<T,T_Begin,T_End,T_Stride>(T(256), "gridSize"), blockThreadSize(T(256))
+            : Tuneable<T,T_Begin,T_End,T_Stride>(T(256), "blockThreadSize"), blockThreadSize(T(256))
         {}
         constexpr explicit ThreadBlockSizeTune(T initial_value,IdxRange<T_Begin, T_End, T_Stride> idxRange)
             : Tuneable<T,T_Begin,T_End,T_Stride>(initial_value, "blockThreadSize", idxRange)
@@ -333,7 +333,7 @@ Tuneable(T) -> Tuneable<T, T, T, T>;
     struct ThreadBlockSizeTune<T, T, T, T> : Tuneable<T, T, T, T>  {
         T blockThreadSize;
         constexpr explicit ThreadBlockSizeTune()
-            : Tuneable<T, T, T, T>(T(256), "gridSize"), blockThreadSize(T(256))
+            : Tuneable<T, T, T, T>(T(256), "blockThreadSize"), blockThreadSize(T(256))
         {}
         constexpr explicit ThreadBlockSizeTune(T initial_value,IdxRange<T, T, T> idxRange)
             : Tuneable<T, T, T, T>(initial_value, "blockThreadSize", idxRange)
