@@ -121,9 +121,7 @@ namespace alpaka::tune{
                 //@TODO add specialization
                 if(kernelRun.threadBlockSize)
                 {
-                    kernelRun.threadBlockSize=std::nullopt;
-                }
-                /*
+
                     if(!kernelRun.threadBlockSize->userDef)
                     {
                         using begin=ALPAKA_TYPEOF(kernelRun.threadBlockSize->idxRange.m_begin);
@@ -133,7 +131,7 @@ namespace alpaka::tune{
                         using stride=ALPAKA_TYPEOF(kernelRun.threadBlockSize->idxRange.m_stride);
                         kernelRun.threadBlockSize->idxRange.m_stride=stride(1);
                     }
-                }*/
+                }
                 if(kernelRun.gridSize)
                 {
                     if(!kernelRun.gridSize->userDef)
