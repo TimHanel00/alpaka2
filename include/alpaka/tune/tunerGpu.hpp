@@ -12,42 +12,62 @@
 namespace alpaka::tune
 {
     template<
-    typename T_Platform,
-    typename T_Mapping,
-    typename T_NumBlocks,
-    typename T_NumThreads,
-    typename T_KernelRun>
+        typename T_Platform,
+        typename T_Mapping,
+        typename T_NumBlocks,
+        typename T_NumThreads,
+        typename T_KernelRun>
     struct tunerAdjust::Op<
-    alpaka::onHost::unifiedCudaHip::Device<alpaka::onHost::unifiedCudaHip::Device<T_Platform>>,
-    T_Mapping,
-    alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads>,
-    T_KernelRun>
+        alpaka::onHost::Device<alpaka::onHost::unifiedCudaHip::Device<T_Platform>>,
+        T_Mapping,
+        alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads>,
+        T_KernelRun>
     {
         auto operator()(
-            alpaka::onHost::unifiedCudaHip::Device<alpaka::onHost::unifiedCudaHip::Device<T_Platform>> & device,
+            alpaka::onHost::Device<alpaka::onHost::unifiedCudaHip::Device<T_Platform>>& device,
             T_Mapping const& executor,
-            alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,T_KernelRun &kernelRun)
+            alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
+            T_KernelRun& kernelRun)
         {
-            using VecType=alpaka::Vec<std::size_t, 1>;
-            using idxRangeG=IdxRange<VecType,VecType,VecType>;
+            std::cout << " selected correct " << std::endl;
+
             if(kernelRun.threadBlockSize)
             {
                 if(!kernelRun.threadBlockSize->userDef)
                 {
-                    kernelRun.threadBlockSize=alpaka::tune::GridSizeTune{VecType(device->m_properties.m_maxThreadsPerBlock).x()/2,idxRangeG{32,device->m_properties.m_maxThreadsPerBlock,32}};
+                    auto maxThreads = alpaka::onHost::getDeviceProperties(device).m_maxThreadsPerBlock;
+                    while(maxThreads > dataBlocking.frameExtent.product())
+                    {
+                        maxThreads -= 32;
+                    }
+                    dataBlocking.frameExtent.product() using begin
+                        = ALPAKA_TYPEOF(kernelRun.threadBlockSize->idxRange.m_begin);
+                    kernelRun.threadBlockSize->idxRange.m_begin = begin(32);
+                    using end = ALPAKA_TYPEOF(kernelRun.threadBlockSize->idxRange.m_end);
+                    kernelRun.threadBlockSize->idxRange.m_end = end(maxThreads);
+                    using stride = ALPAKA_TYPEOF(kernelRun.threadBlockSize->idxRange.m_stride);
+                    kernelRun.threadBlockSize->idxRange.m_stride = stride(32);
                 }
             }
             if(kernelRun.gridSize)
             {
                 if(!kernelRun.gridSize->userDef)
                 {
-                    kernelRun.gridSize=alpaka::tune::GridSizeTune{VecType(device->m_properties.m_multiProcessorCount).x(),idxRangeG{device->m_properties.m_multiProcessorCount,device->m_properties.m_multiProcessorCount*16,device->m_properties.m_multiProcessorCount}};
+                    using begin = ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_begin);
+                    kernelRun.gridSize->idxRange.m_begin
+                        = begin(alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount);
+                    using end = ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_end);
+                    kernelRun.gridSize->idxRange.m_end
+                        = end(alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount * 16u);
+                    using stride = ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_stride);
+                    kernelRun.gridSize->idxRange.m_stride
+                        = stride(alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount);
                 }
             }
             return dataBlocking.getThreadSpec();
         }
     };
-};
+}; // namespace alpaka::tune
 
 #endif
-#endif //TUNERGPU_H
+#endif // TUNERGPU_H
