@@ -33,3 +33,4 @@
 #include "alpaka/onHost/mem/View.hpp"
 #include "alpaka/onHost/mem/stdContainer.hpp"
 #include "alpaka/tag.hpp"
+#include "alpaka/tune/api.hpp"

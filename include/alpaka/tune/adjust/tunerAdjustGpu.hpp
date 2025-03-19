@@ -7,7 +7,8 @@
 #include "alpaka/api/unifiedCudaHip/Device.hpp"
 #include "alpaka/onHost/mem/Data.hpp"
 #include "alpaka/onHost/trait.hpp"
-#include "alpaka/tune/tunerCpu.hpp"
+#include <alpaka/onHost/FrameSpec.hpp>
+#include <alpaka/tune/adjust/tunerAdjustCpu.hpp>
 #if ALPAKA_LANG_CUDA || ALPAKA_LANG_HIP
 namespace alpaka::tune
 {

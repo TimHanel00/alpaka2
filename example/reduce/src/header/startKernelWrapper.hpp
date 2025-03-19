@@ -4,8 +4,6 @@
 
 #ifndef STARTKERNELWRAPPER_HPP
 #define STARTKERNELWRAPPER_HPP
-#include "alpaka/tune/tuneable.hpp"
-#include "alpaka/tune/tuner.hpp"
 #include "reduceKernel.hpp"
 
 /*
@@ -95,8 +93,6 @@ auto reduction(operationType const& type, Exec& exec, DevHost& devHost, DevAcc& 
     // Instantiate the final Kernel object with the maximum shared memory it may require
     Reduce<IdxType{1}, IdxType{1}, T> kernel2{static_cast<uint32_t>(frameExtentTmp.x() * sizeof(T))};
     // with the data transfers to device completed we can now instantiate our Kernel Bundles (i.e. specify parameters
-    // for the Kernel function)
-    // auto tune=alpaka::tune::Tuneable<std::size_t>(5);
     auto taskKernel = KernelBundle{
         kernel1,
         type,
@@ -104,14 +100,14 @@ auto reduction(operationType const& type, Exec& exec, DevHost& devHost, DevAcc& 
         destBuf.getMdSpan(),
         IdxVec{0},
         VecFirstExtent,
-        alpaka::tune::Tuneable{alpaka::Vec<std::size_t, 3>{4, 5, 3}}}; // this causes errors.
+        tune::Tuneable{alpaka::Vec<std::size_t, 2>{4, 2}}}; // this causes errors.
     //.registerCompileTime(Reduce<stride,numLoads,T>::dynSharedMemBytes);
     std::cout << " Device: from Outer: " << typeid(ALPAKA_TYPEOF(devAcc)).name() << std::endl;
     TuningSession session{tune::strategy::randomSearch{}};
-    session.withBlockSizeTune()
-        .withGridSizeTune()
-        .withRunSpecifiers(bufHost.getExtents().product())
-        .withConfig("./config/reduce.toml");
+    auto latestSession = session.withBlockSizeTune()
+                             .withGridSizeTune()
+                             .withRunSpecifiers(bufHost.getExtents().product())
+                             .withConfig("./config/reduce.toml");
     auto const taskKernelLeftOver = KernelBundle{
         kernel2,
         type,
@@ -122,24 +118,18 @@ auto reduction(operationType const& type, Exec& exec, DevHost& devHost, DevAcc& 
         alpaka::tune::Tuneable<std::size_t>(2)};
     onHost::wait(queue);
 
-    auto const beginT = std::chrono::high_resolution_clock::now();
+    for(auto i : std::views::iota(0, 100))
     {
-        // auto event=session.createTimeEvent();//creates a tuning event for the current kernel call will in unique
-        // circumstance be used enqueue both Kernels queue ensures sequential execution
-        session.enqueue(devAcc, queue, exec, firstKernelFrame, taskKernel);
-        onHost::wait(queue);
+        {
+            // auto event=session.createTimeEvent();//creates a tuning event for the current kernel call will in unique
+            // circumstance be used enqueue both Kernels queue ensures sequential execution
+            latestSession.enqueue(devAcc, queue, exec, firstKernelFrame, taskKernel);
+            onHost::wait(queue);
+        }
     }
-
-    auto const endT = std::chrono::high_resolution_clock::now();
     // copy back results
     onHost::memcpy(queue, destHost, destBuf, alpaka::Vec{static_cast<T>(1)});
     onHost::wait(queue);
-    auto nr_of_operations = bufHost.getExtents().product();
-
-    double timeInside = std::chrono::duration<double>(endT - beginT).count();
-    double kernelOps = ((nr_of_operations / timeInside) / 1e9);
-    std::cout << "AccType," << core::demangledName(exec) << ",size," << nr_of_operations << ",GFLOP," << kernelOps
-              << std::endl;
     return destHost.getMdSpan()[firstIndex];
 }
 

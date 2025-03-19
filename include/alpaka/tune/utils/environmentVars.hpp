@@ -4,7 +4,6 @@
 
 #ifndef ENVIRONMENTVARS_H
 #define ENVIRONMENTVARS_H
-
 static std::size_t getReRuns()
 {
     if(char const* var = std::getenv("TunerReRuns"))

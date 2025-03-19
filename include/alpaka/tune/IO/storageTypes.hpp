@@ -9,7 +9,7 @@
 #define STORAGETYPES_H
 #include "alpaka/core/RemoveRestrict.hpp"
 #include "alpaka/meta/IntegerSequence.hpp"
-#include "alpaka/tune/tuneable.hpp"
+#include "alpaka/tune/active/tuneable.hpp"
 
 #include <cmath>
 
@@ -234,7 +234,7 @@ static KernelData createKernelData(
     return data;
 };
 
-// concretely defined run used for tuning (1 per Tuning Session)
+// concretely defined run for a tuning session stores extracted
 template<typename T_GridSize, typename T_BlockSize, typename T_TuneableType>
 struct ActiveKernelRun
 {
@@ -243,7 +243,7 @@ struct ActiveKernelRun
     std::optional<T_BlockSize> threadBlockSize{std::nullopt};
     T_floating metric{};
     T_TuneableType tuneables;
-    std::size_t maxRuns;
+    std::size_t maxRuns{};
     constexpr ActiveKernelRun() = default;
 
     constexpr ActiveKernelRun(
@@ -255,7 +255,13 @@ struct ActiveKernelRun
         , metric(std::numeric_limits<T_floating>::quiet_NaN())
         , tuneables(args)
     {
-        for_each(tuneables, [&](auto& argsT) { this->maxRuns += argsT.numSteps(); });
+        for_each(
+            tuneables,
+            [&](auto& argsT)
+            {
+                std::cout << " num steps: " << argsT.numSteps() << std::endl;
+                this->maxRuns += argsT.numSteps();
+            });
     };
 
     std::string toHash()
@@ -330,7 +336,6 @@ void toActive(ActiveKernelRun<T_GridSize, T_BlockSize, T_TuneableType>& active, 
 
     // Update metric by converting the storage string metric to the active kernel's floating type.
     active.metric = storeKernel.metric;
-    for_each(active.tuneables, [&](auto& argsT) { active.maxRuns += argsT.numSteps(); });
 }
 
 template<typename T_GridSize, typename T_BlockSize, typename T_TuneableType>

@@ -51,7 +51,7 @@ namespace alpaka::tune
 
         if(remainder == 0 && val >= begin && val <= end)
             return;
-        std::cout << " warning tuning Parameter does not meet the criteria specified by its Range! \n It will be "
+        std::cout << " Warning tuning Parameter does not meet the criteria specified by its Range! \n It will be "
                      "automatically adjusted."
                   << std::endl;
         auto n = offset / stride;
@@ -256,13 +256,12 @@ namespace alpaka::tune
 
         std::size_t numSteps()
         {
-            std::size_t numSteps = 0;
-            for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
+            std::size_t numSteps = ((idxRange.m_end[0] - idxRange.m_begin[0]) / idxRange.m_stride[0]) + 1;
+            for(std::size_t i = 1; i < alpaka::getDim(T{}); ++i)
             {
-                numSteps += ((idxRange.m_end[i] - idxRange.m_begin[i]) / idxRange.m_stride[i]);
-                numSteps += 1; // since we go from including start to including end range
+                numSteps = numSteps * (((idxRange.m_end[i] - idxRange.m_begin[i]) / idxRange.m_stride[i]) + 1);
             }
-            return alpaka::getDim(T{});
+            return numSteps;
         }
 
         std::vector<typename T::type> getValues()

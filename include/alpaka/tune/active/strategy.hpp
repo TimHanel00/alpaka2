@@ -4,9 +4,9 @@
 
 #ifndef STRATEGY_HPP
 #define STRATEGY_HPP
-#include "alpaka/tune/storageTypes.hpp"
-#include "environmentVars.h"
-#include "tuner.hpp"
+#include "alpaka/tune/IO/storageTypes.hpp"
+#include "alpaka/tune/active/tuningSession.hpp"
+#include "alpaka/tune/utils/environmentVars.hpp"
 
 #include <random>
 #include <vector>
@@ -174,7 +174,7 @@ namespace alpaka::tune::strategy
             {
                 if(run.second.metric < best.metric)
                 {
-                    best = run.second; // Update selectedRun to the run with the smaller metric
+                    best = run.second; // Update selectedRun to the run with the smaller time
                 }
             }
             toActive(kernelRun, best);

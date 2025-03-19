@@ -8,8 +8,32 @@
 #include "alpaka/onHost/mem/Data.hpp"
 #include "alpaka/onHost/trait.hpp"
 
+#include <alpaka/onHost/FrameSpec.hpp>
+#include <alpaka/tune/IO/storageTypes.hpp>
+#include <alpaka/tune/adjust/adjust.hpp>
+
 namespace alpaka::tune
 {
+
+    template<
+        typename T_DeviceHandle,
+        typename T_Exec,
+        typename T_NumBlocks,
+        typename T_NumThreads,
+        typename T_KernelRun>
+    onHost::FrameSpec<T_NumBlocks, T_NumThreads> SessAdjustThreadSpec(
+        T_DeviceHandle device,
+        T_Exec exec,
+        onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& frameSpec,
+        T_KernelRun& run)
+    {
+        auto spec = adjustThreadSpec(device, exec, frameSpec, run);
+        return alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads>{
+            T_NumBlocks(frameSpec.m_numFrames),
+            T_NumThreads(frameSpec.m_frameExtent),
+            T_NumBlocks(spec.m_numBlocks),
+            T_NumThreads(spec.m_numThreads)};
+    }
 
     struct tunerAdjust
     {
