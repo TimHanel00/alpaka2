@@ -124,6 +124,7 @@ namespace alpaka::tune
                         = end(alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount);
                     using stride = ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_stride);
                     kernelRun.gridSize->idxRange.m_stride = stride(1);
+                    kernelRun.gridSize->toRange();
                 }
             }
             auto const numThreads = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
@@ -159,6 +160,7 @@ namespace alpaka::tune
                         = end(alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount);
                     using stride = ALPAKA_TYPEOF(kernelRun.threadBlockSize->idxRange.m_stride);
                     kernelRun.threadBlockSize->idxRange.m_stride = stride(1);
+                    kernelRun.threadBlockSize->toRange();
                 }
             }
             if(kernelRun.gridSize)
@@ -172,6 +174,7 @@ namespace alpaka::tune
                         = end(alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount);
                     using stride = ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_stride);
                     kernelRun.gridSize->idxRange.m_stride = stride(1);
+                    kernelRun.gridSize->toRange();
                 }
             }
             return dataBlocking.getThreadSpec();

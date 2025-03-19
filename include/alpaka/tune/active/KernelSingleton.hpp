@@ -6,10 +6,10 @@
 #define KERNELSINGLETON_H
 #include "alpaka/core/decay.hpp"
 #include "alpaka/tune/adjust/adjust.hpp"
-#include <alpaka/tune/IO/storageTypes.hpp>
-#include <alpaka/tune/utils/tupleHandle.hpp>
 
 #include <alpaka/onHost/FrameSpec.hpp>
+#include <alpaka/tune/IO/storageTypes.hpp>
+#include <alpaka/tune/utils/tupleHandle.hpp>
 
 #include <utility>
 
@@ -82,9 +82,9 @@ public:
 
         applyCustomThreadSpec(*activeRunPtr, dyna_frameSpec);
         // acts like a guard only valid configs are used for the device
-        alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent> spec
-            = alpaka::tune::SessAdjustThreadSpec(device, exec, dyna_frameSpec, *activeRunPtr);
-        frameSpec = spec;
+        frameSpec = alpaka::tune::SessAdjustThreadSpec(device, exec, dyna_frameSpec, *activeRunPtr);
+        applyCustomThreadSpec(*activeRunPtr, dyna_frameSpec);
+        frameSpec = dyna_frameSpec;
     }
 
     // Prevent copy/move

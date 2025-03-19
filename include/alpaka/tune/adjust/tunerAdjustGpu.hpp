@@ -7,6 +7,7 @@
 #include "alpaka/api/unifiedCudaHip/Device.hpp"
 #include "alpaka/onHost/mem/Data.hpp"
 #include "alpaka/onHost/trait.hpp"
+
 #include <alpaka/onHost/FrameSpec.hpp>
 #include <alpaka/tune/adjust/tunerAdjustCpu.hpp>
 #if ALPAKA_LANG_CUDA || ALPAKA_LANG_HIP
@@ -48,6 +49,7 @@ namespace alpaka::tune
                     kernelRun.threadBlockSize->idxRange.m_end = end(maxThreads);
                     using stride = ALPAKA_TYPEOF(kernelRun.threadBlockSize->idxRange.m_stride);
                     kernelRun.threadBlockSize->idxRange.m_stride = stride(32);
+                    kernelRun.threadBlockSize->toRange();
                 }
             }
             if(kernelRun.gridSize)
@@ -63,6 +65,7 @@ namespace alpaka::tune
                     using stride = ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_stride);
                     kernelRun.gridSize->idxRange.m_stride
                         = stride(alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount);
+                    kernelRun.gridSize->toRange();
                 }
             }
             return dataBlocking.getThreadSpec();

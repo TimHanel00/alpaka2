@@ -295,6 +295,10 @@ struct DotKernel
 template<typename DataType>
 void testKernels(auto cfg)
 {
+    TuningSession session{tune::strategy::randomSearch{}};
+    auto latestSession = session.withBlockSizeTune()
+                             .withGridSizeTune();
+                             //.withConfig("./config/reduce.toml");
     if(kernelsToBeExecuted == KernelsToRun::All)
     {
         std::cout << "Kernels: Init, Copy, Mul, Add, Triad, Dot Kernels" << std::endl;
@@ -400,7 +404,8 @@ void testKernels(auto cfg)
     measureKernelExec(
         [&]()
         {
-            queue.enqueue(
+            latestSession.enqueue(devAcc,
+            queue,
                 exec,
                 dataBlocking,
                 KernelBundle{
@@ -430,7 +435,8 @@ void testKernels(auto cfg)
             measureKernelExec(
                 [&]()
                 {
-                    queue.enqueue(
+                    latestSession.enqueue(devAcc,
+                    queue,
                         exec,
                         dataBlocking,
                         KernelBundle{CopyKernel(), bufAccInputA.getMdSpan(), bufAccOutputC.getMdSpan(), arraySize});
@@ -440,13 +446,15 @@ void testKernels(auto cfg)
             // Test the scaling-kernel. Calculate B=scalar*C. Where C = A.
             measureKernelExec(
                 [&]() {
-                    queue.enqueue(
+                    latestSession.enqueue(devAcc,
+                    queue,
                         exec,
                         dataBlocking,
+                        KernelBundle{
                         MultKernel(),
                         bufAccInputB.getMdSpan(),
                         bufAccOutputC.getMdSpan(),
-                        arraySize);
+                        arraySize});
                 },
                 "MultKernel");
 
@@ -454,7 +462,8 @@ void testKernels(auto cfg)
             measureKernelExec(
                 [&]()
                 {
-                    queue.enqueue(
+                    latestSession.enqueue(devAcc,
+                    queue,
                         exec,
                         dataBlocking,
                         KernelBundle{
@@ -473,7 +482,8 @@ void testKernels(auto cfg)
             measureKernelExec(
                 [&]()
                 {
-                    queue.enqueue(
+                    latestSession.enqueue(devAcc,
+                    queue,
                         exec,
                         dataBlocking,
                         KernelBundle{
@@ -507,7 +517,8 @@ void testKernels(auto cfg)
                 {
                     // set initial value of the sum to 0
                     onHost::memset(queue, bufAccSumPerBlock, 0);
-                    queue.enqueue(
+                    latestSession.enqueue(devAcc,
+                                          queue,
                         exec,
                         dataBlockingDot,
                         KernelBundle{
@@ -532,7 +543,8 @@ void testKernels(auto cfg)
             measureKernelExec(
                 [&]()
                 {
-                    queue.enqueue(
+                    latestSession.enqueue(devAcc,
+                    queue,
                         exec,
                         dataBlocking,
                         KernelBundle{

@@ -24,7 +24,26 @@
 
 namespace alpaka
 {
+    template<typename T_active>
+    void printGBFromActive(T_active& active)
+    {
+        if(active.gridSize.has_value())
+        {
+            std::cout << "G: " << active.gridSize->valueToString() << std::endl;
+            return;
+        }
+        if(active.threadBlockSize.has_value())
+        {
+            std::cout << "B: " << active.threadBlockSize->valueToString() << std::endl;
+            return;
+        }
 
+        if(active.threadBlockSize.has_value() && active.gridSize.has_value())
+        {
+            std::cout << "G: " << active.gridSize->valueToString()
+                      << " , B: " << active.threadBlockSize->valueToString() << std::endl;
+        }
+    }
 
 #    define MetricUndefined std::numeric_limits<float>::quiet_NaN()
 
@@ -205,7 +224,10 @@ namespace alpaka
             if(!m_initialized)
             {
                 m_initialized = true;
-                history.loadConfig(config);
+                if(config != "")
+                {
+                    history.loadConfig(config);
+                }
             }
             static auto& kernel = createKernelSingleton<grid, block>(
                 device,
@@ -221,7 +243,7 @@ namespace alpaka
             {
                 // if the tuning space is exhausted, always take the best tune
                 {
-                    auto event = tune::createTimeEventFromActive(run);
+                    auto event = tune::createTimeEventFromActive(activeRun);
                     alpaka::tune::strategy::bestRecorded{}(activeRun, ptrToHistory->runs);
                     applyCustomThreadSpec(activeRun, kernel.frameSpec);
                     auto bundle = recreate(kernelBundle, activeRun.tuneables);
@@ -245,24 +267,15 @@ namespace alpaka
             onHost::FrameSpec<T_NumBlocks, T_NumThreads>& spec)
         {
             auto runHash = run.toHash();
-
             if(data->runs.contains(runHash)) // check whether this parameter tuple was already taken
             {
                 StorageKernelRun& storeKernel = data->runs[runHash];
-
                 if(storeKernel.nr_runs >= this->reRuns) // check whether stored run has less runs
                 {
                     auto sharedParams = makeSharedParameterInterface<grid, block, T_kernelRun>(run);
                     strategy(sharedParams, run, data->runs);
                     runHash = run.toHash();
                 }
-            }
-            if(grid)
-            {
-                std::cout << run.
-            }
-            if(block)
-            {
             }
             applyCustomThreadSpec(run, spec);
 
@@ -274,7 +287,6 @@ namespace alpaka
                 onHost::enqueue(queue, exec, spec, bundle);
                 onHost::wait(queue);
             }
-
             if(!data->runs.contains(runHash))
             {
                 data->runs[runHash] = toStore(run);
@@ -294,7 +306,7 @@ namespace alpaka
 
         ~TuningSession()
         {
-            if(m_initialized)
+            if(m_initialized && config != "")
             {
                 history.storeConfig(config);
             }

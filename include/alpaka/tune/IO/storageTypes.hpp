@@ -262,6 +262,12 @@ struct ActiveKernelRun
                 std::cout << " num steps: " << argsT.numSteps() << std::endl;
                 this->maxRuns += argsT.numSteps();
             });
+        if(gridSize.has_value()){
+            this->maxRuns += gridSize->numSteps();
+        }
+        if(threadBlockSize.has_value()){
+            this->maxRuns += threadBlockSize->numSteps();
+        }
     };
 
     std::string toHash()

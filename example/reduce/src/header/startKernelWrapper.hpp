@@ -127,6 +127,7 @@ auto reduction(operationType const& type, Exec& exec, DevHost& devHost, DevAcc& 
             onHost::wait(queue);
         }
     }
+    std::cout << alpaka::core::demangledName(exec) << std::endl;
     // copy back results
     onHost::memcpy(queue, destHost, destBuf, alpaka::Vec{static_cast<T>(1)});
     onHost::wait(queue);

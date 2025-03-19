@@ -44,20 +44,18 @@ namespace alpaka::tune
 {
     void adjustToRange(auto& value, auto& begin, auto& end, auto& stride)
     {
+        using VType = ALPAKA_TYPEOF(begin);
         auto val = value;
 
         auto offset = val - begin;
         auto remainder = offset % stride;
 
-        if(remainder == 0 && val >= begin && val <= end)
+        if(remainder == VType{0} && val >= begin && val <= end)
             return;
-        std::cout << " Warning tuning Parameter does not meet the criteria specified by its Range! \n It will be "
-                     "automatically adjusted."
-                  << std::endl;
         auto n = offset / stride;
-        if(remainder * 2 >= stride)
+        if(remainder * VType{2} >= stride)
         {
-            ++n; // Round up if closer
+            n = n + VType{1}; // Round up if closer
         }
 
         auto corrected = begin + n * stride;
@@ -65,10 +63,19 @@ namespace alpaka::tune
         // Clamp within range
         if(corrected < begin)
             corrected = begin;
-        if(corrected >= end)
-            corrected = end - stride;
-
-        value = corrected;
+        if(corrected > end)
+            corrected = end;
+        if constexpr(std::is_arithmetic_v<ALPAKA_TYPEOF(value)>)
+        {
+            value = corrected.product();
+        }
+        else
+        {
+            if constexpr(alpaka::isVector_v<ALPAKA_TYPEOF(value)>)
+            {
+                value = corrected;
+            }
+        }
     }
 
     struct StorageTuneable
@@ -133,14 +140,19 @@ namespace alpaka::tune
         bool userDef;
         IdxRange<T_Begin, T_End, T_Stride> idxRange;
 
-        std::size_t numSteps()
+        std::size_t numSteps() const
         {
-            return (idxRange.distance() / idxRange.m_stride) + 1;
+            return (idxRange.distance() / idxRange.m_stride).product() + 1;
         }
 
-        std::vector<T> getValues()
+        std::vector<T> getValues() const
         {
             return {value};
+        }
+
+        void toRange()
+        {
+            adjustToRange(value, this->idxRange.m_begin, this->idxRange.m_end, this->idxRange.m_stride);
         }
 
         static IdxRange<T_Begin, T_End, T_Stride> defaultIdxRange(T val)
@@ -163,7 +175,7 @@ namespace alpaka::tune
             , userDef(true)
             , idxRange(ir)
         {
-            adjustToRange(value, this->idxRange.m_begin, this->idxRange.m_end, this->idxRange.m_stride);
+            toRange();
         }
 
         // idxRange only
@@ -175,7 +187,6 @@ namespace alpaka::tune
             // Arbitrary example guess for default 'value'
 
             value = (this->idxRange.m_end().product() - this->idxRange.m_begin.product()) / T(2);
-            adjustToRange(value, this->idxRange.m_begin, this->idxRange.m_end, this->idxRange.m_stride);
         }
 
         // idxRange + custom name
@@ -185,7 +196,7 @@ namespace alpaka::tune
             , idxRange(std::move(ir))
         {
             value = (this->idxRange.m_end().product() - this->idxRange.m_begin.product()) / T(2);
-            adjustToRange(value, this->idxRange.m_begin, this->idxRange.m_end, this->idxRange.m_stride);
+            toRange();
         }
 
         // value + custom name
@@ -204,7 +215,7 @@ namespace alpaka::tune
             , userDef(true)
             , idxRange(std::move(ir))
         {
-            adjustToRange(value, this->idxRange.m_begin, this->idxRange.m_end(), this->idxRange.m_stride);
+            toRange();
         }
 
         [[nodiscard]] std::string valueToString() const
@@ -254,7 +265,7 @@ namespace alpaka::tune
             return IdxRange<T, T, T>{zero, val, ones};
         }
 
-        std::size_t numSteps()
+        std::size_t numSteps() const
         {
             std::size_t numSteps = ((idxRange.m_end[0] - idxRange.m_begin[0]) / idxRange.m_stride[0]) + 1;
             for(std::size_t i = 1; i < alpaka::getDim(T{}); ++i)
@@ -264,7 +275,7 @@ namespace alpaka::tune
             return numSteps;
         }
 
-        std::vector<typename T::type> getValues()
+        std::vector<typename T::type> getValues() const
         {
             std::vector<typename T::type> ret;
             for(auto i = 0; i < alpaka::getDim(T{}); ++i)
@@ -272,6 +283,18 @@ namespace alpaka::tune
                 ret.emplace_back(value[i]);
             }
             return ret;
+        }
+
+        void toRange()
+        {
+            for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
+            {
+                adjustToRange(
+                    value[i],
+                    this->idxRange.m_begin[i],
+                    this->idxRange.m_end[i],
+                    this->idxRange.m_stride[i]);
+            }
         }
 
         // Constructors mimic the integral version, but with T => alpaka::Vec.
@@ -293,14 +316,7 @@ namespace alpaka::tune
             , userDef(true)
             , idxRange(ir)
         {
-            for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
-            {
-                adjustToRange(
-                    value[i],
-                    this->idxRange.m_begin[i],
-                    this->idxRange.m_end[i],
-                    this->idxRange.m_stride[i]);
-            }
+            toRange();
         }
 
         explicit Tuneable(IdxRange<T, T, T> ir) : name("TuneableVec: "), userDef(true), idxRange(std::move(ir))
@@ -312,14 +328,7 @@ namespace alpaka::tune
                 half[i] = (idxRange.m_end()[i] - idxRange.m_begin()[i]) / 2;
             }
             value = half;
-            for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
-            {
-                adjustToRange(
-                    value[i],
-                    this->idxRange.m_begin[i],
-                    this->idxRange.m_end[i],
-                    this->idxRange.m_stride[i]);
-            }
+            toRange();
         }
 
         explicit Tuneable(std::string iname, IdxRange<T, T, T> ir)
@@ -333,14 +342,7 @@ namespace alpaka::tune
                 half[i] = (idxRange.m_end()[i] - idxRange.m_begin()[i]) / 2;
             }
             value = half;
-            for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
-            {
-                adjustToRange(
-                    value[i],
-                    this->idxRange.m_begin[i],
-                    this->idxRange.m_end[i],
-                    this->idxRange.m_stride[i]);
-            }
+            toRange();
         }
 
         explicit Tuneable(T const& val, std::string iname)
@@ -357,14 +359,7 @@ namespace alpaka::tune
             , userDef(true)
             , idxRange(std::move(ir))
         {
-            for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
-            {
-                adjustToRange(
-                    value[i],
-                    this->idxRange.m_begin[i],
-                    this->idxRange.m_end[i],
-                    this->idxRange.m_stride[i]);
-            }
+            toRange();
         }
 
         std::string toHash() const
