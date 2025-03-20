@@ -27,9 +27,8 @@ namespace alpaka::tune
             std::vector<std::string> const& sessionSpecs,
             std::string const& targetMetric = "time")
         {
-            std::string lookUpHash = alpaka::core::demangledName<T_DeviceHandle>(device)
-                                     + alpaka::core::demangledName<T_Exec>(exec)
-                                     + alpaka::core::demangledName<T_KernelBundle>(kernelBundle) + targetMetric
+            std::string lookUpHash = std::string("") + alpaka::core::demangledName(device) + core::demangledName(exec)
+                                     + core::demangledName(kernelBundle) + targetMetric
                                      + std::accumulate(sessionSpecs.begin(), sessionSpecs.end(), std::string());
             if(m_tuningHistory.contains(lookUpHash))
             {
@@ -151,6 +150,7 @@ namespace alpaka::tune
                                 }
 
                                 std::string kernelKey = run.toHash();
+                                kernelData.sumOfRuns += run.nr_runs;
                                 kernelData.runs[kernelKey] = std::move(run);
                             }
                         }
@@ -187,6 +187,7 @@ namespace alpaka::tune
         void storeConfig(std::string const& filename)
         {
             toml::table config;
+            std::cout << " tuning Size: " << m_tuningHistory.size() << std::endl;
             for(auto const& [key, kernelData] : m_tuningHistory)
             {
                 toml::table kernelTable;

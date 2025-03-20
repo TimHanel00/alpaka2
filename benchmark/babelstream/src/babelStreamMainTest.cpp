@@ -295,9 +295,7 @@ struct DotKernel
 template<typename DataType>
 void testKernels(auto cfg)
 {
-    TuningSession session{tune::strategy::randomSearch{}};
-    auto latestSession = session.withBlockSizeTune()
-                             .withGridSizeTune();
+
                              //.withConfig("./config/reduce.toml");
     if(kernelsToBeExecuted == KernelsToRun::All)
     {
@@ -360,7 +358,9 @@ void testKernels(auto cfg)
 
     auto numFrames = core::divCeil(arraySize, static_cast<Idx>(blockThreadExtentMain) * elementsPerFrameItem);
     auto dataBlocking = onHost::FrameSpec{numFrames, static_cast<Idx>(blockThreadExtentMain)};
-
+    TuningSession session{tune::strategy::randomSearch{}};
+    auto latestSession = session.withBlockSizeTune(dataBlocking.m_frameExtent).withConfig("./config/babelstream.toml").
+                             withGridSizeTune(dataBlocking.m_numFrames);
     // To record runtime data generated while running the kernels
     RuntimeResults runtimeResults;
 

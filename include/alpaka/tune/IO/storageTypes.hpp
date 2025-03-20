@@ -133,7 +133,7 @@ struct StorageKernelRun
     std::optional<alpaka::tune::StorageTuneable> gridSize{std::nullopt};
     std::optional<alpaka::tune::StorageTuneable> threadBlockSize{std::nullopt};
     double_t metric;
-    std::size_t nr_runs{0};
+    std::size_t nr_runs{1};
 
     [[nodiscard]] std::string toHash() const
     {
@@ -143,9 +143,9 @@ struct StorageKernelRun
             m += tuneable.toHash();
         }
         if(gridSize.has_value())
-            m += gridSize.value().value;
+            m += gridSize.value().toHash();
         if(threadBlockSize.has_value())
-            m += gridSize.value().value;
+            m += gridSize.value().toHash();
         return m;
     }
 
@@ -210,6 +210,8 @@ struct KernelData
     std::string kernel;
     std::string targetMetric;
     std::vector<std::string> specifiers;
+    bool exhausted = false;
+    std::size_t sumOfRuns{0};
 
     std::string toHash()
     {
@@ -219,8 +221,9 @@ struct KernelData
 };
 
 static KernelData createKernelData(
-    std::string const& exec,
     std::string const& device,
+    std::string const& exec,
+
     std::string const& bundle,
     std::vector<std::string> const& sessionSpecs,
     std::string const& targetMetric = "time")
@@ -244,6 +247,7 @@ struct ActiveKernelRun
     T_floating metric{};
     T_TuneableType tuneables;
     std::size_t maxRuns{};
+    std::size_t maxRunsDefault{};
     constexpr ActiveKernelRun() = default;
 
     constexpr ActiveKernelRun(
@@ -255,19 +259,8 @@ struct ActiveKernelRun
         , metric(std::numeric_limits<T_floating>::quiet_NaN())
         , tuneables(args)
     {
-        for_each(
-            tuneables,
-            [&](auto& argsT)
-            {
-                std::cout << " num steps: " << argsT.numSteps() << std::endl;
-                this->maxRuns += argsT.numSteps();
-            });
-        if(gridSize.has_value()){
-            this->maxRuns += gridSize->numSteps();
-        }
-        if(threadBlockSize.has_value()){
-            this->maxRuns += threadBlockSize->numSteps();
-        }
+        for_each(tuneables, [&](auto& argsT) { maxRunsDefault += argsT.numSteps(); });
+        maxRuns = maxRunsDefault;
     };
 
     std::string toHash()

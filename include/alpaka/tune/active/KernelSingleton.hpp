@@ -69,22 +69,18 @@ public:
         {
             // once per tuningSession - make sure to reset static variables since they might persist between
             // multiple instances of TuningSession
-            std::string deviceName = alpaka::core::demangledName<T_Device>(device);
-            std::string execName = alpaka::core::demangledName<T_Exec>(exec);
-            std::string kernelName = alpaka::core::demangledName<T_KernelBundle>(kernelBundle);
-            ptrToHistory
-                = std::make_shared<KernelData>(createKernelData(deviceName, execName, kernelName, sessionSpecifier));
-            std::string key = ptrToHistory->toHash();
-            history.m_tuningHistory[key] = std::move(*ptrToHistory);
-            ptrToHistory = std::shared_ptr<KernelData>(&history.m_tuningHistory[key], [](KernelData*) {});
+            std::string deviceName = alpaka::core::demangledName(device);
+            std::string execName = alpaka::core::demangledName(exec);
+            std::string kernelName = alpaka::core::demangledName(kernelBundle);
+            auto tmp = createKernelData(deviceName, execName, kernelName, sessionSpecifier);
+            history.m_tuningHistory.emplace(tmp.toHash(), std::move(tmp));
+            ptrToHistory = history.getKernelFromHistory(device, exec, kernelBundle, sessionSpecifier);
         }
-        alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent> dyna_frameSpec = frameSpec_;
-
-        applyCustomThreadSpec(*activeRunPtr, dyna_frameSpec);
         // acts like a guard only valid configs are used for the device
-        frameSpec = alpaka::tune::SessAdjustThreadSpec(device, exec, dyna_frameSpec, *activeRunPtr);
-        applyCustomThreadSpec(*activeRunPtr, dyna_frameSpec);
-        frameSpec = dyna_frameSpec;
+        frameSpec = alpaka::tune::SessAdjustThreadSpec(device, exec, frameSpec, *activeRunPtr);
+        clampToSpec(frameSpec, *activeRunPtr);
+        recalculateMaxGridBlockRuns(*activeRunPtr);
+        applyCustomThreadSpec(*activeRunPtr, frameSpec);
     }
 
     // Prevent copy/move
@@ -110,7 +106,7 @@ static auto& createKernelSingleton(
     auto activeRun = ActiveKernelRun{run.gridSize, run.threadBlockSize, extractTuneables(bundle)};
     auto activePtr = std::make_unique<ALPAKA_TYPEOF(activeRun)>(
         activeRun); // make copy as a smart ptr so when its later move the sharedParameter
-    auto sharedParams = makeSharedParameterInterface<grid, block, ALPAKA_TYPEOF(activeRun)>(*activePtr);
+    auto sharedParams = makeSharedParameterInterface<grid, block, ALPAKA_TYPEOF(*activePtr)>(*activePtr);
     auto ptrToHistory = history.getKernelFromHistory(device, exec, bundle, sessionSpecifier);
     using kernelSingletonType = KernelSingleton<
         grid,
@@ -130,7 +126,7 @@ static auto& createKernelSingleton(
         bundle,
         std::move(activePtr),
         ptrToHistory,
-        sharedParams,
+        std::move(sharedParams),
         sessionSpecifier,
         history);
     return *singleTon;

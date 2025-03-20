@@ -6,6 +6,23 @@
 #define STARTKERNELWRAPPER_HPP
 #include "reduceKernel.hpp"
 
+static std::size_t getNumberRuns()
+{
+    if(char const* var = std::getenv("number_runs"))
+    {
+        try
+        {
+            std::size_t const value = static_cast<std::size_t>(std::stoul(var));
+            return value;
+        }
+        catch(std::exception const& e)
+        {
+            std::cerr << "Invalid value for number_runs: " << e.what() << std::endl;
+        }
+    }
+    return 0;
+}
+
 /*
  * rounds a 1Dim integerType Vector to the closest n aligend Nr
  */
@@ -99,13 +116,12 @@ auto reduction(operationType const& type, Exec& exec, DevHost& devHost, DevAcc& 
         bufAccA.getMdSpan(),
         destBuf.getMdSpan(),
         IdxVec{0},
-        VecFirstExtent,
-        tune::Tuneable{alpaka::Vec<std::size_t, 2>{4, 2}}}; // this causes errors.
+        VecFirstExtent}; // this causes errors.
     //.registerCompileTime(Reduce<stride,numLoads,T>::dynSharedMemBytes);
     std::cout << " Device: from Outer: " << typeid(ALPAKA_TYPEOF(devAcc)).name() << std::endl;
     TuningSession session{tune::strategy::randomSearch{}};
-    auto latestSession = session.withBlockSizeTune()
-                             .withGridSizeTune()
+    auto latestSession = session.withBlockSizeTune(alpaka::Vec<std::size_t,1u>{5})
+                             .withGridSizeTune(alpaka::Vec<std::size_t,1u>{6})
                              .withRunSpecifiers(bufHost.getExtents().product())
                              .withConfig("./config/reduce.toml");
     auto const taskKernelLeftOver = KernelBundle{
@@ -118,14 +134,12 @@ auto reduction(operationType const& type, Exec& exec, DevHost& devHost, DevAcc& 
         alpaka::tune::Tuneable<std::size_t>(2)};
     onHost::wait(queue);
 
-    for(auto i : std::views::iota(0, 100))
+    for(auto i = 0; i < getNumberRuns(); i++)
     {
-        {
-            // auto event=session.createTimeEvent();//creates a tuning event for the current kernel call will in unique
-            // circumstance be used enqueue both Kernels queue ensures sequential execution
-            latestSession.enqueue(devAcc, queue, exec, firstKernelFrame, taskKernel);
-            onHost::wait(queue);
-        }
+        // auto event=session.createTimeEvent();//creates a tuning event for the current kernel call will in unique
+        // circumstance be used enqueue both Kernels queue ensures sequential execution
+        latestSession.enqueue(devAcc, queue, exec, firstKernelFrame, taskKernel);
+        onHost::wait(queue);
     }
     std::cout << alpaka::core::demangledName(exec) << std::endl;
     // copy back results

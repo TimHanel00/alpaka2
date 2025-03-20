@@ -15,32 +15,30 @@ namespace alpaka::tune::strategy
 {
 
 
-    template<typename T_Begin, typename T_End, typename T_Stride>
-    T_Begin randomIdx(IdxRange<T_Begin, T_End, T_Stride> const& range)
+    template<typename T>
+    T randomIdx(IdxRangeHandle<T> const& range)
     {
         // Alias the vector type for the result.
-        using VecType = T_Begin;
 
         // Create a result vector.
-        VecType result;
+        T result;
         // Assume that T_Begin has a static member T_dim (or use T_End::T_dim).
-        constexpr auto dim = IdxRange<T_Begin, T_End, T_Stride>::dim();
 
         // Set up a random number generator.
         // (Using static so that the generator is not re-seeded on every call.)
         static std::random_device rd;
         static std::mt19937 gen(rd());
         // For each dimension, retrieve the minimum, maximum and stride.
-        auto minVal = range.m_begin[0];
-        auto maxVal = range.m_end[0];
-        auto step = range.m_stride[0];
+        auto minVal = range.m_begin;
+        auto maxVal = range.m_end;
+        auto step = range.m_stride;
 
         auto numSteps = (maxVal - minVal) / step;
 
         // If there are no steps (or only one valid value), use minVal.
         if(numSteps <= 0)
         {
-            result[0] = minVal;
+            result = minVal;
         }
         else
         {
@@ -48,47 +46,45 @@ namespace alpaka::tune::strategy
             std::uniform_int_distribution<decltype(minVal)> dis(0, numSteps);
             auto k = dis(gen);
             // Set the i-th component as minVal + k * step.
-            result[0] = minVal + k * step;
+            result = minVal + k * step;
         }
         return result;
     }
 
-    template<typename T, typename T_Begin, typename T_End, typename T_Stride>
-    T getNextUpper(T const& value, IdxRange<T_Begin, T_End, T_Stride> const& range, bool& valid)
+    template<typename T>
+    T getNextUpper(T const& value, IdxRangeHandle<T> const& range, bool& valid)
     {
-        using VecType = T_Begin;
         // Create a result vector.
-        VecType result{value};
-        auto minVal = range.m_begin[0];
-        auto maxVal = range.m_end[0];
-        auto step = range.m_stride[0];
-        result[0] = (result[0] + step);
-        if(result[0] < minVal || result[0] > maxVal)
+        T result{value};
+        auto minVal = range.m_begin;
+        auto maxVal = range.m_end;
+        auto step = range.m_stride;
+        result = (result + step);
+        if(result < minVal || result > maxVal)
         {
             valid = false;
             return maxVal;
         }
 
-        return T(result.product());
+        return result;
     }
 
-    template<typename T, typename T_Begin, typename T_End, typename T_Stride>
-    T getNextLower(T const& value, IdxRange<T_Begin, T_End, T_Stride> const& range, bool& valid)
+    template<typename T>
+    T getNextLower(T const& value, IdxRangeHandle<T> const& range, bool& valid)
     {
-        using VecType = T_Begin;
         // Create a result vector.
-        VecType result{value};
-        auto minVal = range.m_begin[0];
-        auto maxVal = range.m_end[0];
-        auto step = range.m_stride[0];
-        result[0] = (result[0] - step);
-        if(result[0] < minVal || result[0] > maxVal)
+        T result{value};
+        auto minVal = range.m_begin;
+        auto maxVal = range.m_end;
+        auto step = range.m_stride;
+        result = (result - step);
+        if(result < minVal || result > maxVal)
         {
             valid = false;
             return minVal;
         }
 
-        return T(result.product());
+        return result;
     }
 
     struct randomSample
@@ -99,7 +95,7 @@ namespace alpaka::tune::strategy
             [[maybe_unused]] T_ActiveKernel& kernelRun,
             [[maybe_unused]] std::unordered_map<std::string, storageKernel>& history) const
         {
-            for_each(tuneables, [](auto& parameter) { parameter.value = randomIdx(parameter.idxRange).x(); });
+            for_each(tuneables, [](auto& parameter) { parameter.value = randomIdx(parameter.idxRange); });
         }
     };
 

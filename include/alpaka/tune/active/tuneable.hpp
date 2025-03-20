@@ -24,24 +24,60 @@ void for_each(Tuple&& tup, F&& f)
     for_each_impl(std::forward<Tuple>(tup), std::forward<F>(f), std::make_index_sequence<N>{});
 }
 
-template<typename T_KernelRun, typename T_FrameSpec>
-static T_FrameSpec& applyCustomThreadSpec(T_KernelRun& kernelRun, T_FrameSpec& spec)
-{
-    if(kernelRun.gridSize != std::nullopt)
-    {
-        auto val = kernelRun.gridSize->value;
-        spec.m_threadSpec.m_numBlocks = ALPAKA_TYPEOF(spec.m_threadSpec.m_numBlocks)(val);
-    }
-    if(kernelRun.threadBlockSize != std::nullopt)
-    {
-        auto val = kernelRun.threadBlockSize->value;
-        spec.m_threadSpec.m_numThreads = ALPAKA_TYPEOF(spec.m_threadSpec.m_numThreads)(val);
-    }
-    return spec;
-}
-
 namespace alpaka::tune
 {
+    template<typename T_ActiveKernel>
+    void recalculateMaxGridBlockRuns(T_ActiveKernel& active)
+    {
+        active.maxRuns = active.maxRunsDefault;
+        if(active.gridSize.has_value())
+        {
+            active.maxRuns += active.gridSize->numSteps();
+        }
+        if(active.threadBlockSize.has_value())
+        {
+            active.maxRuns += active.threadBlockSize->numSteps();
+        }
+    }
+
+    void clampToSpec_elem(auto& value, auto& idxRange)
+    {
+        using rangeType = ALPAKA_TYPEOF(idxRange.m_begin);
+
+        for(std::size_t i = 0; i < alpaka::getDim(rangeType{}); ++i)
+        {
+            if(idxRange.m_begin[i] <= 0 || idxRange.m_begin[i] >= value[i])
+            {
+                idxRange.m_begin[i] = 1;
+            }
+
+            if(idxRange.m_stride[i] <= 0)
+            {
+                idxRange.m_stride[i] = 1;
+            }
+            if(idxRange.m_end[i] > value[i] || idxRange.m_end[i] < idxRange.m_begin[i])
+            {
+                auto maxEnd = ((value[i] - idxRange.m_begin[i]) / idxRange.m_stride[i]) * idxRange.m_stride[i]
+                              + idxRange.m_begin[i];
+                idxRange.m_end[i] = (maxEnd > idxRange.m_begin[i]) ? maxEnd : idxRange.m_begin[i];
+            }
+        }
+    }
+
+    void clampToSpec(auto& frameSpec, auto& activeKernel)
+    {
+        if(activeKernel.gridSize.has_value())
+        {
+            clampToSpec_elem(frameSpec.m_numFrames, activeKernel.gridSize->idxRange);
+            activeKernel.gridSize->toRange();
+        }
+        if(activeKernel.threadBlockSize.has_value())
+        {
+            clampToSpec_elem(frameSpec.m_frameExtent, activeKernel.threadBlockSize->idxRange);
+            activeKernel.threadBlockSize->toRange();
+        }
+    }
+
     void adjustToRange(auto& value, auto& begin, auto& end, auto& stride)
     {
         using VType = ALPAKA_TYPEOF(begin);
@@ -65,17 +101,7 @@ namespace alpaka::tune
             corrected = begin;
         if(corrected > end)
             corrected = end;
-        if constexpr(std::is_arithmetic_v<ALPAKA_TYPEOF(value)>)
-        {
-            value = corrected.product();
-        }
-        else
-        {
-            if constexpr(alpaka::isVector_v<ALPAKA_TYPEOF(value)>)
-            {
-                value = corrected;
-            }
-        }
+        value = corrected;
     }
 
     struct StorageTuneable
@@ -92,6 +118,18 @@ namespace alpaka::tune
     template<typename T>
     concept IsIntegral = std::is_integral_v<T>;
 
+    template<typename T>
+    struct IdxRangeHandle
+    {
+        T& m_begin;
+        T& m_end;
+        T& m_stride;
+
+        IdxRangeHandle(T& begin, T& end, T& stride) : m_begin(begin), m_end(end), m_stride(stride)
+        {
+        }
+    };
+
     /**
      *this is a 1 dim non-owning tuple handle for a tuneable object - these are used for defining strategies and
      *allowing uniform access
@@ -105,13 +143,13 @@ namespace alpaka::tune
         ;
         std::string name;
         bool userDef;
-        IdxRange<alpaka::Vec<T, 1>, alpaka::Vec<T, 1>, alpaka::Vec<T, 1>> idxRange;
+        IdxRangeHandle<T> idxRange;
 
         FlatTuneableHandle(T& val, std::string const& n, bool u, T& b, T& e, T& s)
             : value(val)
             , name(n)
             , userDef(u)
-            , idxRange(alpaka::Vec<T, 1>{b}, alpaka::Vec<T, 1>{e}, alpaka::Vec<T, 1>{s})
+            , idxRange(b, e, s)
         {
         }
 
@@ -148,6 +186,11 @@ namespace alpaka::tune
         std::vector<T> getValues() const
         {
             return {value};
+        }
+
+        static constexpr std::size_t getDim()
+        {
+            return 1;
         }
 
         void toRange()
@@ -275,6 +318,11 @@ namespace alpaka::tune
             return numSteps;
         }
 
+        static constexpr std::size_t getDim()
+        {
+            return alpaka::getDim(T{});
+        }
+
         std::vector<typename T::type> getValues() const
         {
             std::vector<typename T::type> ret;
@@ -388,7 +436,7 @@ namespace alpaka::tune
 
 
     template<
-        typename T = std::size_t,
+        typename T = uint32_t,
         typename T_End = alpaka::Vec<T, 1u>,
         typename T_Begin = alpaka::Vec<T, 1u>,
         typename T_Stride = alpaka::Vec<T, 1u>>
@@ -459,7 +507,7 @@ namespace alpaka::tune
     };
 
     template<
-        typename T = std::size_t,
+        typename T = uint32_t,
         typename T_End = alpaka::Vec<T, 1u>,
         typename T_Begin = alpaka::Vec<T, 1u>,
         typename T_Stride = alpaka::Vec<T, 1u>>

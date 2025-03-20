@@ -24,6 +24,56 @@
 
 namespace alpaka
 {
+    template<typename T_KernelRun, typename T_FrameSpec>
+    static T_FrameSpec& applyCustomThreadSpec(T_KernelRun& kernelRun, T_FrameSpec& spec)
+    {
+        if(kernelRun.gridSize != std::nullopt)
+        {
+            auto val = kernelRun.gridSize->value;
+            using tuneableGridType = ALPAKA_TYPEOF(val);
+            if constexpr(alpaka::isVector_v<tuneableGridType>)
+            {
+                if constexpr(std::is_same_v<tuneableGridType, ALPAKA_TYPEOF(spec.m_threadSpec.m_numBlocks)>)
+                {
+                    spec.m_threadSpec.m_numBlocks = val;
+                }
+                else
+                {
+                    throw std::runtime_error(
+                        "TuningSession::applyCustomThreadSpec(): invalid custom gridSize tuning - must conform with "
+                        "type of numFrames");
+                }
+            }
+            else
+            {
+                spec.m_threadSpec.m_numBlocks = ALPAKA_TYPEOF(spec.m_threadSpec.m_numBlocks)(val);
+            }
+        }
+        if(kernelRun.threadBlockSize != std::nullopt)
+        {
+            auto val = kernelRun.threadBlockSize->value;
+            using tuneableBLockType = ALPAKA_TYPEOF(val);
+            if constexpr(alpaka::isVector_v<tuneableBLockType>)
+            {
+                if constexpr(std::is_same_v<tuneableBLockType, ALPAKA_TYPEOF(spec.m_threadSpec.m_numThreads)>)
+                {
+                    spec.m_threadSpec.m_numThreads = val;
+                }
+                else
+                {
+                    throw std::runtime_error(
+                        "TuningSession::applyCustomThreadSpec(): invalid custom threadBlockSize tuning - must conform "
+                        "with type of frameExtent");
+                }
+            }
+            else
+            {
+                spec.m_threadSpec.m_numThreads = ALPAKA_TYPEOF(spec.m_threadSpec.m_numThreads)(val);
+            }
+        }
+        return spec;
+    }
+
     template<typename T_active>
     void printGBFromActive(T_active& active)
     {
@@ -89,7 +139,6 @@ namespace alpaka
         TuningSession& withConfig(std::string const& config)
         {
             this->config = config;
-            std::cout << " CONFIG: " << config << std::endl;
             return *this;
         }
 
@@ -125,8 +174,8 @@ namespace alpaka
                 strategy};
             this->template copy<false, block>(ret);
             ret.run.gridSize = tune;
+            ret.run.gridSize->userDef = true;
             ret.config = this->config;
-            std::cout << " CONFIG: " << ret.config << std::endl;
             return ret;
         }
 
@@ -139,7 +188,7 @@ namespace alpaka
             this->template copy<false, block>(ret);
             ret.run.gridSize = std::move(tune::GridSizeTune<VecType, VecType, VecType, VecType>{tune});
             ret.config = this->config;
-            std::cout << " CONFIG: " << ret.config << std::endl;
+            ret.run.gridSize->userDef = true;
             return ret;
         }
 
@@ -149,7 +198,6 @@ namespace alpaka
             this->template copy<false, block>(ret);
             ret.run.gridSize = std::move(tune::GridSizeTune{});
             ret.config = this->config;
-            std::cout << " CONFIG: " << ret.config << std::endl;
             return ret;
         }
 
@@ -176,6 +224,7 @@ namespace alpaka
             this->template copy<grid, false>(ret);
             ret.run.threadBlockSize = std::move(tune::ThreadBlockSizeTune<VecType, VecType, VecType, VecType>{tune});
             ret.config = this->config;
+            ret.run.threadBlockSize->userDef = true;
             return ret;
         }
 
@@ -186,6 +235,7 @@ namespace alpaka
                 ret{strategy};
             this->template copy<grid, false>(ret);
             ret.run.threadBlockSize = tune;
+            ret.run.threadBlockSize->userDef = true;
             ret.config = this->config;
             return ret;
         }
@@ -224,11 +274,13 @@ namespace alpaka
             if(!m_initialized)
             {
                 m_initialized = true;
-                if(config != "")
+                if(!config.empty())
                 {
+                    std::cout << " load history " << std::endl;
                     history.loadConfig(config);
                 }
             }
+
             static auto& kernel = createKernelSingleton<grid, block>(
                 device,
                 exec,
@@ -241,20 +293,28 @@ namespace alpaka
             auto& ptrToHistory = kernel.ptrToHistory;
             if(ptrToHistory->runs.size() >= activeRun.maxRuns)
             {
+                if(ptrToHistory->sumOfRuns >= ptrToHistory->runs.size() * getReRuns())
                 // if the tuning space is exhausted, always take the best tune
                 {
                     auto event = tune::createTimeEventFromActive(activeRun);
                     alpaka::tune::strategy::bestRecorded{}(activeRun, ptrToHistory->runs);
                     applyCustomThreadSpec(activeRun, kernel.frameSpec);
+                    std::cout << "found config {," << kernel.frameSpec.m_threadSpec.m_numBlocks << ","
+                              << kernel.frameSpec.m_threadSpec.m_numThreads << "}" << std::endl;
                     auto bundle = recreate(kernelBundle, activeRun.tuneables);
                     onHost::enqueue(queue, exec, kernel.frameSpec, bundle);
                     onHost::wait(queue);
+                    return;
                 }
             }
-            else
-            {
-                internal_enqueue(queue, exec, kernelBundle, activeRun, ptrToHistory.get(), kernel.frameSpec);
-            }
+            internal_enqueue(
+                queue,
+                exec,
+                kernelBundle,
+                activeRun,
+                ptrToHistory.get(),
+                kernel.frameSpec,
+                kernel.sharedParams);
         }
 
         template<typename T_KernelBundle, typename T_kernelRun, typename T_NumBlocks, typename T_NumThreads>
@@ -264,7 +324,9 @@ namespace alpaka
             T_KernelBundle const& kernelBundle,
             T_kernelRun& run,
             KernelData* data,
-            onHost::FrameSpec<T_NumBlocks, T_NumThreads>& spec)
+            onHost::FrameSpec<T_NumBlocks, T_NumThreads>& spec,
+            auto& sharedParameters)
+
         {
             auto runHash = run.toHash();
             if(data->runs.contains(runHash)) // check whether this parameter tuple was already taken
@@ -272,21 +334,23 @@ namespace alpaka
                 StorageKernelRun& storeKernel = data->runs[runHash];
                 if(storeKernel.nr_runs >= this->reRuns) // check whether stored run has less runs
                 {
-                    auto sharedParams = makeSharedParameterInterface<grid, block, T_kernelRun>(run);
-                    strategy(sharedParams, run, data->runs);
-                    runHash = run.toHash();
+                    strategy(sharedParameters, run, data->runs);
+
+                    runHash = run.toHash(); // rehash if parameters changed
                 }
             }
             applyCustomThreadSpec(run, spec);
-
+            auto bundle = recreate(kernelBundle, run.tuneables);
+            std::cout << "{" << spec.m_threadSpec.m_numBlocks << "," << spec.m_threadSpec.m_numThreads << "}"
+                      << std::endl;
             {
-                auto bundle = recreate(kernelBundle, run.tuneables);
-
                 auto event = tune::createTimeEventFromActive(run);
-
                 onHost::enqueue(queue, exec, spec, bundle);
                 onHost::wait(queue);
             }
+            std::cout << " Time: " << run.metric;
+            std::cout << "{" << spec.m_threadSpec.m_numBlocks << "," << spec.m_threadSpec.m_numThreads << "}"
+                      << std::endl;
             if(!data->runs.contains(runHash))
             {
                 data->runs[runHash] = toStore(run);
@@ -294,12 +358,12 @@ namespace alpaka
             else
             {
                 StorageKernelRun& storeKernel = data->runs[runHash];
-
                 if(storeKernel.nr_runs <= this->reRuns)
                 {
                     storeKernel.metric
-                        = ((this->reRuns - storeKernel.nr_runs) * storeKernel.metric + run.metric) / this->reRuns;
+                        = (storeKernel.metric * storeKernel.nr_runs + run.metric) / (storeKernel.nr_runs + 1);
                     ++storeKernel.nr_runs;
+                    ++data->sumOfRuns;
                 }
             }
         }
