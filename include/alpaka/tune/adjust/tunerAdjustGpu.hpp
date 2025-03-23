@@ -38,12 +38,7 @@ namespace alpaka::tune
                 if(!kernelRun.threadBlockSize->userDef)
                 {
                     auto maxThreads = alpaka::onHost::getDeviceProperties(device).m_maxThreadsPerBlock;
-                    while(maxThreads > dataBlocking.frameExtent.product())
-                    {
-                        maxThreads -= 32;
-                    }
-                    dataBlocking.frameExtent.product() using begin
-                        = ALPAKA_TYPEOF(kernelRun.threadBlockSize->idxRange.m_begin);
+                    using begin = ALPAKA_TYPEOF(kernelRun.threadBlockSize->idxRange.m_begin);
                     kernelRun.threadBlockSize->idxRange.m_begin = begin(32);
                     using end = ALPAKA_TYPEOF(kernelRun.threadBlockSize->idxRange.m_end);
                     kernelRun.threadBlockSize->idxRange.m_end = end(maxThreads);

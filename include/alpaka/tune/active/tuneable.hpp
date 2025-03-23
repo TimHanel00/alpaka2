@@ -32,11 +32,25 @@ namespace alpaka::tune
         active.maxRuns = active.maxRunsDefault;
         if(active.gridSize.has_value())
         {
-            active.maxRuns += active.gridSize->numSteps();
+            active.maxRuns *= active.gridSize->numSteps();
+            if(active.maxRuns < active.maxRunsDefault)
+            {
+                std::cout << " WARNING: Overflow detected during tuning space calculation, ensure "
+                             "you have a max NumofRuns selected!"
+                          << std::endl;
+                active.maxRuns = UINT64_MAX;
+            }
         }
         if(active.threadBlockSize.has_value())
         {
-            active.maxRuns += active.threadBlockSize->numSteps();
+            active.maxRuns *= active.threadBlockSize->numSteps();
+            if(active.maxRuns < active.maxRunsDefault)
+            {
+                std::cout << " WARNING: Overflow detected during tuning space calculation, ensure "
+                             "you have a max NumofRuns selected!"
+                          << std::endl;
+                active.maxRuns = UINT64_MAX;
+            }
         }
     }
 
@@ -80,28 +94,38 @@ namespace alpaka::tune
 
     void adjustToRange(auto& value, auto& begin, auto& end, auto& stride)
     {
-        using VType = ALPAKA_TYPEOF(begin);
-        auto val = value;
-
-        auto offset = val - begin;
-        auto remainder = offset % stride;
-
-        if(remainder == VType{0} && val >= begin && val <= end)
-            return;
-        auto n = offset / stride;
-        if(remainder * VType{2} >= stride)
+        if constexpr(std::is_same_v<ALPAKA_TYPEOF(begin), ALPAKA_TYPEOF(value)>)
         {
-            n = n + VType{1}; // Round up if closer
+            using VType = ALPAKA_TYPEOF(begin);
+            auto val = value;
+
+            auto offset = val - begin;
+            auto remainder = offset % stride;
+
+            if(remainder == VType{0} && val >= begin && val <= end)
+                return;
+            auto n = offset / stride;
+            if(remainder * VType{2} >= stride)
+            {
+                n = n + VType{1}; // Round up if closer
+            }
+
+            auto corrected = begin + n * stride;
+
+            // Clamp within range
+            if(corrected < begin)
+                corrected = begin;
+            if(corrected > end)
+                corrected = end;
+            value = corrected;
         }
 
-        auto corrected = begin + n * stride;
-
-        // Clamp within range
-        if(corrected < begin)
-            corrected = begin;
-        if(corrected > end)
-            corrected = end;
-        value = corrected;
+        else
+        {
+            throw std::runtime_error(
+                std::string("Types dont match:  ") + typeid(value).name() + " vs. " + typeid(begin).name()
+                + std::to_string(value) + " begin " + begin.toString());
+        }
     }
 
     struct StorageTuneable

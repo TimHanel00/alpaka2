@@ -113,7 +113,6 @@ namespace alpaka::tune::strategy
                     tuneables,
                     [&history, &kernelRun](auto& parameter)
                     {
-                        constexpr auto dim = static_cast<std::size_t>(1);
                         //@TODO make this dynamic but ALPAKA_TYPE_OF(parameter->idxRange)::dim() did no get deduced
                         // correctly on GPU
                         using type = std::size_t;
@@ -165,15 +164,18 @@ namespace alpaka::tune::strategy
         template<typename T_ActiveKernel>
         auto operator()(T_ActiveKernel& kernelRun, std::unordered_map<std::string, StorageKernelRun>& history)
         {
-            auto best = history.begin()->second;
-            for(auto& run : history)
+            if(!history.empty())
             {
-                if(run.second.metric < best.metric)
+                auto best = history.begin()->second;
+                for(auto& run : history)
                 {
-                    best = run.second; // Update selectedRun to the run with the smaller time
+                    if(run.second.metric < best.metric)
+                    {
+                        best = run.second; // Update selectedRun to the run with the smaller time
+                    }
                 }
+                toActive(kernelRun, best);
             }
-            toActive(kernelRun, best);
         }
     };
 

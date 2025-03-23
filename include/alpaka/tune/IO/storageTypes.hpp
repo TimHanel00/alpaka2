@@ -145,7 +145,7 @@ struct StorageKernelRun
         if(gridSize.has_value())
             m += gridSize.value().toHash();
         if(threadBlockSize.has_value())
-            m += gridSize.value().toHash();
+            m += threadBlockSize.value().toHash();
         return m;
     }
 
@@ -247,7 +247,7 @@ struct ActiveKernelRun
     T_floating metric{};
     T_TuneableType tuneables;
     std::size_t maxRuns{};
-    std::size_t maxRunsDefault{};
+    std::size_t maxRunsDefault{1};
     constexpr ActiveKernelRun() = default;
 
     constexpr ActiveKernelRun(
@@ -259,7 +259,20 @@ struct ActiveKernelRun
         , metric(std::numeric_limits<T_floating>::quiet_NaN())
         , tuneables(args)
     {
-        for_each(tuneables, [&](auto& argsT) { maxRunsDefault += argsT.numSteps(); });
+        for_each(
+            tuneables,
+            [&](auto& argsT)
+            {
+                std::size_t maxRunsDefault_old = maxRunsDefault;
+                maxRunsDefault *= argsT.numSteps();
+                if(maxRunsDefault_old > maxRunsDefault)
+                {
+                    std::cout << " WARNING: Overflow detected during tuning space calculation, ensure "
+                                 "you have a max NumofRuns selected!"
+                              << std::endl;
+                    maxRunsDefault = UINT64_MAX;
+                }
+            });
         maxRuns = maxRunsDefault;
     };
 

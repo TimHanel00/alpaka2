@@ -348,7 +348,6 @@ void testKernels(auto cfg)
 
     /* Each frame will have 64 elements processed by each thread.
      * The number of frames is calculated based on the array size and the number of elements processed by each thread.
-     *
      * @todo The value is currently a magic number but should be derived from the SIMD width of the device and a factor
      * to reflect the instruction level parallelism. This is currently not well abstracted in alpaka and requires that
      * a kernel can reflect the concurrency bytes used for the `SimdForEach::concurrent()` back to the host, e.g. some
@@ -359,8 +358,11 @@ void testKernels(auto cfg)
     auto numFrames = core::divCeil(arraySize, static_cast<Idx>(blockThreadExtentMain) * elementsPerFrameItem);
     auto dataBlocking = onHost::FrameSpec{numFrames, static_cast<Idx>(blockThreadExtentMain)};
     TuningSession session{tune::strategy::randomSearch{}};
-    auto latestSession = session.withBlockSizeTune(dataBlocking.m_frameExtent).withConfig("./config/babelstream.toml").
-                             withGridSizeTune(dataBlocking.m_numFrames);
+    using fVec=ALPAKA_TYPEOF(dataBlocking.m_frameExtent);
+    auto latestSession = session.
+                         withBlockSizeTune(tune::ThreadBlockSizeTune{dataBlocking.m_frameExtent, IdxRange{fVec{4}, dataBlocking.m_frameExtent, fVec{4}}}).
+                         withGridSizeTune(dataBlocking.m_numFrames).
+                         withConfig("./config/babelstream.toml");
     // To record runtime data generated while running the kernels
     RuntimeResults runtimeResults;
 

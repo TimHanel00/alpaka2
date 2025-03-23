@@ -117,11 +117,12 @@ auto reduction(operationType const& type, Exec& exec, DevHost& devHost, DevAcc& 
         destBuf.getMdSpan(),
         IdxVec{0},
         VecFirstExtent}; // this causes errors.
+    using Vec1 = alpaka::Vec<std::size_t, 1u>;
     //.registerCompileTime(Reduce<stride,numLoads,T>::dynSharedMemBytes);
     std::cout << " Device: from Outer: " << typeid(ALPAKA_TYPEOF(devAcc)).name() << std::endl;
     TuningSession session{tune::strategy::randomSearch{}};
-    auto latestSession = session.withBlockSizeTune(alpaka::Vec<std::size_t,1u>{5})
-                             .withGridSizeTune(alpaka::Vec<std::size_t,1u>{6})
+    auto latestSession = session.withBlockSizeTune(tune::ThreadBlockSizeTune{Vec{1}, IdxRange{Vec{1}, Vec{1}, Vec{1}}})
+                             .withGridSizeTune(alpaka::Vec<std::size_t, 1u>{6})
                              .withRunSpecifiers(bufHost.getExtents().product())
                              .withConfig("./config/reduce.toml");
     auto const taskKernelLeftOver = KernelBundle{
