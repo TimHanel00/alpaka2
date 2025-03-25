@@ -132,7 +132,7 @@ struct StorageKernelRun
     std::vector<alpaka::tune::StorageTuneable> tuneables;
     std::optional<alpaka::tune::StorageTuneable> gridSize{std::nullopt};
     std::optional<alpaka::tune::StorageTuneable> threadBlockSize{std::nullopt};
-    double_t metric;
+    std::priority_queue<double_t> metric;
     std::size_t nr_runs{1};
 
     [[nodiscard]] std::string toHash() const
@@ -347,7 +347,7 @@ void toActive(ActiveKernelRun<T_GridSize, T_BlockSize, T_TuneableType>& active, 
     updateTuneablesImpl(active.tuneables, storeKernel.tuneables, std::make_index_sequence<tupleSize>{});
 
     // Update metric by converting the storage string metric to the active kernel's floating type.
-    active.metric = storeKernel.metric;
+    active.metric = storeKernel.metric.top();
 }
 
 template<typename T_GridSize, typename T_BlockSize, typename T_TuneableType>
@@ -370,7 +370,7 @@ StorageKernelRun toStore(ActiveKernelRun<T_GridSize, T_BlockSize, T_TuneableType
     // Convert the metric.
     if(!std::isnan(active.metric))
     {
-        result.metric = active.metric;
+        result.metric.push(active.metric);
     }
 
     // Convert each tuneable in the tuple.

@@ -169,7 +169,7 @@ namespace alpaka::tune::strategy
                 auto best = history.begin()->second;
                 for(auto& run : history)
                 {
-                    if(run.second.metric < best.metric)
+                    if(run.second.metric.top() < best.metric.top())
                     {
                         best = run.second; // Update selectedRun to the run with the smaller time
                     }

@@ -33,14 +33,8 @@ namespace alpaka::tune
         return TimeEvent(session.kernelRun);
     }
 
-    template<typename T_KernelRun>
-    static TimeEvent<T_KernelRun> createTimeEvent(T_KernelRun& run)
-    {
-        return TimeEvent(run);
-    }
-
-    template<typename T_ActiveKernelRun>
-    static auto createTimeEventFromActive(T_ActiveKernelRun& activeRun)
+    template<typename T_grid, typename T_block, typename T_Tuneables>
+    static auto createTimeEventFromActive(ActiveKernelRun<T_grid, T_block, T_Tuneables>& activeRun)
     {
         return TimeEvent(activeRun);
     }

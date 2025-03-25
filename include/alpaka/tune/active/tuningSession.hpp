@@ -299,13 +299,14 @@ namespace alpaka
 
             auto& activeRun = *kernel.activeRunPtr;
             auto& ptrToHistory = kernel.ptrToHistory;
+
             std::cout << "[DEBUG] Active run maxRuns: " << activeRun.maxRuns
                       << ", History size: " << ptrToHistory->runs.size()
                       << ", Sum of runs: " << ptrToHistory->sumOfRuns << std::endl;
-
-            if(ptrToHistory->sumOfRuns >= getMaxRuns() || ptrToHistory->sumOfRuns >= activeRun.maxRuns * getReRuns())
+            if(ptrToHistory->sumOfRuns >= getMaxRuns()
+               || ptrToHistory->sumOfRuns >= activeRun.maxRuns * (getReRuns() + 1))
             {
-                std::cout << "[DEBUG] Tuning space exhausted, selecting best config." << std::endl;
+                std::cout << "[DEBUG] Selecting best config." << std::endl;
                 auto event = tune::createTimeEventFromActive(activeRun);
                 alpaka::tune::strategy::bestRecorded{}(activeRun, ptrToHistory->runs);
                 applyCustomThreadSpec(activeRun, kernel.frameSpec);
@@ -441,8 +442,7 @@ namespace alpaka
                     std::cout << "[DEBUG] Updating stored run. Previous metric: " << storeKernel.metric
                               << ", Previous nr_runs: " << storeKernel.nr_runs << std::endl;
 #    endif
-                    storeKernel.metric
-                        = (storeKernel.metric * storeKernel.nr_runs + run.metric) / (storeKernel.nr_runs + 1);
+                    storeKernel.metric.push(run.metric);
                     ++storeKernel.nr_runs;
                     ++data->sumOfRuns;
 #    ifdef DEBUG

@@ -1,0 +1,170 @@
+#!/bin/bash
+
+set -e
+
+ARCHIVE_DIR="../archive"
+BUILD_DIR="./build"
+TIMESTAMP=$(date "+%Y-%m-%d_%H-%M-%S")
+
+usage() {
+    echo "Usage:"
+    echo "  $0 store <binary_path>"
+    echo "  $0 load <archive_name>"
+    exit 1
+}
+
+if [[ $# -lt 2 ]]; then
+    usage
+fi
+
+COMMAND=$1
+ARG=$2
+
+if [[ "$COMMAND" == "store" ]]; then
+	BINARY_PATH="$ARG"
+	if [[ ! -f "$BINARY_PATH" ]]; then
+	echo "Error: binary path '$BINARY_PATH' does not exist"
+	exit 1
+	fi
+
+	ARCHIVE_NAME="${TIMESTAMP}_$(basename "$BINARY_PATH")"
+	DEST="$ARCHIVE_DIR/$ARCHIVE_NAME"
+	mkdir -p "$DEST"
+
+	echo "Storing to $DEST..."
+
+	# Save git state
+	GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+	GIT_REMOTE=$(git config --get remote.origin.url)
+	GIT_COMMIT=$(git rev-parse HEAD)
+	GIT_DIFF=$(git diff)
+
+	echo "Branch: $GIT_BRANCH" > "$DEST/git_info.txt"
+	echo "Remote: $GIT_REMOTE" >> "$DEST/git_info.txt"
+	echo "Commit: $GIT_COMMIT" >> "$DEST/git_info.txt"
+	echo "Checking for unpushed commits..."
+	cd "$(git rev-parse --show-toplevel)"
+
+	LOCAL_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+	UPSTREAM_BRANCH=$(git rev-parse --abbrev-ref --symbolic-full-name "@{u}" 2>/dev/null || echo "")
+
+	if [[ -n "$UPSTREAM_BRANCH" ]]; then
+	    AHEAD_COUNT=$(git rev-list --count "$UPSTREAM_BRANCH"..HEAD)
+	else
+	    AHEAD_COUNT=0
+	fi
+
+	if [[ "$AHEAD_COUNT" -gt 0 ]]; then
+	    echo "Detected $AHEAD_COUNT unpushed commit(s). Storing them..."
+	    mkdir -p "$DEST/unpushed_commits"
+	    git format-patch "$UPSTREAM_BRANCH"..HEAD -o "$DEST/unpushed_commits"
+	else
+	    echo "No unpushed commits."
+	fi
+	echo "Running binary and capturing output..."
+
+
+
+	DEST="$(realpath "$DEST")"
+
+	# Change to git root to ensure correct paths in patch
+	cd "$(git rev-parse --show-toplevel)"
+	git diff --relative=. --no-prefix > "$DEST/git_diff.patch"
+
+	# Save build directory
+	cd build && cmake --build . && cd ..
+	cp -r "$BUILD_DIR" "$DEST/stored_build"
+
+	META_FILE="$DEST/system_info.txt"
+
+	# CPU info
+	CPU_NAME=$(lscpu | grep 'Model name' | sed -E 's/Model name:\s+//')
+	echo "CPU: $CPU_NAME" >> "$META_FILE"
+
+	# RAM info
+	TOTAL_RAM=$(free -h | awk '/Mem:/ { print $2 }')
+	echo "RAM: $TOTAL_RAM" >> "$META_FILE"
+
+	# Accelerator / GPU info
+	GPU_NAME="Unknown"
+
+	if command -v nvidia-smi &> /dev/null; then
+	    GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n1)
+	elif command -v rocm-smi &> /dev/null; then
+	    GPU_NAME=$(rocm-smi --showproductname | grep 'Card series' | head -n1 | cut -d':' -f2 | xargs)
+	else
+	    # Fallback to PCI scan
+	    GPU_NAME=$(lspci | grep -i 'vga\|3d' | grep -i 'nvidia\|amd\|intel' | head -n1 | cut -d':' -f3 | xargs)
+	fi
+	BINARY_OUT="$DEST/binary_output.txt"
+
+	# Add binary path as header
+	echo "# Binary: $BINARY_PATH" > "$BINARY_OUT"
+
+	# Append actual output
+	"$BINARY_PATH" >> "$BINARY_OUT" 2>&1 || echo "(Binary exited with non-zero status, output saved to $BINARY_OUT)"
+
+
+    	echo "Done. Archive stored in: $DEST"
+
+elif [[ "$COMMAND" == "load" ]]; then
+    ARCHIVE_NAME="$ARG"
+    ARCHIVE_PATH="$ARCHIVE_DIR/$ARCHIVE_NAME"
+
+    if [[ ! -d "$ARCHIVE_PATH" ]]; then
+        echo "Error: archive '$ARCHIVE_NAME' not found in $ARCHIVE_DIR"
+        exit 1
+    fi
+
+    echo "Restoring inside $ARCHIVE_PATH..."
+
+    # Read git info
+    GIT_REMOTE=$(grep 'Remote:' "$ARCHIVE_PATH/git_info.txt" | cut -d' ' -f2-)
+    GIT_BRANCH=$(grep 'Branch:' "$ARCHIVE_PATH/git_info.txt" | cut -d' ' -f2-)
+    GIT_COMMIT=$(grep 'Commit:' "$ARCHIVE_PATH/git_info.txt" | cut -d' ' -f2-)
+
+    cd "$ARCHIVE_PATH"
+
+    echo "Cloning $GIT_REMOTE..."
+    git clone "$GIT_REMOTE" restored_repo
+    cd restored_repo
+
+    echo "Checking out branch: $GIT_BRANCH"
+    git checkout "$GIT_BRANCH"
+
+    echo "Resetting to commit: $GIT_COMMIT"
+    git reset --hard "$GIT_COMMIT"
+	if [[ -d ../unpushed_commits ]]; then
+	    echo "Applying stored unpushed commits..."
+	    git am ../unpushed_commits/*.patch || echo "Warning: Failed to apply one or more unpushed commits"
+	fi
+    echo "Applying patch..."
+    git apply ../git_diff.patch || echo "(No changes or patch failed)"
+
+    echo "Restoring build directory..."
+    cp -r ../stored_build ./build
+    cd build
+    cmake --build .
+    cd ..
+    echo "Re-running original binary for verification..."
+	# Find original binary path from the archive output file
+	ORIGINAL_OUT_FILE="../binary_output.txt"
+	REAPPLIED_OUT_FILE="../binary_output_reapplied.txt"
+
+	# Extract binary path from first line
+	BINARY_PATH=$(head -n 1 "$ORIGINAL_OUT_FILE" | sed -E 's/^# Binary:\s+//')
+
+	if [[ ! -f "$BINARY_PATH" ]]; then
+	    echo "Error: Binary path '$BINARY_PATH' not found in restored build."
+	    exit 1
+	fi
+
+	# Run the binary and capture output
+	echo "# Binary: $BINARY_PATH" > "$REAPPLIED_OUT_FILE"
+	"$BINARY_PATH" >> "$REAPPLIED_OUT_FILE" 2>&1 || echo "(Binary exited with non-zero status)"
+
+	# Compare both outputs (excluding first line)
+	diff <(tail -n +2 "$ORIGINAL_OUT_FILE") <(tail -n +2 "$REAPPLIED_OUT_FILE")
+else
+    usage
+fi

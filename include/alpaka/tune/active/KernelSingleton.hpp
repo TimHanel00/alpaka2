@@ -71,7 +71,7 @@ public:
             // multiple instances of TuningSession
             std::string deviceName = alpaka::core::demangledName(device);
             std::string execName = alpaka::core::demangledName(exec);
-            std::string kernelName = alpaka::core::demangledName(kernelBundle);
+            std::string kernelName = typeid(kernelBundle).name();
             auto tmp = createKernelData(deviceName, execName, kernelName, sessionSpecifier);
             history.m_tuningHistory.emplace(tmp.toHash(), std::move(tmp));
             ptrToHistory = history.getKernelFromHistory(device, exec, kernelBundle, sessionSpecifier);

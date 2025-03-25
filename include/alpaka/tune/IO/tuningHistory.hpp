@@ -28,7 +28,7 @@ namespace alpaka::tune
             std::string const& targetMetric = "time")
         {
             std::string lookUpHash = std::string("") + alpaka::core::demangledName(device) + core::demangledName(exec)
-                                     + core::demangledName(kernelBundle) + targetMetric
+                                     + typeid(kernelBundle).name() + targetMetric
                                      + std::accumulate(sessionSpecs.begin(), sessionSpecs.end(), std::string());
             if(m_tuningHistory.contains(lookUpHash))
             {
@@ -116,16 +116,21 @@ namespace alpaka::tune
                             {
                                 StorageKernelRun run;
                                 auto const& runTable = runValue.as_table();
-                                run.metric = runTable.at("metric").as_floating();
+                                for(auto const& elem : runTable.at("metric").as_array())
+                                {
+                                    run.metric.push(elem.as_floating());
+                                }
                                 run.nr_runs = runTable.at("nrRuns").as_integer();
-                                if(runTable.contains("tuneables"))
+                                if(runTable.contains("tuneableNames"))
                                 {
                                     try
                                     {
-                                        auto const& tuneables = runTable.at("tuneables").as_table();
-                                        for(auto const& [tkey, tval] : tuneables)
+                                        auto const& tuneablesV = runTable.at("tuneableVals").as_array();
+                                        auto const& tuneablesID = runTable.at("tuneableNames").as_array();
+                                        for(int i = 0; i < tuneablesID.size(); i++)
                                         {
-                                            auto value_tuneAble = tval.as_string();
+                                            auto tkey = tuneablesID[i].as_string();
+                                            auto value_tuneAble = tuneablesV[i].as_string();
                                             if(tkey == "gridSize")
                                             {
                                                 run.gridSize = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
@@ -188,10 +193,10 @@ namespace alpaka::tune
         {
             toml::table config;
             std::cout << " tuning Size: " << m_tuningHistory.size() << std::endl;
-            for(auto const& [key, kernelData] : m_tuningHistory)
+            for(auto& [key, kernelData] : m_tuningHistory)
             {
                 toml::table kernelTable;
-#ifdef DEBUG
+#ifdef DEBUG_Hist
                 std::cout << "KernelData properties:" << std::endl;
                 std::cout << "  - Device: " << kernelData.device << std::endl;
                 std::cout << "  - Executor: " << kernelData.executor << std::endl;
@@ -213,49 +218,97 @@ namespace alpaka::tune
                 kernelTable.emplace("specifiers", specifiers_array);
 
                 toml::array runsArray;
-#ifdef DEBUG
+#ifdef DEBUG_Hist
                 std::cout << "Checking kernelData.runs size: " << kernelData.runs.size() << std::endl;
 #endif
-                for(const auto& run : kernelData.runs)
+
+                int runIndex = 0;
+                for(auto& run : kernelData.runs)
                 {
+#ifdef DEBUG_Hist
+                    std::cout << "Processing run #" << runIndex << std::endl;
+#endif
+
                     toml::table runTable;
                     runTable.emplace("nrRuns", run.second.nr_runs);
-                    runTable.emplace("metric", run.second.metric);
+
+#ifdef DEBUG_Hist
+                    std::cout << "  - nrRuns: " << run.second.nr_runs << std::endl;
+#endif
+
+                    toml::array metrics;
+                    while(!run.second.metric.empty())
+                    {
+                        auto val = run.second.metric.top();
+#ifdef DEBUG_Hist
+                        std::cout << "    - Metric value: " << val << std::endl;
+#endif
+                        metrics.emplace_back(val);
+                        run.second.metric.pop();
+                    }
+                    runTable.emplace("metric", metrics);
+
                     toml::table tuneablesTable;
-#ifdef DEBUG
+                    toml::array tuneableNames;
+                    toml::array tuneableValues;
+#ifdef DEBUG_Hist
                     std::cout << "  - Checking tuneables size: " << run.second.tuneables.size() << std::endl;
 #endif
+
                     for(const auto& tuneable : run.second.tuneables)
                     {
-                        tuneablesTable.emplace(tuneable.name, toml::value(tuneable.value));
+#ifdef DEBUG_Hist
+                        std::cout << "    - Adding tuneable: " << tuneable.name << " = " << tuneable.value
+                                  << std::endl;
+                        tuneableNames.emplace_back(tuneable.name);
+                        tuneableValues.emplace_back(tuneable.value);
+#endif
                     }
 
                     if(run.second.threadBlockSize != std::nullopt)
                     {
-                        tuneablesTable.emplace("blockThreadSize", toml::value(run.second.threadBlockSize->value));
+#ifdef DEBUG_Hist
+                        std::cout << "    - ThreadBlockSize: " << run.second.threadBlockSize->value << std::endl;
+#endif
+                        tuneableNames.emplace_back("threadBlockSize");
+                        tuneableValues.emplace_back(run.second.threadBlockSize->value);
                     }
                     else
                     {
-#ifdef DEBUG
-                        std::cout << "  - ThreadBlockSize is std::nullopt" << std::endl;
+#ifdef DEBUG_Hist
+                        std::cout << "    - ThreadBlockSize is std::nullopt" << std::endl;
 #endif
                     }
 
                     if(run.second.gridSize != std::nullopt)
                     {
-                        tuneablesTable.emplace("gridSize", toml::value(run.second.gridSize->value));
+#ifdef DEBUG_Hist
+                        std::cout << "    - GridSize: " << run.second.gridSize->value << std::endl;
+#endif
+                        tuneableNames.emplace_back("gridSize");
+                        tuneableValues.emplace_back(run.second.gridSize->value);
                     }
                     else
                     {
-#ifdef DEBUG
-                        std::cout << "GridSize is std::nullopt" << std::endl;
+#ifdef DEBUG_Hist
+                        std::cout << "    - GridSize is std::nullopt" << std::endl;
 #endif
                     }
-
-                    runTable.emplace("tuneables", tuneablesTable);
+                    runTable.emplace("tuneableNames", tuneableNames);
+                    runTable.emplace("tuneableVals", tuneableValues);
 
                     runsArray.emplace_back(runTable);
+
+#ifdef DEBUG_Hist
+                    std::cout << "Finished processing run #" << runIndex << std::endl;
+#endif
+                    ++runIndex;
                 }
+
+#ifdef DEBUG_Hist
+                std::cout << "Total runs processed: " << runIndex << std::endl;
+#endif
+
                 kernelTable.emplace("runs", runsArray);
                 config.emplace(key, kernelTable);
             }
