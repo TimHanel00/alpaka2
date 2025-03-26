@@ -5,7 +5,6 @@
 #ifndef STRATEGY_HPP
 #define STRATEGY_HPP
 #include "alpaka/tune/IO/storageTypes.hpp"
-#include "alpaka/tune/active/tuningSession.hpp"
 #include "alpaka/tune/utils/environmentVars.hpp"
 
 #include <random>
@@ -13,7 +12,8 @@
 
 namespace alpaka::tune::strategy
 {
-
+    template<typename T>
+    constexpr bool is_signed_type = std::is_signed<T>::value;
 
     template<typename T>
     T randomIdx(IdxRangeHandle<T> const& range, auto& value)
@@ -35,8 +35,17 @@ namespace alpaka::tune::strategy
         assert(step != 0 && "Stride of Tuneable must be non-negative!");
         assert(value >= minVal && value <= maxVal && "Value of Tuneable is not in idxRange");
         using VecType = ALPAKA_TYPEOF(minVal);
-        auto numStepsUp = (maxVal - VecType(value)) / abs(step);
-        auto numStepsDown = (VecType(value) - minVal) / abs(step);
+        auto numStepsUp = (maxVal - VecType(value)) / step;
+        if constexpr(is_signed_type<ALPAKA_TYPEOF(step)>)
+        {
+            numStepsUp = (maxVal - VecType(value)) / abs(step);
+        }
+
+        auto numStepsDown = (VecType(value) - minVal) / step;
+        if constexpr(is_signed_type<ALPAKA_TYPEOF(step)>)
+        {
+            numStepsDown = (VecType(value) - minVal) / abs(step);
+        }
         std::uniform_int_distribution<decltype(minVal)> dis(0, numStepsUp + numStepsDown);
         auto k = dis(gen);
         if(k > numStepsUp)
@@ -120,6 +129,11 @@ namespace alpaka::tune::strategy
         }
     }
 
+    /**
+     *this is a exhaustive search method designed to support asymmetric index ranges and initial values that
+     *might not even be on the range (meaning: (value-begin)%stride!=0 && (end-value)%stride!=0)
+     *
+     * */
     struct exhaustiveSearch
     {
         template<typename Tuple, typename T_ActiveKernel, typename StorageKernel>

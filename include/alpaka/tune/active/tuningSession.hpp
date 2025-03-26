@@ -304,7 +304,7 @@ namespace alpaka
 #    endif
 
             if(historyKernelData.sumOfRuns >= getMaxRuns()
-               || historyKernelData.sumOfRuns >= activeRun.maxRuns * (getReRuns() + 10))
+               || historyKernelData.sumOfRuns >= activeRun.maxRuns * getReRuns())
             {
                 std::cout << "[DEBUG] Selecting best config." << std::endl;
                 auto event = tune::createTimeEventFromActive(activeRun);
@@ -341,6 +341,7 @@ namespace alpaka
                     kernel.frameSpec,
                     kernel.sharedParams);
             }
+            std::cout << " to hash: " << activeRun.toHash() << std::endl;
             std::cout << "[DEBUG] Active run maxRuns: " << activeRun.maxRuns
                       << ", History size: " << historyKernelData.runs.size()
                       << ", Sum of runs: " << historyKernelData.sumOfRuns << std::endl;

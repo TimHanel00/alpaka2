@@ -360,8 +360,8 @@ void testKernels(auto cfg)
     TuningSession session{tune::strategy::randomSearch{}};
     using fVec=ALPAKA_TYPEOF(dataBlocking.m_frameExtent);
     auto latestSession = session.
-                         withBlockSizeTune(tune::ThreadBlockSizeTune{dataBlocking.m_frameExtent, IdxRange{fVec{32*8}, dataBlocking.m_frameExtent, fVec{32*8}}}).
-                         withGridSizeTune(tune::GridSizeTune{dataBlocking.m_numFrames, IdxRange{fVec{56*8}, dataBlocking.m_numFrames, fVec{56*8}}}).
+                         withBlockSizeTune(tune::ThreadBlockSizeTune{dataBlocking.m_frameExtent, IdxRange{fVec{32}, dataBlocking.m_frameExtent, fVec{32}}}).
+                         withGridSizeTune(tune::GridSizeTune{fVec{56}, IdxRange{fVec{56}, dataBlocking.m_numFrames, fVec{56}}}).
                          withConfig("./config/babelstream.toml");
     // To record runtime data generated while running the kernels
     RuntimeResults runtimeResults;
