@@ -104,8 +104,7 @@ static auto& createKernelSingleton(
     auto& history)
 {
     auto activeRun = ActiveKernelRun{run.gridSize, run.threadBlockSize, extractTuneables(bundle)};
-    auto activePtr = std::make_unique<ALPAKA_TYPEOF(activeRun)>(
-        activeRun); // make copy as a smart ptr so when its later move the sharedParameter
+    auto activePtr = std::make_unique<ALPAKA_TYPEOF(activeRun)>(activeRun);
     auto sharedParams = makeSharedParameterInterface<grid, block, ALPAKA_TYPEOF(*activePtr)>(*activePtr);
     auto ptrToHistory = history.getKernelFromHistory(device, exec, bundle, sessionSpecifier);
     using kernelSingletonType = KernelSingleton<

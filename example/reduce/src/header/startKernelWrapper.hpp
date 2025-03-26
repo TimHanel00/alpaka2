@@ -122,7 +122,7 @@ auto reduction(operationType const& type, Exec& exec, DevHost& devHost, DevAcc& 
     std::cout << " Device: from Outer: " << typeid(ALPAKA_TYPEOF(devAcc)).name() << std::endl;
     TuningSession session{tune::strategy::randomSearch{}};
     auto latestSession = session.withBlockSizeTune(tune::ThreadBlockSizeTune{Vec{1}, IdxRange{Vec{1}, Vec{1}, Vec{1}}})
-                             .withGridSizeTune(alpaka::Vec<std::size_t, 1u>{6})
+                             .withGridSizeTune()
                              .withRunSpecifiers(bufHost.getExtents().product())
                              .withConfig("./config/reduce.toml");
     auto const taskKernelLeftOver = KernelBundle{

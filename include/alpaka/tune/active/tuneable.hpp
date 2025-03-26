@@ -33,6 +33,7 @@ namespace alpaka::tune
         if(active.gridSize.has_value())
         {
             active.maxRuns *= active.gridSize->numSteps();
+            std::cout << "gridSTEPS:  " << active.gridSize->numSteps() << std::endl;
             if(active.maxRuns < active.maxRunsDefault)
             {
                 std::cout << " WARNING: Overflow detected during tuning space calculation, ensure "
@@ -44,6 +45,7 @@ namespace alpaka::tune
         if(active.threadBlockSize.has_value())
         {
             active.maxRuns *= active.threadBlockSize->numSteps();
+            std::cout << "blockSteps:  " << active.threadBlockSize->numSteps() << std::endl;
             if(active.maxRuns < active.maxRunsDefault)
             {
                 std::cout << " WARNING: Overflow detected during tuning space calculation, ensure "
@@ -98,7 +100,8 @@ namespace alpaka::tune
         {
             using VType = ALPAKA_TYPEOF(begin);
             auto val = value;
-
+            if(val == begin || val == end) // special case where we can ignore the correction
+                return;
             auto offset = val - begin;
             auto remainder = offset % stride;
 
@@ -219,7 +222,7 @@ namespace alpaka::tune
 
         void toRange()
         {
-            adjustToRange(value, this->idxRange.m_begin, this->idxRange.m_end, this->idxRange.m_stride);
+            adjustToRange(value, this->idxRange.m_begin[0], this->idxRange.m_end[0], this->idxRange.m_stride[0]);
         }
 
         static IdxRange<T_Begin, T_End, T_Stride> defaultIdxRange(T val)
@@ -334,10 +337,11 @@ namespace alpaka::tune
 
         std::size_t numSteps() const
         {
-            std::size_t numSteps = ((idxRange.m_end[0] - idxRange.m_begin[0]) / idxRange.m_stride[0]) + 1;
+            std::size_t numSteps = 0;
+            numSteps = ((idxRange.m_end[0] - idxRange.m_begin[0]) / idxRange.m_stride[0]) + 1;
             for(std::size_t i = 1; i < alpaka::getDim(T{}); ++i)
             {
-                numSteps = numSteps * (((idxRange.m_end[i] - idxRange.m_begin[i]) / idxRange.m_stride[i]) + 1);
+                numSteps *= (((idxRange.m_end[i] - idxRange.m_begin[i]) / idxRange.m_stride[i]) + 1);
             }
             return numSteps;
         }
@@ -522,6 +526,7 @@ namespace alpaka::tune
             : Tuneable<T, T, T, T>(initial_value, "gridSize", idxRange)
             , gridSize(initial_value)
         {
+            std::cout << " calling constructor with: " << initial_value[0] << std::endl;
         }
 
         void setGrid(IdxRange<T, T, T> const& idxRange)
@@ -540,25 +545,25 @@ namespace alpaka::tune
         T blockThreadSize;
 
         explicit ThreadBlockSizeTune()
-            : Tuneable<T, T_Begin, T_End, T_Stride>(T(256), "blockThreadSize")
+            : Tuneable<T, T_Begin, T_End, T_Stride>(T(256), "threadBlockSize")
             , blockThreadSize(T(256))
         {
         }
 
         explicit ThreadBlockSizeTune(T initial_value, IdxRange<T_Begin, T_End, T_Stride> idxRange)
-            : Tuneable<T, T_Begin, T_End, T_Stride>(initial_value, "blockThreadSize", idxRange)
+            : Tuneable<T, T_Begin, T_End, T_Stride>(initial_value, "threadBlockSize", idxRange)
             , blockThreadSize(initial_value)
         {
         }
 
         explicit ThreadBlockSizeTune(IdxRange<T_Begin, T_End, T_Stride> idxRange)
-            : Tuneable<T, T_Begin, T_End, T_Stride>(T(256), "blockThreadSize", idxRange)
+            : Tuneable<T, T_Begin, T_End, T_Stride>(T(256), "threadBlockSize", idxRange)
             , blockThreadSize(T(256))
         {
         }
 
         explicit ThreadBlockSizeTune(T initial_value)
-            : Tuneable<T, T_Begin, T_End, T_Stride>(initial_value, "blockThreadSize")
+            : Tuneable<T, T_Begin, T_End, T_Stride>(initial_value, "threadBlockSize")
             , blockThreadSize(initial_value)
         {
         }
@@ -575,24 +580,24 @@ namespace alpaka::tune
     {
         T blockThreadSize;
 
-        explicit ThreadBlockSizeTune() : Tuneable<T, T, T, T>(T(256), "blockThreadSize"), blockThreadSize(T(256))
+        explicit ThreadBlockSizeTune() : Tuneable<T, T, T, T>(T(256), "threadBlockSize"), blockThreadSize(T(256))
         {
         }
 
         explicit ThreadBlockSizeTune(T initial_value, IdxRange<T, T, T> idxRange)
-            : Tuneable<T, T, T, T>(initial_value, "blockThreadSize", idxRange)
+            : Tuneable<T, T, T, T>(initial_value, "threadBlockSize", idxRange)
             , blockThreadSize(initial_value)
         {
         }
 
         explicit ThreadBlockSizeTune(IdxRange<T, T, T> idxRange)
-            : Tuneable<T, T, T, T>(T(256), "blockThreadSize", idxRange)
+            : Tuneable<T, T, T, T>(T(256), "threadBlockSize", idxRange)
             , blockThreadSize(T(256))
         {
         }
 
         explicit ThreadBlockSizeTune(T initial_value)
-            : Tuneable<T, T, T, T>(initial_value, "blockThreadSize")
+            : Tuneable<T, T, T, T>(initial_value, "threadBlockSize")
             , blockThreadSize(initial_value)
         {
         }

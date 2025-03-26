@@ -16,7 +16,7 @@ namespace alpaka::tune::strategy
 
 
     template<typename T>
-    T randomIdx(IdxRangeHandle<T> const& range)
+    T randomIdx(IdxRangeHandle<T> const& range, auto& value)
     {
         // Alias the vector type for the result.
 
@@ -32,21 +32,24 @@ namespace alpaka::tune::strategy
         auto minVal = range.m_begin;
         auto maxVal = range.m_end;
         auto step = range.m_stride;
-
-        auto numSteps = (maxVal - minVal) / step;
-
-        // If there are no steps (or only one valid value), use minVal.
-        if(numSteps <= 0)
+        assert(step != 0 && "Stride of Tuneable must be non-negative!");
+        assert(value >= minVal && value <= maxVal && "Value of Tuneable is not in idxRange");
+        using VecType = ALPAKA_TYPEOF(minVal);
+        auto numStepsUp = (maxVal - VecType(value)) / abs(step);
+        auto numStepsDown = (VecType(value) - minVal) / abs(step);
+        std::uniform_int_distribution<decltype(minVal)> dis(0, numStepsUp + numStepsDown);
+        auto k = dis(gen);
+        if(k > numStepsUp)
         {
-            result = minVal;
+            std::uniform_int_distribution<decltype(minVal)> disD(0, numStepsDown);
+            auto numStep = disD(gen);
+            result = value - (numStep * step);
         }
         else
         {
-            // Choose a random step index between 0 and numSteps - 1.
-            std::uniform_int_distribution<decltype(minVal)> dis(0, numSteps);
-            auto k = dis(gen);
-            // Set the i-th component as minVal + k * step.
-            result = minVal + k * step;
+            std::uniform_int_distribution<decltype(minVal)> disU(0, numStepsUp);
+            auto numStep = disU(gen);
+            result = value + (numStep * step);
         }
         return result;
     }
@@ -95,12 +98,84 @@ namespace alpaka::tune::strategy
             [[maybe_unused]] T_ActiveKernel& kernelRun,
             [[maybe_unused]] std::unordered_map<std::string, storageKernel>& history) const
         {
-            for_each(tuneables, [](auto& parameter) { parameter.value = randomIdx(parameter.idxRange); });
-        }
+            for_each(
+                tuneables,
+                [](auto& parameter) { parameter.value = randomIdx(parameter.idxRange, parameter.value); });
+        };
     };
+
+    template<std::size_t I = 0, typename Func, typename Tuple>
+    inline void for_each_enumerate(std::size_t idx, Tuple& tuple, Func&& f)
+    {
+        if constexpr(I < std::tuple_size_v<std::remove_reference_t<Tuple>>)
+        {
+            if(idx == I)
+            {
+                f(std::get<I>(tuple));
+            }
+            else
+            {
+                for_each_enumerate<I + 1>(idx, tuple, std::forward<Func>(f));
+            }
+        }
+    }
 
     struct exhaustiveSearch
     {
+        template<typename Tuple, typename T_ActiveKernel, typename StorageKernel>
+        void recurse(
+            Tuple& tuneables,
+            std::size_t dim,
+            T_ActiveKernel& kernelRun,
+            std::unordered_map<std::string, StorageKernel>& history,
+            bool& found) const
+        {
+            constexpr std::size_t N = std::tuple_size_v<std::remove_reference_t<Tuple>>;
+            auto hash = kernelRun.toHash();
+            if(found || !history.contains(hash) || history[hash].nr_runs < getReRuns())
+            {
+                found = true;
+                return;
+            }
+            // new tuneable found
+            if(dim == N)
+            {
+                return;
+            }
+
+            for_each_enumerate(
+                dim,
+                tuneables,
+                [&](auto& param)
+                {
+                    auto oldValue = param.value;
+
+                    // Try all values in the index range for this parameter
+                    {
+                        bool valid = true;
+                        auto value = param.value;
+                        while(valid && !found)
+                        {
+                            param.value = value;
+                            recurse(tuneables, dim + 1, kernelRun, history, found);
+                            value = getNextUpper(value, param.idxRange, valid);
+                        }
+                    }
+                    {
+                        bool valid = true;
+                        auto value = getNextLower(oldValue, param.idxRange, valid);
+                        while(valid && !found)
+                        {
+                            param.value = value;
+                            recurse(tuneables, dim + 1, kernelRun, history, found);
+                            value = getNextLower(value, param.idxRange, valid);
+                        }
+                    }
+                    if(!found)
+                        param.value = oldValue;
+                });
+        }
+
         template<typename T_tuneables, typename T_ActiveKernel, typename storageKernel>
         auto operator()(
             T_tuneables&& tuneables,
@@ -109,35 +184,8 @@ namespace alpaka::tune::strategy
         {
             if(history.contains(kernelRun.toHash()))
             {
-                for_each(
-                    tuneables,
-                    [&history, &kernelRun](auto& parameter)
-                    {
-                        //@TODO make this dynamic but ALPAKA_TYPE_OF(parameter->idxRange)::dim() did no get deduced
-                        // correctly on GPU
-                        using type = std::size_t;
-                        auto initialValue = parameter.value;
-                        bool valid = true;
-                        while(valid)
-                        {
-                            parameter.value = getNextUpper(parameter.value, parameter.idxRange, valid);
-                            if(!history.contains(kernelRun.toHash()))
-                                return;
-                            if(history[kernelRun.toHash()].nr_runs < getReRuns())
-                                return;
-                        }
-                        valid = true;
-                        while(valid)
-                        {
-                            parameter.value = getNextLower(parameter.value, parameter.idxRange, valid);
-                            if(!history.contains(kernelRun.toHash()))
-                                return;
-                            if(history[kernelRun.toHash()].nr_runs < getReRuns())
-                                return;
-                        }
-
-                        parameter.value = initialValue;
-                    });
+                bool found{false};
+                recurse(tuneables, 0, kernelRun, history, found);
             }
         }
     };

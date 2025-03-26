@@ -7,7 +7,7 @@
 
 static std::size_t getReRuns()
 {
-    if(char const* var = std::getenv("TunerReRuns"))
+    if(char const* var = std::getenv("TunerRunsPerConfig"))
     {
         try
         {
@@ -19,7 +19,7 @@ static std::size_t getReRuns()
             std::cerr << "Invalid value for TunerReRuns: " << e.what() << std::endl;
         }
     }
-    return 0;
+    return 1;
 }
 
 static std::size_t getMaxRuns()
@@ -36,6 +36,6 @@ static std::size_t getMaxRuns()
             std::cerr << "Invalid value for TunerReRuns: " << e.what() << std::endl;
         }
     }
-    return UINT64_MAX;//return maximal achievable value
+    return UINT64_MAX; // return maximal achievable value
 }
 #endif // ENVIRONMENTVARS_H

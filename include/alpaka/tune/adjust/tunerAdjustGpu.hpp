@@ -55,8 +55,7 @@ namespace alpaka::tune
                     kernelRun.gridSize->idxRange.m_begin
                         = begin(alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount);
                     using end = ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_end);
-                    kernelRun.gridSize->idxRange.m_end
-                        = end(alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount * 16u);
+                    kernelRun.gridSize->idxRange.m_end = end(dataBlocking.m_numFrames.product());
                     using stride = ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_stride);
                     kernelRun.gridSize->idxRange.m_stride
                         = stride(alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount);

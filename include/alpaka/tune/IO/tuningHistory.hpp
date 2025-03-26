@@ -135,7 +135,7 @@ namespace alpaka::tune
                                             {
                                                 run.gridSize = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
                                             }
-                                            else if(tkey == "blockThreadSize")
+                                            else if(tkey == "threadBlockSize")
                                             {
                                                 run.threadBlockSize
                                                     = alpaka::tune::StorageTuneable{tkey, value_tuneAble};

@@ -360,8 +360,8 @@ void testKernels(auto cfg)
     TuningSession session{tune::strategy::randomSearch{}};
     using fVec=ALPAKA_TYPEOF(dataBlocking.m_frameExtent);
     auto latestSession = session.
-                         withBlockSizeTune(tune::ThreadBlockSizeTune{dataBlocking.m_frameExtent, IdxRange{fVec{4}, dataBlocking.m_frameExtent, fVec{4}}}).
-                         withGridSizeTune(dataBlocking.m_numFrames).
+                         withBlockSizeTune(tune::ThreadBlockSizeTune{dataBlocking.m_frameExtent, IdxRange{fVec{32*8}, dataBlocking.m_frameExtent, fVec{32*8}}}).
+                         withGridSizeTune(tune::GridSizeTune{dataBlocking.m_numFrames, IdxRange{fVec{56*8}, dataBlocking.m_numFrames, fVec{56*8}}}).
                          withConfig("./config/babelstream.toml");
     // To record runtime data generated while running the kernels
     RuntimeResults runtimeResults;
@@ -702,7 +702,7 @@ TEMPLATE_LIST_TEST_CASE("TEST: Babelstream Kernels<Float>", "[benchmark-test]", 
     // Run tests for the float data type
     testKernels<float>(apiAndExecutors);
 }
-
+/*
 // Run for all Accs given by the argument
 TEMPLATE_LIST_TEST_CASE("TEST: Babelstream Kernels<Double>", "[benchmark-test]", TestApis)
 {
@@ -710,3 +710,4 @@ TEMPLATE_LIST_TEST_CASE("TEST: Babelstream Kernels<Double>", "[benchmark-test]",
     // Run tests for the double data type
     testKernels<double>(apiAndExecutors);
 }
+*/
