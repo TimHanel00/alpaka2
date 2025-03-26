@@ -18,9 +18,11 @@
 #include "alpaka/onHost/mem/Data.hpp"
 #include "alpaka/onHost/mem/View.hpp"
 #include "alpaka/onHost/trait.hpp"
+
 #include <cstdint>
 #include <memory>
 #include <sstream>
+
 namespace alpaka::onHost
 {
     namespace cpu
@@ -49,7 +51,7 @@ namespace alpaka::onHost
             {
                 return m_idx != other.m_idx;
             }
-            DeviceProperties m_properties;
+
         private:
             void _()
             {
@@ -58,7 +60,7 @@ namespace alpaka::onHost
 
             Handle<T_Platform> m_platform;
             uint32_t m_idx = 0u;
-
+            DeviceProperties m_properties;
             std::vector<std::weak_ptr<cpu::Queue<Device>>> queues;
             std::mutex queuesGuard;
 
@@ -103,7 +105,6 @@ namespace alpaka::onHost
     namespace trait
 
     {
-
         template<typename T_Platform>
         struct IsMappingSupportedBy::Op<exec::CpuSerial, cpu::Device<T_Platform>> : std::true_type
         {
@@ -222,6 +223,7 @@ namespace alpaka::onHost
             typename T_NumBlocks,
             typename T_NumThreads,
             typename T_KernelBundle>
+        requires exec::traits::isSeqExecutor_v<T_Mapping>
         struct AdjustThreadSpec::
             Op<cpu::Device<T_Platform>, T_Mapping, FrameSpec<T_NumBlocks, T_NumThreads>, T_KernelBundle>
         {
@@ -241,7 +243,6 @@ namespace alpaka::onHost
                 FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
                 T_KernelBundle const& kernelBundle) const
             {
-
                 auto numThreadBlocks = dataBlocking.getThreadSpec().m_numBlocks;
 #if 0
                using IdxType = typename T_NumBlocks::type;

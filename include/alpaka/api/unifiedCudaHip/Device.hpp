@@ -5,6 +5,7 @@
 #pragma once
 
 #include "alpaka/core/config.hpp"
+
 #if ALPAKA_LANG_CUDA || ALPAKA_LANG_HIP
 #    include "alpaka/api/unifiedCudaHip/Queue.hpp"
 #    include "alpaka/core/UniformCudaHip.hpp"
@@ -173,13 +174,18 @@ namespace alpaka::onHost
                 auto deleter = [](T_Type* ptr)
                 { ALPAKA_UNIFORM_CUDA_HIP_RT_CHECK_NOEXCEPT(ApiInterface, ApiInterface::free(ptr)); };
 
-                constexpr Idx alignment = 128u;
+                /** Each CUDA/HIP allocation is aligned to at least 128 byte but typically to 256byte
+                 *
+                 * @todo check if this value can be derived from the device properties
+                 * @todo validate if memory is always aligtne dto 256 byte
+                 */
+                constexpr uint32_t alignment = 128u;
                 auto data = std::make_shared<onHost::Data<
                     Handle<std::decay_t<decltype(device)>>,
                     T_Type,
                     T_Extents,
                     ALPAKA_TYPEOF(pitches),
-                    CVec<size_t, alignment>>>(device.getSharedPtr(), ptr, extents, pitches, deleter);
+                    Alignment<alignment>>>(device.getSharedPtr(), ptr, extents, pitches, deleter);
                 return onHost::View<std::decay_t<decltype(data)>, T_Extents>(data);
             }
         };
@@ -206,23 +212,23 @@ namespace alpaka::onHost
                 unifiedCudaHip::Device<T_Platform> const& device,
                 T_Mapping const& executor,
                 FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
-                T_KernelBundle & kernelBundle) const
+                T_KernelBundle const& kernelBundle) const requires alpaka::concepts::CVector<T_NumThreads>
+            {
+                return dataBlocking.getThreadSpec();
+            }
+
+            auto operator()(
+                unifiedCudaHip::Device<T_Platform> const& device,
+                T_Mapping const& executor,
+                FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
+                T_KernelBundle const& kernelBundle) const
             {
                 auto numThreadBlocks = dataBlocking.getThreadSpec().m_numBlocks;
-                auto constexpr n=16u;//options 1u,2u,4u,16u,32u
-                static auto const maxBlocks = device.m_properties.m_multiProcessorCount*16u;
-# ifdef ENABLE_AUTOTUNE
-                auto threadSpec=alpaka::tuneWithContext(device,executor,dataBlocking,kernelBundle);
-                return threadSpec;
-#endif
-#define Costum
-# ifdef Costum
-                if(numThreadBlocks.product() > maxBlocks)numThreadBlocks.x()=maxBlocks;
-                return ThreadSpec{numThreadBlocks, dataBlocking.getThreadSpec().m_numThreads};
-#endif
-#        if 1
+#        if 0
                 using IdxType = typename T_NumBlocks::type;
                 // @todo get this number from device properties
+                static auto const maxBlocks = device.m_properties.m_multiProcessorCount * 16u;
+
                 while(numThreadBlocks.product() > maxBlocks)
                 {
                     uint32_t maxIdx = 0u;

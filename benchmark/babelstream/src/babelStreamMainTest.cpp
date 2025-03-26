@@ -101,8 +101,8 @@ struct CopyKernel
     template<typename TAcc>
     ALPAKA_FN_ACC void operator()(TAcc const& acc, auto const a, auto c, auto arraySize) const
     {
-        auto simdGrid = onAcc::SimdForEach{onAcc::worker::threadsInGrid};
-        simdGrid.concurrent<64>(
+        auto simdGrid = onAcc::SimdAlgo{onAcc::worker::threadsInGrid};
+        simdGrid.concurrent(
             acc,
             alpaka::Vec{arraySize},
             [](auto const&, auto const in, auto out) constexpr { out = in.load(); },
@@ -126,8 +126,8 @@ struct MultKernel
         using T = trait::GetValueType_t<ALPAKA_TYPEOF(b)>;
         T const scalar = static_cast<T>(scalarVal);
 
-        auto simdGrid = onAcc::SimdForEach{onAcc::worker::threadsInGrid};
-        simdGrid.concurrent<64>(
+        auto simdGrid = onAcc::SimdAlgo{onAcc::worker::threadsInGrid};
+        simdGrid.concurrent(
             acc,
             alpaka::Vec{arraySize},
             [&](auto const&, auto out, auto const& in) constexpr { out = scalar * in.load(); },
@@ -149,8 +149,8 @@ struct AddKernel
     template<typename TAcc>
     ALPAKA_FN_ACC void operator()(TAcc const& acc, auto const a, auto const b, auto c, auto arraySize) const
     {
-        auto simdGrid = onAcc::SimdForEach{onAcc::worker::threadsInGrid};
-        simdGrid.concurrent<64>(
+        auto simdGrid = onAcc::SimdAlgo{onAcc::worker::threadsInGrid};
+        simdGrid.concurrent(
             acc,
             alpaka::Vec{arraySize},
             [&](auto const&, auto const& simdA, auto const& simdB, auto simdC) constexpr
@@ -177,8 +177,8 @@ struct TriadKernel
         using T = trait::GetValueType_t<ALPAKA_TYPEOF(a)>;
         T const scalar = static_cast<T>(scalarVal);
 
-        auto simdGrid = onAcc::SimdForEach{onAcc::worker::threadsInGrid};
-        simdGrid.concurrent<64>(
+        auto simdGrid = onAcc::SimdAlgo{onAcc::worker::threadsInGrid};
+        simdGrid.concurrent(
             acc,
             [&](auto const&, auto&& simdA, auto&& simdB, auto&& simdC) constexpr
             { simdA = simdB.load() + scalar * simdC.load(); },
@@ -241,17 +241,22 @@ struct DotKernel
         {
             for(auto elemIdxInFrame : traverseInFrame)
             {
-                auto allThreads = onAcc::SimdForEach{onAcc::WorkerGroup{frameIdx + elemIdxInFrame, frameDataExtent}};
-                allThreads.template concurrent<64>(
+                auto allThreads = onAcc::SimdAlgo{onAcc::WorkerGroup{frameIdx + elemIdxInFrame, frameDataExtent}};
+                auto reducedValue = allThreads.transformReduce(
                     acc,
                     alpaka::Vec{arraySize},
+                    T{0},
+                    std::plus{},
                     [&](auto const&, auto&& simdA, auto&& simdB) constexpr
                     {
                         auto tmp = simdA.load() * simdB.load();
-                        tbSum[elemIdxInFrame] += tmp.sum();
+                        // tmpValue += tmp.sum();
+                        return tmp;
                     },
                     a,
                     b);
+
+                tbSum[elemIdxInFrame] += reducedValue;
             }
         }
         // sync is required because we do not know which thread wrote whcih value
@@ -295,8 +300,6 @@ struct DotKernel
 template<typename DataType>
 void testKernels(auto cfg)
 {
-
-                             //.withConfig("./config/reduce.toml");
     if(kernelsToBeExecuted == KernelsToRun::All)
     {
         std::cout << "Kernels: Init, Copy, Mul, Add, Triad, Dot Kernels" << std::endl;
@@ -348,14 +351,15 @@ void testKernels(auto cfg)
 
     /* Each frame will have 64 elements processed by each thread.
      * The number of frames is calculated based on the array size and the number of elements processed by each thread.
+     *
      * @todo The value is currently a magic number but should be derived from the SIMD width of the device and a factor
      * to reflect the instruction level parallelism. This is currently not well abstracted in alpaka and requires that
-     * a kernel can reflect the concurrency bytes used for the `SimdForEach::concurrent()` back to the host, e.g. some
+     * a kernel can reflect the concurrency bytes used for the `SimdAlgo::concurrent()` back to the host, e.g. some
      * as we use for dynamic shared memory.
      */
-    constexpr uint32_t elementsPerFrameItem = 16u;
+    uint32_t elementsPerFrameItem = alpaka::getNumElemPerThread<DataType>(alpaka::onHost::getApi(queue));
 
-    auto numFrames = core::divCeil(arraySize, static_cast<Idx>(blockThreadExtentMain) * elementsPerFrameItem);
+    auto numFrames = divExZero(arraySize, static_cast<Idx>(blockThreadExtentMain) * elementsPerFrameItem);
     auto dataBlocking = onHost::FrameSpec{numFrames, static_cast<Idx>(blockThreadExtentMain)};
     TuningSession session{tune::strategy::randomSearch{}};
     using fVec=ALPAKA_TYPEOF(dataBlocking.m_frameExtent);
@@ -363,6 +367,7 @@ void testKernels(auto cfg)
                          withBlockSizeTune(tune::ThreadBlockSizeTune{dataBlocking.m_frameExtent, IdxRange{fVec{32}, dataBlocking.m_frameExtent, fVec{32}}}).
                          withGridSizeTune(tune::GridSizeTune{fVec{56}, IdxRange{fVec{56}, dataBlocking.m_numFrames, fVec{56}}}).
                          withConfig("./config/babelstream.toml");
+
     // To record runtime data generated while running the kernels
     RuntimeResults runtimeResults;
 
@@ -406,8 +411,9 @@ void testKernels(auto cfg)
     measureKernelExec(
         [&]()
         {
-            latestSession.enqueue(devAcc,
-            queue,
+            latestSession.enqueue(
+                devAcc,
+                queue,
                 exec,
                 dataBlocking,
                 KernelBundle{
@@ -437,23 +443,24 @@ void testKernels(auto cfg)
             measureKernelExec(
                 [&]()
                 {
-                    latestSession.enqueue(devAcc,
-                    queue,
+                    latestSession.enqueue(
+                		devAcc,
+                        queue,
                         exec,
                         dataBlocking,
-                        KernelBundle{CopyKernel(), bufAccInputA.getMdSpan(), bufAccOutputC.getMdSpan(), arraySize});
+                        KernelBundle{CopyKernel{}, bufAccInputA.getMdSpan(), bufAccOutputC.getMdSpan(), arraySize});
                 },
                 "CopyKernel");
 
             // Test the scaling-kernel. Calculate B=scalar*C. Where C = A.
             measureKernelExec(
                 [&]() {
-                    latestSession.enqueue(devAcc,
-                    queue,
+                    latestSession.enqueue(
+                		devAcc,
+                        queue,
                         exec,
                         dataBlocking,
-                        KernelBundle{
-                        MultKernel(),
+                        KernelBundle{MultKernel{},
                         bufAccInputB.getMdSpan(),
                         bufAccOutputC.getMdSpan(),
                         arraySize});
@@ -464,8 +471,9 @@ void testKernels(auto cfg)
             measureKernelExec(
                 [&]()
                 {
-                    latestSession.enqueue(devAcc,
-                    queue,
+                    latestSession.enqueue(
+                		devAcc,
+                        queue,
                         exec,
                         dataBlocking,
                         KernelBundle{
@@ -484,8 +492,9 @@ void testKernels(auto cfg)
             measureKernelExec(
                 [&]()
                 {
-                    latestSession.enqueue(devAcc,
-                    queue,
+                    latestSession.enqueue(
+                        devAcc,
+                        queue,
                         exec,
                         dataBlocking,
                         KernelBundle{
@@ -499,12 +508,10 @@ void testKernels(auto cfg)
         }
         if(kernelsToBeExecuted == KernelsToRun::All)
         {
-            constexpr uint32_t elementsPerFrameItem = 16u;
-            auto numFrames = std::max(
-                Idx{1},
-                std::min(
-                    static_cast<Idx>(dotGridBlockExtent),
-                    arraySize / (static_cast<Idx>(blockThreadExtentMain) * elementsPerFrameItem)));
+            uint32_t elementsPerFrameItem = alpaka::getNumElemPerThread<DataType>(alpaka::onHost::getApi(queue));
+            auto numFrames = std::min(
+                static_cast<Idx>(dotGridBlockExtent),
+                alpaka::divExZero(arraySize, (static_cast<Idx>(blockThreadExtentMain) * elementsPerFrameItem)));
 
             auto dataBlockingDot = onHost::FrameSpec{numFrames, static_cast<Idx>(blockThreadExtentMain)};
 
@@ -519,8 +526,9 @@ void testKernels(auto cfg)
                 {
                     // set initial value of the sum to 0
                     onHost::memset(queue, bufAccSumPerBlock, 0);
-                    latestSession.enqueue(devAcc,
-                                          queue,
+                    latestSession.enqueue(
+                        devAcc,
+                        queue,
                         exec,
                         dataBlockingDot,
                         KernelBundle{
@@ -545,8 +553,9 @@ void testKernels(auto cfg)
             measureKernelExec(
                 [&]()
                 {
-                    latestSession.enqueue(devAcc,
-                    queue,
+                    latestSession.enqueue(
+                		devAcc,
+                        queue,
                         exec,
                         dataBlocking,
                         KernelBundle{
@@ -702,7 +711,7 @@ TEMPLATE_LIST_TEST_CASE("TEST: Babelstream Kernels<Float>", "[benchmark-test]", 
     // Run tests for the float data type
     testKernels<float>(apiAndExecutors);
 }
-/*
+
 // Run for all Accs given by the argument
 TEMPLATE_LIST_TEST_CASE("TEST: Babelstream Kernels<Double>", "[benchmark-test]", TestApis)
 {
@@ -710,4 +719,3 @@ TEMPLATE_LIST_TEST_CASE("TEST: Babelstream Kernels<Double>", "[benchmark-test]",
     // Run tests for the double data type
     testKernels<double>(apiAndExecutors);
 }
-*/
