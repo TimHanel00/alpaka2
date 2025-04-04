@@ -5,7 +5,7 @@
 #ifndef ENVIRONMENTVARS_H
 #define ENVIRONMENTVARS_H
 
-static std::size_t getReRuns()
+static std::size_t getRunsPerConfig_Env()
 {
     if(char const* var = std::getenv("TunerRunsPerConfig"))
     {
@@ -20,6 +20,20 @@ static std::size_t getReRuns()
         }
     }
     return 1;
+}
+
+static std::size_t getRunsPerConfig(std::optional<std::size_t> const& reRuns = std::nullopt)
+{
+    static std::size_t envMaxRuns = getRunsPerConfig_Env();
+
+    if(reRuns.has_value())
+    {
+        if(reRuns.value() < envMaxRuns)
+        {
+            envMaxRuns = reRuns.value();
+        }
+    }
+    return envMaxRuns;
 }
 
 static std::size_t getMaxRuns_Env()

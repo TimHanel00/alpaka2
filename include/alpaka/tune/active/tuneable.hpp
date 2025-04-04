@@ -468,28 +468,35 @@ namespace alpaka::tune
         typename T_End = alpaka::Vec<T, 1u>,
         typename T_Begin = alpaka::Vec<T, 1u>,
         typename T_Stride = alpaka::Vec<T, 1u>>
-    struct GridSizeTune : public Tuneable<T, T_Begin, T_End, T_Stride>
+    struct NumBlocksTune : public Tuneable<T, T_Begin, T_End, T_Stride>
     {
         T gridSize;
 
-        explicit GridSizeTune() : Tuneable<T, T_Begin, T_End, T_Stride>(T(64), "gridSize"), gridSize(T(64))
+        explicit NumBlocksTune() : Tuneable<T, T_Begin, T_End, T_Stride>(T(64), "gridSize"), gridSize(T(64))
         {
         }
 
-        explicit GridSizeTune(T initial_value)
+        explicit NumBlocksTune(T initial_value)
             : Tuneable<T, T_Begin, T_End, T_Stride>(initial_value, "gridSize")
             , gridSize(initial_value)
         {
         }
 
-        explicit GridSizeTune(IdxRange<T_Begin, T_End, T_Stride> idxRange)
+        explicit NumBlocksTune(IdxRange<T_Begin, T_End, T_Stride> idxRange)
             : Tuneable<T, T_Begin, T_End, T_Stride>(T(64), "gridSize", idxRange)
             , gridSize(T(64))
         {
         }
 
-        explicit GridSizeTune(T initial_value, IdxRange<T_Begin, T_End, T_Stride> idxRange)
+        explicit NumBlocksTune(T initial_value, IdxRange<T_Begin, T_End, T_Stride> idxRange)
             : Tuneable<T, T_Begin, T_End, T_Stride>(initial_value, "gridSize", idxRange)
+            , gridSize(initial_value)
+        {
+        }
+
+        // this should only be used to create a modified instance of an existing numBlockTune
+        explicit NumBlocksTune(std::string const& name, T initial_value, IdxRange<T_Begin, T_End, T_Stride> idxRange)
+            : Tuneable<T, T_Begin, T_End, T_Stride>(initial_value, name, idxRange)
             , gridSize(initial_value)
         {
         }
@@ -502,31 +509,37 @@ namespace alpaka::tune
 
     template<typename T>
     requires alpaka::isVector_v<T>
-    struct GridSizeTune<T, T, T, T> : public Tuneable<T, T, T, T>
+    struct NumBlocksTune<T, T, T, T> : public Tuneable<T, T, T, T>
     {
         T gridSize;
 
-        explicit GridSizeTune() : Tuneable<T, T, T, T>(T(64), "gridSize"), gridSize(T(64))
+        explicit NumBlocksTune() : Tuneable<T, T, T, T>(T(64), "gridSize"), gridSize(T(64))
         {
         }
 
-        explicit GridSizeTune(T initial_value)
+        explicit NumBlocksTune(T initial_value)
             : Tuneable<T, T, T, T>(initial_value, "gridSize")
             , gridSize(initial_value)
         {
         }
 
-        explicit GridSizeTune(IdxRange<T, T, T> idxRange)
+        explicit NumBlocksTune(IdxRange<T, T, T> idxRange)
             : Tuneable<T, T, T, T>(T(64), "gridSize", idxRange)
             , gridSize(T(64))
         {
         }
 
-        explicit GridSizeTune(T initial_value, IdxRange<T, T, T> idxRange)
+        // this should only be used to create a modified instance of an existing numBlockTune
+        explicit NumBlocksTune(T initial_value, std::string const& name, IdxRange<T, T, T> idxRange)
+            : Tuneable<T, T, T, T>(initial_value, name, idxRange)
+            , gridSize(initial_value)
+        {
+        }
+
+        explicit NumBlocksTune(T initial_value, IdxRange<T, T, T> idxRange)
             : Tuneable<T, T, T, T>(initial_value, "gridSize", idxRange)
             , gridSize(initial_value)
         {
-            std::cout << " calling constructor with: " << initial_value[0] << std::endl;
         }
 
         void setGrid(IdxRange<T, T, T> const& idxRange)
@@ -552,6 +565,16 @@ namespace alpaka::tune
 
         explicit ThreadBlockSizeTune(T initial_value, IdxRange<T_Begin, T_End, T_Stride> idxRange)
             : Tuneable<T, T_Begin, T_End, T_Stride>(initial_value, "threadBlockSize", idxRange)
+            , blockThreadSize(initial_value)
+        {
+        }
+
+        // this should only be used to create a modified instance of an existing threadblockTune
+        explicit ThreadBlockSizeTune(
+            T initial_value,
+            std::string const& name,
+            IdxRange<T_Begin, T_End, T_Stride> idxRange)
+            : Tuneable<T, T_Begin, T_End, T_Stride>(initial_value, name, idxRange)
             , blockThreadSize(initial_value)
         {
         }
@@ -586,6 +609,13 @@ namespace alpaka::tune
 
         explicit ThreadBlockSizeTune(T initial_value, IdxRange<T, T, T> idxRange)
             : Tuneable<T, T, T, T>(initial_value, "threadBlockSize", idxRange)
+            , blockThreadSize(initial_value)
+        {
+        }
+
+        // this should only be used to create a modified instance of an existing threadblockTune
+        explicit ThreadBlockSizeTune(T initial_value, std::string const& name, IdxRange<T, T, T> idxRange)
+            : Tuneable<T, T, T, T>(initial_value, name, idxRange)
             , blockThreadSize(initial_value)
         {
         }

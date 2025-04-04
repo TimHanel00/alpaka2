@@ -84,6 +84,60 @@ public:
     // Prevent copy/move
 };
 
+template<typename T_Vec>
+auto makeConformToTVec(T_Vec const&, std::nullopt_t)
+{
+    return std::nullopt;
+}
+
+/*
+ * ensures that a
+ */
+template<
+    typename T_Vec,
+    template<typename, typename, typename, typename> class T_Tunable,
+    typename T,
+    typename T_begin,
+    typename T_end,
+    typename T_stride>
+auto makeConformToTVec(T_Vec const&, std::optional<T_Tunable<T, T_begin, T_end, T_stride>> const& tuneable)
+{
+    auto actualTuneable = tuneable.value();
+    if constexpr(std::is_integral_v<ALPAKA_TYPEOF(actualTuneable.value)> && T_Vec::dim() == 1)
+    {
+        // if its defined with a size_t
+        auto ret = T_Tunable(
+            T_Vec(actualTuneable.value),
+            alpaka::IdxRange{
+                T_Vec(actualTuneable.idxRange.m_begin[0]),
+                T_Vec(actualTuneable.idxRange.m_end[0]),
+                T_Vec(actualTuneable.idxRange.m_stride[0])});
+        return std::optional<ALPAKA_TYPEOF(ret)>(ret);
+    }
+    else
+    {
+        if constexpr(T_Vec::dim() != ALPAKA_TYPEOF(actualTuneable.value)::dim())
+        {
+            std::string s = actualTuneable.name;
+            throw std::runtime_error("the Dimension of " + s + " has to comply with the dimension of the threadSpec");
+        }
+        else
+        {
+            auto init = alpaka::Vec<typename T_Vec::type, T_Vec::dim()>::all(1);
+            auto value = init, begin = init, end = init, stride = init;
+            for(auto i = 0; i < T_Vec::dim(); ++i)
+            {
+                value[i] = actualTuneable.value[i];
+                begin[i] = actualTuneable.idxRange.m_begin[i];
+                end[i] = actualTuneable.idxRange.m_end[i];
+                stride[i] = actualTuneable.idxRange.m_stride[i];
+            }
+            auto ret = T_Tunable{value, alpaka::IdxRange{begin, end, stride}};
+            return std::optional<ALPAKA_TYPEOF(ret)>(ret);
+        }
+    }
+}
+
 template<
     bool grid,
     bool block,
@@ -101,7 +155,10 @@ auto createKernelSingleton(
     auto& sessionSpecifier,
     auto& history)
 {
-    auto activeRun = ActiveKernelRun{run.gridSize, run.threadBlockSize, extractTuneables(bundle)};
+    auto activeRun = ActiveKernelRun{
+        makeConformToTVec(spec.m_numFrames, run.gridSize),
+        makeConformToTVec(spec.m_frameExtent, run.threadBlockSize),
+        extractTuneables(bundle)};
     auto activePtr = std::make_unique<ALPAKA_TYPEOF(activeRun)>(activeRun);
     auto sharedParams = makeSharedParameterInterface<grid, block, ALPAKA_TYPEOF(*activePtr)>(*activePtr);
     auto ptrToHistory = history.getKernelFromHistory(device, exec, bundle, sessionSpecifier);

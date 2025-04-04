@@ -6,21 +6,8 @@
 #define ENABLE_AUTOTUNE
 
 #ifdef ENABLE_AUTOTUNE
-#    include "alpaka/onHost.hpp"
-#    include "alpaka/tune/active/KernelSingleton.hpp"
-#    include "alpaka/tune/utils/environmentVars.hpp"
 
-#    include <alpaka/tune/IO/tuningHistory.hpp>
-#    include <alpaka/tune/active/strategy.hpp>
-#    include <alpaka/tune/utils/TimeEvent.hpp>
-#    include <alpaka/tune/utils/tupleHandle.hpp>
-
-#    include <cmath>
-#    include <iostream>
-#    include <numeric>
-#    include <string>
-#    include <unordered_map>
-#    include <variant>
+#    include <alpaka/tune/active/sessionBuilder.h>
 
 namespace alpaka
 {
@@ -73,7 +60,7 @@ namespace alpaka
         }
         return spec;
     }
-    #ifdef DEBUG
+#    ifdef DEBUG
     template<typename T_active>
     void printGBFromActive(T_active& active)
     {
@@ -94,157 +81,54 @@ namespace alpaka
                       << " , B: " << active.threadBlockSize->valueToString() << std::endl;
         }
     }
-    #endif
+#    endif
 #    define MetricUndefined std::numeric_limits<float>::quiet_NaN()
 
     template<
-    typename T_Strategy = alpaka::tune::strategy::randomSearch,
-    typename T_GridSize = alpaka::tune::GridSizeTune<>,
-    typename T_BlockSize = alpaka::tune::ThreadBlockSizeTune<>,
-    bool grid = false,
-    bool block = false>
-struct TuningSession
-{
-    using T_floating = double_t;
-    using T_Integer = std::size_t;
-    ActiveKernelRun<T_GridSize, T_BlockSize, T_floating> run;
-    tune::TuningHistory& history = tune::TuningHistory::get();
-    T_Strategy strategy;
-    T_Integer dynamicRuns_Nr{0};
-    bool m_initialized = false;
-    std::size_t reRuns{0};
-    std::string config;
-    std::vector<std::string> sessionSpecifier;
-    TuningSession() = default;
-
-    explicit TuningSession(T_Strategy strategy) : strategy(strategy), reRuns(getReRuns())
+        typename T_Strategy = alpaka::tune::strategy::randomSearch,
+        typename T_GridSize = alpaka::tune::NumBlocksTune<>,
+        typename T_BlockSize = alpaka::tune::ThreadBlockSizeTune<>,
+        bool grid = false,
+        bool block = false>
+    struct TuningSession
     {
-        run.metric = MetricUndefined;
-    }
+        using T_floating = double_t;
+        using T_Integer = std::size_t;
+        ActiveKernelRun<T_GridSize, T_BlockSize, T_floating> run;
+        tune::TuningHistory& history = tune::TuningHistory::get();
+        T_Strategy strategy;
+        T_Integer dynamicRuns_Nr{0};
+        bool m_initialized = false;
+        std::size_t reRuns{0};
+        std::string config;
+        std::vector<std::string> sessionSpecifier;
+        TuningSession() = default;
 
-    /*
-    TuningSession(const TuningSession&) = delete;
-    TuningSession& operator=(const TuningSession&) = delete;
-    TuningSession(TuningSession&&) noexcept = default;
-    TuningSession& operator=(TuningSession&&) noexcept = default;*/
-    TuningSession& withReRuns(std::size_t const& reRuns)
-    {
-        if(getReRuns() != 0)
+        explicit TuningSession(
+            T_Strategy strategy,
+            std::string config,
+            std::size_t reRuns,
+            std::size_t dynamicRuns,
+            std::vector<std::string> sessionSpecifiers,
+            T_GridSize gridTune,
+            T_BlockSize blockTune)
+            : strategy(std::move(strategy))
+            , config(std::move(config))
+            , dynamicRuns_Nr(dynamicRuns)
+            , sessionSpecifier(std::move(sessionSpecifiers))
+            , m_initialized(false)
         {
-            this->reRuns = reRuns;
-        }
-        return *this;
-    }
-
-    TuningSession& withConfig(std::string const& config)
-    {
-        this->config = config;
-        return *this;
-    }
-
-    template<typename... T_Specifiers>
-    TuningSession& withRunSpecifiers(T_Specifiers... specifiers)
-    {
-        processArgs(sessionSpecifier, specifiers...);
-
-        return *this;
-    }
-
-    template<bool copyGridSize = false, bool copyBlockSize = false, typename T_newSession>
-    void copy(T_newSession& session)
-    {
-        session.config = this->config;
-        session.dynamicRuns_Nr = dynamicRuns_Nr;
-        session.sessionSpecifier = sessionSpecifier;
-        session.run.metric = this->run.metric;
-        if constexpr(copyGridSize)
-        {
-            session.run.gridSize = this->run.gridSize;
-        }
-        else if constexpr(copyBlockSize)
-        {
-            session.run.threadBlockSize = this->run.threadBlockSize;
-        }
-    }
-
-    template<typename T, typename T_Begin, typename T_End, typename T_Stride>
-    auto withGridSizeTune(tune::GridSizeTune<T, T_Begin, T_End, T_Stride> tune)
-    {
-        TuningSession<T_Strategy, tune::GridSizeTune<T, T_Begin, T_End, T_Stride>, T_BlockSize, true, block> ret{
-            strategy};
-        this->template copy<false, block>(ret);
-        ret.run.gridSize = tune;
-        ret.run.gridSize->userDef = true;
-        ret.config = this->config;
-        return ret;
-    }
-
-    template<typename T, auto dim>
-    auto withGridSizeTune(alpaka::Vec<T, dim> tune)
-    {
-        using VecType = ALPAKA_TYPEOF(tune);
-        TuningSession<T_Strategy, tune::GridSizeTune<VecType, VecType, VecType, VecType>, T_BlockSize, true, block>
-            ret{strategy};
-        this->template copy<false, block>(ret);
-        ret.run.gridSize = std::move(tune::GridSizeTune<VecType, VecType, VecType, VecType>{tune});
-        ret.config = this->config;
-        ret.run.gridSize->userDef = true;
-        return ret;
-    }
-
-    auto withGridSizeTune()
-    {
-        TuningSession<T_Strategy, tune::GridSizeTune<>, T_BlockSize, true, block> ret{strategy};
-        this->template copy<false, block>(ret);
-        ret.run.gridSize = std::move(tune::GridSizeTune{});
-        ret.config = this->config;
-        return ret;
-    }
-
-        auto withBlockSizeTune()
-        {
-            TuningSession<T_Strategy, T_GridSize, tune::ThreadBlockSizeTune<>, grid, true> ret{strategy};
-            this->template copy<grid, false>(ret);
-            ret.run.threadBlockSize = std::move(tune::ThreadBlockSizeTune{});
-            ret.config = this->config;
-            return ret;
+            this->reRuns = getRunsPerConfig();
+            run.metric = MetricUndefined;
+            run.gridSize = std::move(gridTune);
+            run.threadBlockSize = std::move(blockTune);
         }
 
-        template<typename T, auto dim>
-        auto withBlockSizeTune(alpaka::Vec<T, dim> tune)
-        {
-            using VecType = ALPAKA_TYPEOF(tune);
-            TuningSession<
-                T_Strategy,
-                T_GridSize,
-                tune::ThreadBlockSizeTune<VecType, VecType, VecType, VecType>,
-                grid,
-                true>
-                ret{strategy};
-            this->template copy<grid, false>(ret);
-            ret.run.threadBlockSize = std::move(tune::ThreadBlockSizeTune<VecType, VecType, VecType, VecType>{tune});
-            ret.config = this->config;
-            ret.run.threadBlockSize->userDef = true;
-            return ret;
-        }
-
-        template<typename T, typename T_Begin, typename T_End, typename T_Stride>
-        auto withBlockSizeTune(tune::ThreadBlockSizeTune<T, T_Begin, T_End, T_Stride> tune)
-        {
-            TuningSession<T_Strategy, T_GridSize, tune::ThreadBlockSizeTune<T, T_Begin, T_End, T_Stride>, grid, true>
-                ret{strategy};
-            this->template copy<grid, false>(ret);
-            ret.run.threadBlockSize = std::move(tune);
-            ret.run.threadBlockSize->userDef = true;
-            ret.config = this->config;
-            return ret;
-        }
-
-        auto& withDynamicRuns(std::size_t runs)
-        {
-            dynamicRuns_Nr = static_cast<T_Integer>(runs);
-            return *this;
-        }
+        /*
+        TuningSession(const TuningSession&) = delete;
+        TuningSession& operator=(const TuningSession&) = delete;
+        TuningSession(TuningSession&&) noexcept = default;
+        TuningSession& operator=(TuningSession&&) noexcept = default;*/
 
         /** Enqueue and Execute a kernel for the tuning session
          * @param device
@@ -297,8 +181,8 @@ struct TuningSession
             auto& activeRun = *kernelptr->activeRunPtr;
             if(sessionSpecifier
                != kernelptr->ptrToHistory->specifiers) // super ugly but thats currently the solution to handle
-                                                        // multiple tuning sessions with different sessionSpecifier but
-                                                        // same template types
+                                                       // multiple tuning sessions with different sessionSpecifier but
+                                                       // same template types
             {
                 kernelptr = createKernelSingleton<grid, block>(
                     device,
@@ -321,7 +205,7 @@ struct TuningSession
             std::cout << "[DEBUG] kernelBundle demangled: " << alpaka::core::demangledName(kernelBundle) << std::endl;
 #    endif
 
-            if(historyKernelData.sumOfRuns >= getMaxRuns(activeRun.maxRuns) * getReRuns())
+            if(historyKernelData.sumOfRuns >= getMaxRuns(activeRun.maxRuns) * this->reRuns)
             {
                 std::cout << "[DEBUG] Selecting best config." << std::endl;
                 auto event = tune::createTimeEventFromActive(activeRun);

@@ -24,7 +24,7 @@ namespace alpaka::tune
         for(std::size_t i = 0; i < T_vec::dim(); ++i)
         {
             // using ceil-root heuristic to distribute mps across dimensions
-            ValType split = std::max(1u, static_cast<ValType>(std::pow(remainder, 1.0 / (T_vec::dim() - i))));
+            ValType split = std::max(ValType(1), static_cast<ValType>(std::pow(remainder, 1.0 / (T_vec::dim() - i))));
             resultVec = split;
             remainder /= split;
         }

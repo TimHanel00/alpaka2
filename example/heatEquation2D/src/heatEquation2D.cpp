@@ -135,22 +135,24 @@ auto example(T_Cfg const& cfg) -> int
         alpaka::Vec<ulong, 2>{dataBlockingStencil.m_numFrames.x(), dataBlockingStencil.m_numFrames.y()},
         alpaka::Vec<ulong, 2>{dataBlockingStencil.m_frameExtent.x(), dataBlockingStencil.m_frameExtent.y()}};
     using fVec = ALPAKA_TYPEOF(toRTime.m_frameExtent);
-    TuningSession session{tune::strategy::randomSearch{}};
-    auto latestSession
-        = session
+    tune::TuningBuilder builder;
+    auto tuningSession
+        = builder.withStrategy(alpaka::tune::strategy::randomSearch{})
               .withBlockSizeTune(
                   tune::ThreadBlockSizeTune{
                       toRTime.m_frameExtent,
                       IdxRange{fVec{8, 4}, toRTime.m_frameExtent, fVec{8, 4}}})
-              .withGridSizeTune(tune::GridSizeTune{fVec{7, 8}, IdxRange{fVec{7, 8}, toRTime.m_numFrames, fVec{7, 8}}})
-              .withConfig("./config/babelstream.toml"); // #gpu
+              .withNumBlocksTune(
+                  tune::NumBlocksTune{fVec{7, 8}, IdxRange{fVec{7, 8}, toRTime.m_numFrames, fVec{7, 8}}})
+              .withConfig("./config/babelstream.toml")
+              .build(); // #gpu
     auto startTime = std::chrono::high_resolution_clock::now();
 
     // Simulate
     for(uint32_t step = 1; step <= numTimeSteps; ++step)
     {
         // Compute next values
-        latestSession.enqueue(
+        tuningSession.enqueue(
             devAcc,
             computeQueue,
             exec,

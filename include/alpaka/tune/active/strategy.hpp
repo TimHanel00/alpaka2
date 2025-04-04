@@ -241,7 +241,7 @@ namespace alpaka::tune::strategy
      * since time is currently no defined interface this is used to compare time metrics
      * */
     template<>
-struct MetricAdjust::best<double_t>
+    struct MetricAdjust::best<double_t>
     {
         double_t operator()(double_t const& a, double_t const& b) const
         {
@@ -258,7 +258,6 @@ struct MetricAdjust::best<double_t>
             return old_ - new_;
         }
     };
-
 
     struct simulatedAnnealing
     {
@@ -401,7 +400,7 @@ struct MetricAdjust::best<double_t>
         {
             constexpr std::size_t N = std::tuple_size_v<std::remove_reference_t<Tuple>>;
             auto hash = kernelRun.toHash();
-            if(found || !history.contains(hash) || history[hash].nr_runs < getReRuns())
+            if(found || !history.contains(hash) || history[hash].nr_runs < getRunsPerConfig())
             {
                 found = true;
                 return;

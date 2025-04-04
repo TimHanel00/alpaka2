@@ -4,6 +4,6 @@
 
 #ifndef API_H
 #define API_H
-#include "alpaka/tune/active/sessionBuilder.h"
 #include "alpaka/tune/active/tuneable.hpp"
+#include "alpaka/tune/active/tuningSession.hpp"
 #endif // API_H

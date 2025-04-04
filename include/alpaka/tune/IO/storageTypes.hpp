@@ -10,8 +10,9 @@
 #include "alpaka/core/RemoveRestrict.hpp"
 #include "alpaka/meta/IntegerSequence.hpp"
 #include "alpaka/tune/active/tuneable.hpp"
-#include <numeric>
+
 #include <cmath>
+#include <numeric>
 
 inline std::vector<std::string> split(std::string const& s, char delimiter = ',')
 {
