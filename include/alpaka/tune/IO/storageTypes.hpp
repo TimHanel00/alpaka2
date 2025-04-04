@@ -130,11 +130,18 @@ struct TuningResult
 // storage container of a single Run used for history
 struct StorageKernelRun
 {
+    enum class State
+    {
+        Uninitialized,
+        WarmUp,
+        Initialized
+    };
     std::vector<alpaka::tune::StorageTuneable> tuneables;
     std::optional<alpaka::tune::StorageTuneable> gridSize{std::nullopt};
     std::optional<alpaka::tune::StorageTuneable> threadBlockSize{std::nullopt};
     std::priority_queue<double_t> metric;
     std::size_t nr_runs{1};
+    State state{State::Uninitialized};
 
     [[nodiscard]] std::string toHash() const
     {

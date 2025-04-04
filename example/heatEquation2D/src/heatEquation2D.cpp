@@ -136,6 +136,7 @@ auto example(T_Cfg const& cfg) -> int
         alpaka::Vec<ulong, 2>{dataBlockingStencil.m_frameExtent.x(), dataBlockingStencil.m_frameExtent.y()}};
     using fVec = ALPAKA_TYPEOF(toRTime.m_frameExtent);
     tune::TuningBuilder builder;
+    /*
     auto tuningSession
         = builder.withStrategy(alpaka::tune::strategy::randomSearch{})
               .withBlockSizeTune(
@@ -145,7 +146,12 @@ auto example(T_Cfg const& cfg) -> int
               .withNumBlocksTune(
                   tune::NumBlocksTune{fVec{7, 8}, IdxRange{fVec{7, 8}, toRTime.m_numFrames, fVec{7, 8}}})
               .withConfig("./config/babelstream.toml")
-              .build(); // #gpu
+              .build(); // #gpu*/
+    auto tuningSession = builder.withStrategy(alpaka::tune::strategy::randomSearch{})
+                             .withBlockSizeTune()
+                             .withNumBlocksTune()
+                             .withConfig("./config/babelstream.toml")
+                             .build(); // #cpu
     auto startTime = std::chrono::high_resolution_clock::now();
 
     // Simulate

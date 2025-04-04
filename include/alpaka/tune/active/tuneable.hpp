@@ -548,6 +548,10 @@ namespace alpaka::tune
         }
     };
 
+    template<typename T>
+    requires alpaka::isVector_v<T>
+    NumBlocksTune(T) -> NumBlocksTune<T, T, T, T>;
+
     template<
         typename T = uint32_t,
         typename T_End = alpaka::Vec<T, 1u>,
@@ -637,6 +641,10 @@ namespace alpaka::tune
             this->idxRange = std::optional<IdxRange<T, T, T>>(idxRange);
         }
     };
+
+    template<typename T>
+    requires alpaka::isVector_v<T>
+    ThreadBlockSizeTune(T) -> ThreadBlockSizeTune<T, T, T, T>;
 
 
 } // namespace alpaka::tune

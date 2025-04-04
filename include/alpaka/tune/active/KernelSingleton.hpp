@@ -91,7 +91,8 @@ auto makeConformToTVec(T_Vec const&, std::nullopt_t)
 }
 
 /*
- * ensures that a
+ * ensures that a a user defined tuning conforms to the framespec types and I know its ugly
+ *
  */
 template<
     typename T_Vec,
@@ -100,7 +101,7 @@ template<
     typename T_begin,
     typename T_end,
     typename T_stride>
-auto makeConformToTVec(T_Vec const&, std::optional<T_Tunable<T, T_begin, T_end, T_stride>> const& tuneable)
+auto makeConformToTVec(T_Vec const& vec, std::optional<T_Tunable<T, T_begin, T_end, T_stride>> const& tuneable)
 {
     auto actualTuneable = tuneable.value();
     if constexpr(std::is_integral_v<ALPAKA_TYPEOF(actualTuneable.value)> && T_Vec::dim() == 1)
@@ -116,7 +117,21 @@ auto makeConformToTVec(T_Vec const&, std::optional<T_Tunable<T, T_begin, T_end, 
     }
     else
     {
-        if constexpr(T_Vec::dim() != ALPAKA_TYPEOF(actualTuneable.value)::dim())
+        if constexpr(std::is_integral_v<ALPAKA_TYPEOF(actualTuneable.value)> && T_Vec::dim() > 1)
+        {
+            if(tuneable->userDef)
+            {
+                std::string s = actualTuneable.name;
+                throw std::runtime_error(
+                    "the Dimension of " + s + " has to comply with the dimension of the threadSpec");
+            }
+            else
+            {
+                auto ret = T_Tunable{vec}; // force tuneable to be of the frameSpec dimension
+                return std::optional<ALPAKA_TYPEOF(ret)>(ret);
+            }
+        }
+        else if constexpr(T_Vec::dim() != ALPAKA_TYPEOF(actualTuneable.value)::dim())
         {
             std::string s = actualTuneable.name;
             throw std::runtime_error("the Dimension of " + s + " has to comply with the dimension of the threadSpec");

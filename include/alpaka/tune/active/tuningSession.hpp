@@ -336,7 +336,13 @@ namespace alpaka
 #    ifdef DEBUG
                 std::cout << "[DEBUG] Adding new run to history." << std::endl;
 #    endif
+
                 data.runs[runHash] = toStore(run);
+                StorageKernelRun& storeKernel = data.runs[runHash];
+                using T_state = ALPAKA_TYPEOF(storeKernel.state);
+                storeKernel.state = T_state::WarmUp;
+                --data.sumOfRuns; // the first run of every config doesnt count towards the tuning objective
+                storeKernel.nr_runs = 0;
             }
             else
             {
@@ -347,8 +353,22 @@ namespace alpaka
                     std::cout << "[DEBUG] Updating stored run. Previous best metric: " << storeKernel.metric.top()
                               << ", Previous nr_runs: " << storeKernel.nr_runs << std::endl;
 #    endif
-                    storeKernel.metric.push(run.metric);
-                    ++storeKernel.nr_runs;
+                    using T_state = ALPAKA_TYPEOF(storeKernel.state);
+                    switch(storeKernel.state)
+                    {
+                    case T_state::WarmUp:
+                        storeKernel.metric.pop(); // pop one or more initial runs
+                        storeKernel.metric.push(run.metric); // we keep the same number of runs in this instance
+                        storeKernel.state = T_state::Initialized;
+                        ++storeKernel.nr_runs;
+                        break;
+
+                    case T_state::Initialized:
+                        storeKernel.metric.push(run.metric);
+                        ++storeKernel.nr_runs;
+                        break;
+                    default:;
+                    }
 
 #    ifdef DEBUG
                     std::cout << "[DEBUG] Updated metric: " << storeKernel.metric.top()
