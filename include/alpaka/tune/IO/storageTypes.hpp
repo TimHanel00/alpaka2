@@ -10,7 +10,7 @@
 #include "alpaka/core/RemoveRestrict.hpp"
 #include "alpaka/meta/IntegerSequence.hpp"
 #include "alpaka/tune/active/tuneable.hpp"
-
+#include <numeric>
 #include <cmath>
 
 inline std::vector<std::string> split(std::string const& s, char delimiter = ',')
@@ -237,6 +237,17 @@ static KernelData createKernelData(
     return data;
 };
 
+/*
+ * small predefined storageContainer to represent a certain state strategy State of a activeKernelRun
+ * (since static variables inside strategies) might violate the constraints implied by the sessionSpecifieres
+ */
+
+struct strategyState
+{
+    double_t temperature;
+    std::size_t runs{0};
+};
+
 // concretely defined run for a tuning session stores extracted
 template<typename T_GridSize, typename T_BlockSize, typename T_TuneableType>
 struct ActiveKernelRun
@@ -248,6 +259,8 @@ struct ActiveKernelRun
     T_TuneableType tuneables;
     std::size_t maxRuns{};
     std::size_t maxRunsDefault{1};
+    strategyState m_strategyState{};
+    bool resetSignal{false};
     constexpr ActiveKernelRun() = default;
 
     constexpr ActiveKernelRun(
@@ -373,7 +386,7 @@ StorageKernelRun toStore(ActiveKernelRun<T_GridSize, T_BlockSize, T_TuneableType
         result.metric.push(active.metric);
     }
 
-    // Convert each tuneable in the tuple.
+    // Convert each tuneable in the tuple
     std::apply(
         [&result](auto const&... tuneable)
         {

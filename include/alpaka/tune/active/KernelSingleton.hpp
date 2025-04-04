@@ -39,7 +39,6 @@ public:
     T_ActiveKernelRun activeRunPtr;
     T_PtrToHistory ptrToHistory;
     T_SharedParams sharedParams;
-    std::vector<std::string> sessionSpecifier;
 
     KernelSingleton(KernelSingleton const&) = delete;
     KernelSingleton& operator=(KernelSingleton const&) = delete;
@@ -63,7 +62,6 @@ public:
         , activeRunPtr(std::move(activeRun_))
         , ptrToHistory(std::move(ptrToHistory_))
         , sharedParams(std::move(uniformParamInterface))
-        , sessionSpecifier(sessionSpecifier_)
     {
         if(!ptrToHistory)
         {
@@ -72,9 +70,9 @@ public:
             std::string deviceName = alpaka::core::demangledName(device);
             std::string execName = alpaka::core::demangledName(exec);
             std::string kernelName = typeid(kernelBundle).name();
-            auto tmp = createKernelData(deviceName, execName, kernelName, sessionSpecifier);
+            auto tmp = createKernelData(deviceName, execName, kernelName, sessionSpecifier_);
             history.m_tuningHistory.emplace(tmp.toHash(), std::move(tmp));
-            ptrToHistory = history.getKernelFromHistory(device, exec, kernelBundle, sessionSpecifier);
+            ptrToHistory = history.getKernelFromHistory(device, exec, kernelBundle, sessionSpecifier_);
         }
         // acts like a guard only valid configs are used for the device
         frameSpec = alpaka::tune::SessAdjustThreadSpec(device, exec, frameSpec, *activeRunPtr);
@@ -94,7 +92,7 @@ template<
     typename T_NumFrames,
     typename T_FrameExtent,
     typename T_KernelBundle>
-static auto& createKernelSingleton(
+auto createKernelSingleton(
     T_Device device,
     T_Exec exec,
     alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent> const& spec,
@@ -118,7 +116,7 @@ static auto& createKernelSingleton(
         ALPAKA_TYPEOF(activePtr),
         ALPAKA_TYPEOF(ptrToHistory),
         ALPAKA_TYPEOF(sharedParams)>;
-    static auto singleTon = std::make_unique<kernelSingletonType>(
+    auto singleTon = std::make_unique<kernelSingletonType>(
         device,
         exec,
         spec,
@@ -128,6 +126,6 @@ static auto& createKernelSingleton(
         std::move(sharedParams),
         sessionSpecifier,
         history);
-    return *singleTon;
+    return singleTon;
 }
 #endif // KERNELSINGLETON_H

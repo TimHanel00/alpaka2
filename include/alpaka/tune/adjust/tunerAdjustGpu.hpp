@@ -10,6 +10,7 @@
 
 #include <alpaka/onHost/FrameSpec.hpp>
 #include <alpaka/tune/adjust/tunerAdjustCpu.hpp>
+// #define ALPAKA_LANG_CUDA 1
 #if ALPAKA_LANG_CUDA || ALPAKA_LANG_HIP
 namespace alpaka::tune
 {

@@ -468,7 +468,7 @@ namespace alpaka::tune
         typename T_End = alpaka::Vec<T, 1u>,
         typename T_Begin = alpaka::Vec<T, 1u>,
         typename T_Stride = alpaka::Vec<T, 1u>>
-    struct GridSizeTune : Tuneable<T, T_Begin, T_End, T_Stride>
+    struct GridSizeTune : public Tuneable<T, T_Begin, T_End, T_Stride>
     {
         T gridSize;
 
@@ -502,7 +502,7 @@ namespace alpaka::tune
 
     template<typename T>
     requires alpaka::isVector_v<T>
-    struct GridSizeTune<T, T, T, T> : Tuneable<T, T, T, T>
+    struct GridSizeTune<T, T, T, T> : public Tuneable<T, T, T, T>
     {
         T gridSize;
 
@@ -540,7 +540,7 @@ namespace alpaka::tune
         typename T_End = alpaka::Vec<T, 1u>,
         typename T_Begin = alpaka::Vec<T, 1u>,
         typename T_Stride = alpaka::Vec<T, 1u>>
-    struct ThreadBlockSizeTune : Tuneable<T, T_Begin, T_End, T_Stride>
+    struct ThreadBlockSizeTune : public Tuneable<T, T_Begin, T_End, T_Stride>
     {
         T blockThreadSize;
 
@@ -576,7 +576,7 @@ namespace alpaka::tune
 
     template<typename T>
     requires alpaka::isVector_v<T>
-    struct ThreadBlockSizeTune<T, T, T, T> : Tuneable<T, T, T, T>
+    struct ThreadBlockSizeTune<T, T, T, T> : public Tuneable<T, T, T, T>
     {
         T blockThreadSize;
 

@@ -14,9 +14,15 @@ namespace alpaka::tune
     {
         using T_floating = std::double_t;
 
-
         std::unordered_map<std::string, KernelData> m_tuningHistory;
 
+        static TuningHistory& get()
+        {
+            static auto instance = TuningHistory{};
+            return instance;
+        }
+
+        bool initialized = false;
         TuningHistory() = default;
 
         template<typename T_DeviceHandle, typename T_Exec, typename T_KernelBundle>

@@ -22,20 +22,34 @@ static std::size_t getReRuns()
     return 1;
 }
 
-static std::size_t getMaxRuns()
+static std::size_t getMaxRuns_Env()
 {
-    if(char const* var = std::getenv("TunerMaxRuns"))
+    if(char const* var = std::getenv("TunerMaxConfigs"))
     {
         try
         {
-            std::size_t const value = static_cast<std::size_t>(std::stoul(var));
+            std::size_t value = static_cast<std::size_t>(std::stoul(var));
             return value;
         }
         catch(std::exception const& e)
         {
-            std::cerr << "Invalid value for TunerReRuns: " << e.what() << std::endl;
+            std::cerr << "Invalid value for TunerMaxConfigs: " << e.what() << std::endl;
         }
     }
-    return UINT64_MAX; // return maximal achievable value
+    return UINT64_MAX;
+}
+
+inline std::size_t getMaxRuns(std::optional<std::size_t> const& maxRuns = std::nullopt)
+{
+    static std::size_t envMaxRuns = getMaxRuns_Env();
+
+    if(maxRuns.has_value())
+    {
+        if(maxRuns.value() < envMaxRuns)
+        {
+            envMaxRuns = maxRuns.value();
+        }
+    }
+    return envMaxRuns; // return maximal achievable value
 }
 #endif // ENVIRONMENTVARS_H

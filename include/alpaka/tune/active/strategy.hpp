@@ -12,6 +12,25 @@
 
 namespace alpaka::tune::strategy
 {
+    class RNG
+    {
+    public:
+        static std::mt19937& get()
+        {
+            static RNG instance;
+            return instance.rng_;
+        }
+
+    private:
+        RNG()
+        {
+            std::random_device rd;
+            rng_ = std::mt19937(rd());
+        }
+
+        std::mt19937 rng_;
+    };
+
     template<typename T>
     constexpr bool is_signed_type = std::is_signed<T>::value;
 
@@ -26,8 +45,6 @@ namespace alpaka::tune::strategy
 
         // Set up a random number generator.
         // (Using static so that the generator is not re-seeded on every call.)
-        static std::random_device rd;
-        static std::mt19937 gen(rd());
         // For each dimension, retrieve the minimum, maximum and stride.
         auto minVal = range.m_begin;
         auto maxVal = range.m_end;
@@ -47,17 +64,17 @@ namespace alpaka::tune::strategy
             numStepsDown = (VecType(value) - minVal) / abs(step);
         }
         std::uniform_int_distribution<decltype(minVal)> dis(0, numStepsUp + numStepsDown);
-        auto k = dis(gen);
+        auto k = dis(RNG::get());
         if(k > numStepsUp)
         {
             std::uniform_int_distribution<decltype(minVal)> disD(0, numStepsDown);
-            auto numStep = disD(gen);
+            auto numStep = disD(RNG::get());
             result = value - (numStep * step);
         }
         else
         {
             std::uniform_int_distribution<decltype(minVal)> disU(0, numStepsUp);
-            auto numStep = disU(gen);
+            auto numStep = disU(RNG::get());
             result = value + (numStep * step);
         }
         return result;
@@ -128,6 +145,244 @@ namespace alpaka::tune::strategy
             }
         }
     }
+
+    template<typename T_range, typename T_value>
+    T_value randomNeighbour(T_range& range, T_value& value, bool& valid)
+    {
+        static std::random_device rd;
+        bool validL = true;
+        bool validH = true;
+        auto lower = getNextLower(value, range, validL);
+        auto higher = getNextgetNextUpper(value, range, validH);
+        if(lower && higher)
+        {
+            std::uniform_int_distribution<std::size_t> dis(0, 1);
+            auto k = dis(rd);
+            if(k == 0)
+                return lower;
+            return higher;
+        }
+        if(lower)
+            return lower;
+        if(higher)
+            return higher;
+        valid = false;
+        // has no neighbour
+        return value;
+    }
+
+    namespace propabilityFunctions
+    {
+        struct Exponential
+        {
+            auto operator()(std::size_t distance, double_t temperature) const
+            {
+                return std::exp(-static_cast<double_t>(distance) / temperature);
+            }
+        };
+
+        struct Normal
+        {
+            auto operator()(std::size_t distance, double_t temperature) const
+            {
+                double_t d = static_cast<double_t>(distance);
+                return (1.0 / std::sqrt(2.0 * M_PI * temperature)) * std::exp(-d * d / (2.0 * temperature));
+            }
+        };
+
+        struct Cauchy
+        {
+            auto operator()(std::size_t distance, double_t temperature) const
+            {
+                double_t d = static_cast<double_t>(distance);
+                return (1.0 / M_PI) * (temperature / (d * d + temperature * temperature));
+            }
+        };
+
+        struct StableHalf
+        {
+            auto operator()(std::size_t distance, double_t temperature) const
+            {
+                double_t d = static_cast<double_t>(distance);
+                if(d == 0.0)
+                    return 0.0;
+                return (1.0 / std::sqrt(2.0 * M_PI * std::pow(d, 3))) * std::exp(-1.0 / (2.0 * d));
+            }
+        };
+    } // namespace propabilityFunctions
+
+    /**
+     * extensible compare operator for certain metrics
+     * */
+    struct MetricAdjust
+    {
+        template<typename T_Metric>
+        struct best
+        {
+            T_Metric operator()(T_Metric const& a, T_Metric const& b) const
+            {
+                // Default: assume higher is better
+                return (a < b) ? a : b;
+            }
+        };
+
+        template<typename T_Metric>
+        struct costDifference
+        {
+            T_Metric operator()(T_Metric const& a, T_Metric const& b) const
+            {
+                // Default: assume higher is better
+                return a - b;
+            }
+        };
+    };
+
+    /*
+     * since time is currently no defined interface this is used to compare time metrics
+     * */
+    template<>
+struct MetricAdjust::best<double_t>
+    {
+        double_t operator()(double_t const& a, double_t const& b) const
+        {
+            return (a < b) ? a : b;
+        }
+    };
+
+    // Specialize costDifference<double_t>
+    template<>
+    struct MetricAdjust::costDifference<double_t>
+    {
+        double_t operator()(double_t const& old_, double_t const& new_) const
+        {
+            return old_ - new_;
+        }
+    };
+
+
+    struct simulatedAnnealing
+    {
+        using T_propabilityFunction = propabilityFunctions::Exponential;
+        static constexpr double T_final
+            = 0.1; // magic Number that indicates the lower bound of the temperature used for simulated annealing
+
+        double_t calcTemperature(auto const& maxRuns, auto currentRuns) const
+        {
+            auto n0 = static_cast<double_t>(maxRuns) * 0.1; // log stabilizer prevent div by 0
+            auto lambda = T_final * std::log(maxRuns + n0); // Tfinal*ln(N+n0)-> lamda is the the scaling
+                                                            // factor of the temperature cooling
+            return lambda / std::log(static_cast<double_t>(currentRuns) * n0);
+        }
+
+        /*
+         *TODO add genericOperator
+         */
+        template<typename T_Metric>
+        bool acceptanceFunction(T_Metric const& metricNew, T_Metric const& metricOld, double const& temperature)
+        {
+            if(metricNew == MetricAdjust::best<ALPAKA_TYPEOF(metricNew)>{}(metricNew, metricOld))
+                return true;
+
+            double_t probability = std::exp(
+                -(MetricAdjust::costDifference<ALPAKA_TYPEOF(metricNew)>{}(metricNew, metricOld) / temperature));
+            std::uniform_int_distribution<std::size_t> dis(0, 1000);
+            auto k = dis(RNG::get());
+            if(k < probability * 1000)
+            {
+                // new solution will be accepted with this propability
+                return true;
+            }
+            return false;
+            // case the new metric is lower
+        }
+
+        /*
+         * accept a already stored ParameterConfiguration with the likelyhood of the acceptance function
+         */
+        template<typename T_storageKernel, typename T_activeKernel>
+        void acceptNewKernel(T_storageKernel& storekernel, T_activeKernel& activeKernel, double_t temperature)
+        {
+            if(acceptanceFunction(storekernel.metric, activeKernel.metric, temperature))
+            {
+                toActive(activeKernel, storekernel);
+            }
+        }
+
+        /*
+         * applys a heuristic on a parameter to select the neighboorhood for each parameter individually based on a
+         * propability function that is affected by the cooling rate,
+         * inspired by:
+         * https://citeseerx.ist.psu.edu/document?doi=c8dcf69dbc8c750b2db5f16e1e737017efd7dd4a&repid=rep1&type=pdf&utm_source=chatgpt.com
+         * in the paper they use the hamming distance between two configurations which would include all parameters
+         * but applying it per parameter simplifies the computation and algorithm
+         */
+        std::size_t applyProbabilityFunction(auto currentValue, auto const& range, double_t temperature)
+        {
+            std::size_t maxSteps = (range.m_end - currentValue) / range.m_stride;
+            std::vector<double> weights(maxSteps + 1);
+            double total = 0.0;
+
+            for(std::size_t distance = 0; distance <= maxSteps; ++distance)
+            {
+                weights[distance] = T_propabilityFunction{}(distance, temperature);
+                total += weights[distance];
+            }
+
+            for(auto& w : weights)
+                w /= total;
+
+            // Sample d from this distribution
+            std::discrete_distribution<std::size_t> dist(weights.begin(), weights.end());
+            std::size_t d = dist(RNG::get());
+
+            return currentValue + d * range.m_stride;
+        }
+
+        template<typename T_tuneables, typename T_ActiveKernel, typename storageKernel>
+        auto operator()(
+            T_tuneables&& tuneables,
+            T_ActiveKernel& kernelRun,
+            std::unordered_map<std::string, storageKernel>& history) const
+        {
+            auto& state = kernelRun.m_strategyState;
+            auto maxRuns = getMaxRuns();
+            if(!history.contains(kernelRun.toHash()))
+            {
+                state.runs = 1;
+                return;
+            }
+            state.temperatur = calcTemperature(maxRuns, history.size()); // assign new temperature
+            int checkOverlow = 0;
+            while(history.contains(kernelRun.toHash()) && checkOverlow < 100)
+            {
+                for_each(
+                    tuneables,
+                    [state](auto& parameter)
+                    {
+                        parameter.value
+                            = applyProbabilityFunction(parameter.value, parameter.idxRange, state.temperatur);
+                    });
+                if(history.contains(kernelRun.toHash()))
+                {
+                    acceptNewKernel(history[kernelRun.toHash()], kernelRun);
+                    if(history[kernelRun.toHash()].metric)
+                        toActive(kernelRun, history[kernelRun.toHash()]);
+                    ++state.runs;
+                }
+                checkOverlow++;
+            }
+            if(checkOverlow > 99)
+            {
+                std::cout << " Simulated Annealing: no more valid config found for the last 100 iterations"
+                          << std::endl;
+                getMaxRuns(1);
+            }
+
+
+            // if we already have been to that config we still jump there with the propability function but we go to
+            // the next config afterwards
+        }
+    };
 
     /**
      *this is a exhaustive search method designed to support asymmetric index ranges and initial values that

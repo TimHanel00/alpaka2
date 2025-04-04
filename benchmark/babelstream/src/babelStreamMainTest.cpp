@@ -365,7 +365,9 @@ void testKernels(auto cfg)
     using fVec=ALPAKA_TYPEOF(dataBlocking.m_frameExtent);
     auto latestSession = session.
                          withBlockSizeTune(tune::ThreadBlockSizeTune{dataBlocking.m_frameExtent, IdxRange{fVec{32}, dataBlocking.m_frameExtent, fVec{32}}}).
-                         withGridSizeTune(tune::GridSizeTune{fVec{56}, IdxRange{fVec{56}, dataBlocking.m_numFrames, fVec{56}}}).
+                         //withGridSizeTune(tune::GridSizeTune{fVec{56}, IdxRange{fVec{56}, dataBlocking.m_numFrames, fVec{56}}}).//#gpu
+                         withGridSizeTune(tune::GridSizeTune{fVec{108}, IdxRange{fVec{108}, dataBlocking.m_numFrames, fVec{108}}}).
+                         //withGridSizeTune(tune::GridSizeTune{fVec{22}, IdxRange{fVec{22}, fVec{32}, fVec{1}}}).//#cpu
                          withConfig("./config/babelstream.toml");
 
     // To record runtime data generated while running the kernels

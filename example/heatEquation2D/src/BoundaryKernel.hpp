@@ -46,7 +46,6 @@ struct BoundaryKernel
             auto nodeIdxEnd = Vec{numNodes.y() - Idx{1u}, x};
             uBuf[nodeIdxEnd] = exactSolution(nodeIdxEnd.x() * dx, nodeIdxEnd.y() * dy, step * dt);
         }
-
         // move over Y surfaces, skip first and last node
         for(auto [y] :
             onAcc::makeIdxMap(acc, onAcc::worker::linearThreadsInGrid, IdxRange{Vec{1u}, Vec{numNodes.y() - 1u}}))

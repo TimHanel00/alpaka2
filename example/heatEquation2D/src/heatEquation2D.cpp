@@ -61,12 +61,16 @@ auto example(T_Cfg const& cfg) -> int
 
     // simulation defines
     // {Y, X}
-    constexpr IdxVec numNodes{64, 64};
+
+    // withGridSizeTune(tune::GridSizeTune{fVec{108}, IdxRange{fVec{108}, dataBlocking.m_numFrames, fVec{108}}}).
+    // withGridSizeTune(tune::GridSizeTune{fVec{22}, IdxRange{fVec{22}, fVec{32}, fVec{1}}}).//#cpu
+
+    constexpr IdxVec numNodes{1024 * 2, 1024 * 2};
     constexpr IdxVec haloSize{2, 2};
     constexpr IdxVec extent = numNodes + haloSize;
 
-    constexpr uint32_t numTimeSteps = 4000;
-    constexpr double tMax = 0.1;
+    constexpr uint32_t numTimeSteps = 4000 * 2;
+    constexpr double tMax = 0.00001;
 
     // x, y in [0, 1], t in [0, tMax]
     constexpr double dx = 1.0 / static_cast<double>(extent[1] - 1);
@@ -105,8 +109,8 @@ auto example(T_Cfg const& cfg) -> int
     alpaka::onHost::wait(computeQueue);
 
     // Appropriate chunk size to split your problem for your Acc
-    constexpr Idx xSize = 16u;
-    constexpr Idx ySize = 16u;
+    constexpr Idx xSize = 32u;
+    constexpr Idx ySize = 32u;
     constexpr Idx halo = 2u;
     constexpr auto chunkSize = CVec<Idx, ySize, xSize>{};
     constexpr auto numNodesWithHalo = numNodes + halo;
@@ -125,20 +129,32 @@ auto example(T_Cfg const& cfg) -> int
     BoundaryKernel boundaryKernel;
 
     auto dataBlockingStencil = FrameSpec{numChunks, chunkSize};
-
     constexpr auto longestSide = std::max(numNodesWithHalo.y(), numNodesWithHalo.x());
     auto dataBlockingBorder = FrameSpec{Vec{longestSide / chunkSize.x()}, Vec{std::max(chunkSize.y(), chunkSize.x())}};
-
+    auto toRTime = FrameSpec{
+        alpaka::Vec<ulong, 2>{dataBlockingStencil.m_numFrames.x(), dataBlockingStencil.m_numFrames.y()},
+        alpaka::Vec<ulong, 2>{dataBlockingStencil.m_frameExtent.x(), dataBlockingStencil.m_frameExtent.y()}};
+    using fVec = ALPAKA_TYPEOF(toRTime.m_frameExtent);
+    TuningSession session{tune::strategy::randomSearch{}};
+    auto latestSession
+        = session
+              .withBlockSizeTune(
+                  tune::ThreadBlockSizeTune{
+                      toRTime.m_frameExtent,
+                      IdxRange{fVec{8, 4}, toRTime.m_frameExtent, fVec{8, 4}}})
+              .withGridSizeTune(tune::GridSizeTune{fVec{7, 8}, IdxRange{fVec{7, 8}, toRTime.m_numFrames, fVec{7, 8}}})
+              .withConfig("./config/babelstream.toml"); // #gpu
     auto startTime = std::chrono::high_resolution_clock::now();
 
     // Simulate
     for(uint32_t step = 1; step <= numTimeSteps; ++step)
     {
         // Compute next values
-        alpaka::onHost::enqueue(
+        latestSession.enqueue(
+            devAcc,
             computeQueue,
             exec,
-            dataBlockingStencil,
+            toRTime,
             KernelBundle{
                 stencilKernel,
                 uCurrBufAcc.getMdSpan(),

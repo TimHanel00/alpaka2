@@ -14,6 +14,28 @@
 
 namespace alpaka::tune
 {
+    template<typename T_vec, typename = std::enable_if_t<!std::is_integral_v<T_vec>>>
+    T_vec ceilRootOverDim(std::size_t max, T_vec vec)
+    {
+        using ValType = typename T_vec::type;
+        // start with the 1s Vector
+        auto resultVec = Vec<ValType, T_vec::dim()>::all(1);
+        auto remainder = max;
+        for(std::size_t i = 0; i < T_vec::dim(); ++i)
+        {
+            // using ceil-root heuristic to distribute mps across dimensions
+            ValType split = std::max(1u, static_cast<ValType>(std::pow(remainder, 1.0 / (T_vec::dim() - i))));
+            resultVec = split;
+            remainder /= split;
+        }
+        return resultVec;
+    }
+
+    // overload incase idxRange contains integer types instead of vec
+    inline std::size_t ceilRootOverDim(std::size_t max, std::size_t vec)
+    {
+        return max;
+    }
 
     template<
         typename T_DeviceHandle,
@@ -117,13 +139,12 @@ namespace alpaka::tune
             {
                 if(!kernelRun.gridSize->userDef)
                 {
-                    using begin = ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_begin);
-                    kernelRun.gridSize->idxRange.m_begin = begin(1);
-                    using end = ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_end);
-                    kernelRun.gridSize->idxRange.m_end
-                        = end(alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount);
-                    using stride = ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_stride);
-                    kernelRun.gridSize->idxRange.m_stride = stride(1);
+                    kernelRun.gridSize->idxRange.m_begin = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
+                    kernelRun.gridSize->idxRange.m_end = ceilRootOverDim(
+                        alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
+                        T_NumBlocks{});
+                    kernelRun.gridSize->idxRange.m_stride
+                        = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
                     kernelRun.gridSize->toRange();
                 }
             }
@@ -153,13 +174,13 @@ namespace alpaka::tune
             {
                 if(!kernelRun.threadBlockSize->userDef)
                 {
-                    using begin = ALPAKA_TYPEOF(kernelRun.threadBlockSize->idxRange.m_begin);
-                    kernelRun.threadBlockSize->idxRange.m_begin = begin(1);
-                    using end = ALPAKA_TYPEOF(kernelRun.threadBlockSize->idxRange.m_end);
-                    kernelRun.threadBlockSize->idxRange.m_end
-                        = end(alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount);
-                    using stride = ALPAKA_TYPEOF(kernelRun.threadBlockSize->idxRange.m_stride);
-                    kernelRun.threadBlockSize->idxRange.m_stride = stride(1);
+                    kernelRun.gridSize->idxRange.m_begin
+                        = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
+                    kernelRun.gridSize->idxRange.m_end = ceilRootOverDim(
+                        alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
+                        T_NumThreads{});
+                    kernelRun.gridSize->idxRange.m_stride
+                        = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
                     kernelRun.threadBlockSize->toRange();
                 }
             }
@@ -167,13 +188,12 @@ namespace alpaka::tune
             {
                 if(!kernelRun.gridSize->userDef)
                 {
-                    using begin = ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_begin);
-                    kernelRun.gridSize->idxRange.m_begin = begin(1);
-                    using end = ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_end);
-                    kernelRun.gridSize->idxRange.m_end
-                        = end(alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount);
-                    using stride = ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_stride);
-                    kernelRun.gridSize->idxRange.m_stride = stride(1);
+                    kernelRun.gridSize->idxRange.m_begin = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
+                    kernelRun.gridSize->idxRange.m_end = ceilRootOverDim(
+                        alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
+                        T_NumBlocks{});
+                    kernelRun.gridSize->idxRange.m_stride
+                        = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
                     kernelRun.gridSize->toRange();
                 }
             }

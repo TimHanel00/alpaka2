@@ -73,7 +73,8 @@ if [[ "$COMMAND" == "store" ]]; then
 
 	# Save build directory
 	cd build && cmake --build . && cd ..
-	cp -r "$BUILD_DIR" "$DEST/stored_build"
+	mkdir $DEST/stored_build
+	cp "$BUILD_DIR/CMakeCache.txt" "$DEST/stored_build/CMakeCache.txt"
 
 	META_FILE="$DEST/system_info.txt"
 
@@ -96,16 +97,47 @@ if [[ "$COMMAND" == "store" ]]; then
 	    # Fallback to PCI scan
 	    GPU_NAME=$(lspci | grep -i 'vga\|3d' | grep -i 'nvidia\|amd\|intel' | head -n1 | cut -d':' -f3 | xargs)
 	fi
-	BINARY_OUT="$DEST/binary_output.txt"
+	# Check hostnamectl
+	if command -v hostnamectl >/dev/null && hostnamectl >/dev/null 2>&1; then
+	    hostnamectl > "$DEST/kernel_info"
+	else
+	    echo "[-] hostnamectl not available or failed."
+	fi
 
-	# Add binary path as header
-	echo "# Binary: $BINARY_PATH" > "$BINARY_OUT"
+	# Check lscpu
+	if command -v lscpu >/dev/null && lscpu >/dev/null 2>&1; then
+	    lscpu > "$DEST/cpu_info"
+	else
+	    echo "[-] lscpu not available or failed."
+	fi
 
-	# Append actual output
-	"$BINARY_PATH" >> "$BINARY_OUT" 2>&1 || echo "(Binary exited with non-zero status, output saved to $BINARY_OUT)"
-
+	# Check nvidia-smi
+	if command -v nvidia-smi >/dev/null && nvidia-smi >/dev/null 2>&1; then
+	    nvidia-smi > "$DEST/gpu_info"
+	else
+	    echo "[-] nvidia-smi not available or failed (no NVIDIA GPU?)."
+	fi
 
     	echo "Done. Archive stored in: $DEST"
+	SESSION_MARKER=~/.session_start_marker
+	HISTORY_FILE=$DEST/history_info.txt
+	history -a
+	echo "[*] Flushing history to disk..."
+
+	awk -v marker="$(stat -c %Y ~/.session_start_marker)" '
+	  {
+	    cmd_time = $0 ~ /^#[0-9]+$/ ? substr($0, 2) : "";
+	    if (cmd_time != "") {
+	      last_cmd_time = cmd_time;
+	    } else if (last_cmd_time > marker) {
+	      print $0;
+	    }
+	  }
+	' ~/.bash_history > "$HISTORY_FILE"
+
+	echo "[*] Session commands saved to $HISTORY_FILE"
+
+	
 
 elif [[ "$COMMAND" == "load" ]]; then
     ARCHIVE_NAME="$ARG"
@@ -141,9 +173,10 @@ elif [[ "$COMMAND" == "load" ]]; then
     echo "Applying patch..."
     git apply ../git_diff.patch || echo "(No changes or patch failed)"
 
-    echo "Restoring build directory..."
-    cp -r ../stored_build ./build
+    echo "Restoring cmake Cache ..."
+    cp -r ../stored_build_cmake ./build/CMakeCache.txt
     cd build
+    cmake ..
     cmake --build .
     cd ..
     echo "Re-running original binary for verification..."
