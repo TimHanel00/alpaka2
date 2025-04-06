@@ -13,6 +13,14 @@
 
 #include <utility>
 
+template<typename T_Range>
+void printRange(T_Range& range)
+{
+    std::cout << " begin: " << range.m_begin << std::endl;
+    std::cout << " end: " << range.m_end << std::endl;
+    std::cout << "stride: " << range.m_stride << std::endl;
+}
+
 template<
     bool grid,
     bool block,
@@ -75,8 +83,29 @@ public:
             ptrToHistory = history.getKernelFromHistory(device, exec, kernelBundle, sessionSpecifier_);
         }
         // acts like a guard only valid configs are used for the device
+#define DEBUG_Singleton
+#ifdef DEBUG_Singleton
+        std::cout << " gridSize Range: fromUser" << std::endl;
+        printRange(activeRunPtr->gridSize->idxRange);
+        std::cout << " blockSize Range: fromUser" << std::endl;
+        printRange(activeRunPtr->threadBlockSize->idxRange);
+#endif
         frameSpec = alpaka::tune::SessAdjustThreadSpec(device, exec, frameSpec, *activeRunPtr);
+#ifdef DEBUG_Singleton
+        std::cout << " gridSize Range: HWadjust" << std::endl;
+        printRange(activeRunPtr->gridSize->idxRange);
+        std::cout << " blockSize Range: HWadjust" << std::endl;
+        printRange(activeRunPtr->threadBlockSize->idxRange);
+#endif
         clampToSpec(frameSpec, *activeRunPtr);
+#ifdef DEBUG_Singleton
+        std::cout << " gridSize Range: clampedToSpec" << std::endl;
+        printRange(activeRunPtr->gridSize->idxRange);
+        std::cout << " blockSize Range: clampedToSpec" << std::endl;
+        printRange(activeRunPtr->threadBlockSize->idxRange);
+
+#endif
+
         recalculateMaxGridBlockRuns(*activeRunPtr);
         applyCustomThreadSpec(*activeRunPtr, frameSpec);
     }
@@ -127,7 +156,11 @@ auto makeConformToTVec(T_Vec const& vec, std::optional<T_Tunable<T, T_begin, T_e
             }
             else
             {
-                auto ret = T_Tunable{vec}; // force tuneable to be of the frameSpec dimension
+                auto Vec_1 = alpaka::Vec<typename T_Vec::type, T_Vec::dim()>::all(1);
+                auto ret = T_Tunable{
+                    vec,
+                    alpaka::IdxRange{Vec_1, vec, Vec_1}}; // force tuneable to be of the frameSpec dimension
+                ret.userDef = false;
                 return std::optional<ALPAKA_TYPEOF(ret)>(ret);
             }
         }

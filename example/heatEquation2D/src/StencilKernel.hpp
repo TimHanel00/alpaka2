@@ -46,7 +46,7 @@ struct StencilKernel
 
             // avoid data race with the stencil calculation at the end
             onAcc::syncBlockThreads(acc);
-
+            alpaka::Vec<std::size_t, 1u> h;
             for(alpaka::concepts::Dim<2u> auto idx2d :
                 onAcc::makeIdxMap(acc, onAcc::worker::threadsInBlock, IdxRange{sharedMemExtents}))
             {

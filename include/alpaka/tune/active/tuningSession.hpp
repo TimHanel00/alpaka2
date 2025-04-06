@@ -124,6 +124,15 @@ namespace alpaka
             run.threadBlockSize = std::move(blockTune);
         }
 
+        template<typename... T_Specifiers>
+        TuningSession& withRunSpecifiers(T_Specifiers... specifiers)
+        {
+            TuningSession neu = *this;
+
+            processArgs(neu.sessionSpecifier, specifiers...);
+            return *this;
+        }
+
         /*
         TuningSession(const TuningSession&) = delete;
         TuningSession& operator=(const TuningSession&) = delete;
@@ -248,7 +257,7 @@ namespace alpaka
                       << ", Sum of runs: " << historyKernelData.sumOfRuns << std::endl;
         }
 
-        // --- internal_enqueue ---
+        //---internal_enqueue---
         template<typename T_KernelBundle, typename T_kernelRun, typename T_NumBlocks, typename T_NumThreads>
         void internal_enqueue(
             auto const& queue,
@@ -387,8 +396,12 @@ namespace alpaka
 
         ~TuningSession()
         {
-            if(m_initialized && config != "")
+            std::cout << " destructor called" << std::endl;
+            std::cout << " init: " << m_initialized << std::endl;
+            std::cout << " config: " << config << std::endl;
+            if(history.initialized && config != "")
             {
+                std::cout << " store Config called " << std::endl;
                 history.storeConfig(config);
             }
         }

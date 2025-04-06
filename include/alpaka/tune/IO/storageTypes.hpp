@@ -9,6 +9,7 @@
 #define STORAGETYPES_H
 #include "alpaka/core/RemoveRestrict.hpp"
 #include "alpaka/meta/IntegerSequence.hpp"
+#include "alpaka/tune/active/activeKernel.hpp"
 #include "alpaka/tune/active/tuneable.hpp"
 
 #include <cmath>
@@ -134,7 +135,7 @@ struct StorageKernelRun
     {
         Uninitialized,
         WarmUp,
-        Initialized
+        Initialized,
     };
     std::vector<alpaka::tune::StorageTuneable> tuneables;
     std::optional<alpaka::tune::StorageTuneable> gridSize{std::nullopt};
@@ -250,93 +251,6 @@ static KernelData createKernelData(
  * (since static variables inside strategies) might violate the constraints implied by the sessionSpecifieres
  */
 
-struct strategyState
-{
-    double_t temperature;
-    std::size_t runs{0};
-};
-
-// concretely defined run for a tuning session stores extracted
-template<typename T_GridSize, typename T_BlockSize, typename T_TuneableType>
-struct ActiveKernelRun
-{
-    using T_floating = double_t;
-    std::optional<T_GridSize> gridSize{std::nullopt};
-    std::optional<T_BlockSize> threadBlockSize{std::nullopt};
-    T_floating metric{};
-    T_TuneableType tuneables;
-    std::size_t maxRuns{};
-    std::size_t maxRunsDefault{1};
-    strategyState m_strategyState{};
-    bool resetSignal{false};
-    constexpr ActiveKernelRun() = default;
-
-    constexpr ActiveKernelRun(
-        std::optional<T_GridSize> const& gridSize,
-        std::optional<T_BlockSize> const& blockSize,
-        T_TuneableType const& args)
-        : gridSize(std::move(gridSize))
-        , threadBlockSize(std::move(blockSize))
-        , metric(std::numeric_limits<T_floating>::quiet_NaN())
-        , tuneables(args)
-    {
-        for_each(
-            tuneables,
-            [&](auto& argsT)
-            {
-                std::size_t maxRunsDefault_old = maxRunsDefault;
-                maxRunsDefault *= argsT.numSteps();
-                if(maxRunsDefault_old > maxRunsDefault)
-                {
-                    std::cout << " WARNING: Overflow detected during tuning space calculation, ensure "
-                                 "you have a max NumofRuns selected!"
-                              << std::endl;
-                    maxRunsDefault = UINT64_MAX;
-                }
-            });
-        maxRuns = maxRunsDefault;
-    };
-
-    std::string toHash()
-    {
-        std::string m;
-        std::apply(
-            [&m](auto const&... args)
-            {
-                ((m += args.toHash()), ...); // fold expression over the comma operator
-            },
-            tuneables);
-        if(gridSize.has_value())
-            m += gridSize->toHash();
-        if(threadBlockSize.has_value())
-            m += threadBlockSize->toHash();
-        return m;
-        // return "";
-    }
-
-    auto createActiveDummyKernel() const
-    {
-        // Default-constructed tuple
-        T_TuneableType defaultTuneables = createDefaultTuple<T_TuneableType>();
-
-        return std::move(
-            ActiveKernelRun<T_GridSize, T_BlockSize, T_TuneableType>(std::nullopt, std::nullopt, defaultTuneables));
-    }
-
-private:
-    template<typename Tuple, std::size_t... I>
-    static Tuple createDefaultTupleImpl(std::index_sequence<I...>)
-    {
-        return Tuple{std::tuple_element_t<I, Tuple>{}...};
-    }
-
-    template<typename Tuple>
-    static Tuple createDefaultTuple()
-    {
-        constexpr std::size_t tuple_size = std::tuple_size_v<Tuple>;
-        return createDefaultTupleImpl<Tuple>(std::make_index_sequence<tuple_size>{});
-    }
-};
 
 template<typename Tuple, std::size_t... I>
 void updateTuneablesImpl(

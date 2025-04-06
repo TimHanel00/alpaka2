@@ -195,6 +195,8 @@ namespace alpaka::tune
 #endif
         }
 
+        // #define DEBUG_Hist 1
+
         void storeConfig(std::string const& filename)
         {
             toml::table config;

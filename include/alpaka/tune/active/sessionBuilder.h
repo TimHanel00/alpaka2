@@ -85,6 +85,7 @@ namespace alpaka::tune
             ret.m_dynamicRuns = m_dynamicRuns;
             ret.m_sessionSpecifiers = m_sessionSpecifiers;
             ret.m_gridTune = std::move(tuningObject);
+            ret.m_blockTune = m_blockTune;
             return ret;
         }
 
@@ -99,6 +100,7 @@ namespace alpaka::tune
             ret.m_dynamicRuns = m_dynamicRuns;
             ret.m_sessionSpecifiers = m_sessionSpecifiers;
             ret.m_gridTune = std::move(tune);
+            ret.m_blockTune = m_blockTune;
             return ret;
         }
 
@@ -115,6 +117,7 @@ namespace alpaka::tune
             auto tuningObject = NewGrid{tune};
             tuningObject.userDef = false;
             ret.m_gridTune = tuningObject;
+            ret.m_blockTune = m_blockTune;
             return ret;
         }
 

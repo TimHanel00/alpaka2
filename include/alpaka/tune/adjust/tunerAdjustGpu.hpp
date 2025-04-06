@@ -32,35 +32,29 @@ namespace alpaka::tune
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
             T_KernelRun& kernelRun)
         {
-            std::cout << " selected correct " << std::endl;
-
             if(kernelRun.threadBlockSize)
             {
                 if(!kernelRun.threadBlockSize->userDef)
                 {
-                    auto maxThreads = alpaka::onHost::getDeviceProperties(device).m_maxThreadsPerBlock;
-                    using begin = ALPAKA_TYPEOF(kernelRun.threadBlockSize->idxRange.m_begin);
-                    kernelRun.threadBlockSize->idxRange.m_begin = begin(32);
-                    using end = ALPAKA_TYPEOF(kernelRun.threadBlockSize->idxRange.m_end);
-                    kernelRun.threadBlockSize->idxRange.m_end = end(maxThreads);
-                    using stride = ALPAKA_TYPEOF(kernelRun.threadBlockSize->idxRange.m_stride);
-                    kernelRun.threadBlockSize->idxRange.m_stride = stride(32);
-                    kernelRun.threadBlockSize->toRange();
+                    kernelRun.threadBlockSize->idxRange.m_begin = primeFactorPartitioning(
+                        alpaka::onHost::getDeviceProperties(device).m_warpSize,
+                        T_NumThreads{});
+                    // if(dataBlocking.m_frameExtent.product()<alpaka::onHost::getDeviceProperties(device).m_maxThreadsPerBlock)
+                    kernelRun.threadBlockSize->idxRange.m_end = multipleOfPartitioning(
+                        alpaka::onHost::getDeviceProperties(device).m_maxThreadsPerBlock,
+                        kernelRun.threadBlockSize->idxRange.m_begin);
+                    kernelRun.threadBlockSize->idxRange.m_stride = kernelRun.threadBlockSize->idxRange.m_begin;
                 }
             }
             if(kernelRun.gridSize)
             {
                 if(!kernelRun.gridSize->userDef)
                 {
-                    using begin = ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_begin);
-                    kernelRun.gridSize->idxRange.m_begin
-                        = begin(alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount);
-                    using end = ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_end);
-                    kernelRun.gridSize->idxRange.m_end = end(dataBlocking.m_numFrames.product());
-                    using stride = ALPAKA_TYPEOF(kernelRun.gridSize->idxRange.m_stride);
-                    kernelRun.gridSize->idxRange.m_stride
-                        = stride(alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount);
-                    kernelRun.gridSize->toRange();
+                    kernelRun.gridSize->idxRange.m_begin = primeFactorPartitioning(
+                        alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
+                        T_NumBlocks{});
+                    kernelRun.gridSize->idxRange.m_end = dataBlocking.m_numFrames;
+                    kernelRun.gridSize->idxRange.m_stride = kernelRun.gridSize->idxRange.m_begin;
                 }
             }
             return dataBlocking.getThreadSpec();

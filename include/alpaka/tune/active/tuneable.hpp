@@ -59,7 +59,6 @@ namespace alpaka::tune
     void clampToSpec_elem(auto& value, auto& idxRange)
     {
         using rangeType = ALPAKA_TYPEOF(idxRange.m_begin);
-
         for(std::size_t i = 0; i < alpaka::getDim(rangeType{}); ++i)
         {
             if(idxRange.m_begin[i] <= 0 || idxRange.m_begin[i] >= value[i])
@@ -644,8 +643,69 @@ namespace alpaka::tune
 
     template<typename T>
     requires alpaka::isVector_v<T>
-    ThreadBlockSizeTune(T) -> ThreadBlockSizeTune<T, T, T, T>;
+    struct NumFramesTune : public Tuneable<T, T, T, T>
+    {
+        explicit NumFramesTune() : Tuneable<T, T, T, T>(T(256), "numFrames")
+        {
+        }
 
+        explicit NumFramesTune(T initial_value, IdxRange<T, T, T> idxRange)
+            : Tuneable<T, T, T, T>(initial_value, "numFrames", idxRange)
+        {
+        }
+
+        // this should only be used to create a modified instance of an existing threadblockTune
+        explicit NumFramesTune(T initial_value, std::string const& name, IdxRange<T, T, T> idxRange)
+            : Tuneable<T, T, T, T>(initial_value, name, idxRange)
+        {
+        }
+
+        explicit NumFramesTune(IdxRange<T, T, T> idxRange) : Tuneable<T, T, T, T>(T(256), "numFrames", idxRange)
+        {
+        }
+
+        explicit NumFramesTune(T initial_value) : Tuneable<T, T, T, T>(initial_value, "numFrames")
+        {
+        }
+
+        void setBlock(IdxRange<T, T, T> const& idxRange)
+        {
+            this->idxRange = std::optional<IdxRange<T, T, T>>(idxRange);
+        }
+    };
+
+    template<typename T>
+    requires alpaka::isVector_v<T>
+    struct FrameExtentTune : public Tuneable<T, T, T, T>
+    {
+        explicit FrameExtentTune() : Tuneable<T, T, T, T>(T(256), "frameExtent")
+        {
+        }
+
+        explicit FrameExtentTune(T initial_value, IdxRange<T, T, T> idxRange)
+            : Tuneable<T, T, T, T>(initial_value, "frameExtent", idxRange)
+        {
+        }
+
+        // this should only be used to create a modified instance of an existing threadblockTune
+        explicit FrameExtentTune(T initial_value, std::string const& name, IdxRange<T, T, T> idxRange)
+            : Tuneable<T, T, T, T>(initial_value, name, idxRange)
+        {
+        }
+
+        explicit FrameExtentTune(IdxRange<T, T, T> idxRange) : Tuneable<T, T, T, T>(T(256), "frameExtent", idxRange)
+        {
+        }
+
+        explicit FrameExtentTune(T initial_value) : Tuneable<T, T, T, T>(initial_value, "frameExtent")
+        {
+        }
+
+        void setBlock(IdxRange<T, T, T> const& idxRange)
+        {
+            this->idxRange = std::optional<IdxRange<T, T, T>>(idxRange);
+        }
+    };
 
 } // namespace alpaka::tune
 
