@@ -89,10 +89,10 @@ namespace alpaka::tune
             return ret;
         }
 
-        template<typename T, typename T_Begin, typename T_End, typename T_Stride>
-        auto withNumBlocksTune(NumBlocksTune<T, T_Begin, T_End, T_Stride> tune) const
+        template<typename T>
+        auto withNumBlocksTune(NumBlocksTune<T> tune) const
         {
-            using NewGrid = NumBlocksTune<T, T_Begin, T_End, T_Stride>;
+            using NewGrid = NumBlocksTune<T>;
             tune.userDef = true;
             TuningBuilder<T_Strategy, NewGrid, T_BlockSize, true, block> ret;
             ret.m_config = m_config;
@@ -108,7 +108,7 @@ namespace alpaka::tune
         auto withNumBlocksTune(alpaka::Vec<T, dim> tune) const
         {
             using VecType = decltype(tune);
-            using NewGrid = NumBlocksTune<VecType, VecType, VecType, VecType>;
+            using NewGrid = NumBlocksTune<VecType>;
             TuningBuilder<T_Strategy, NewGrid, T_BlockSize, true, block> ret;
             ret.m_config = m_config;
             ret.m_reRuns = m_reRuns;
@@ -135,10 +135,10 @@ namespace alpaka::tune
             return ret;
         }
 
-        template<typename T, typename T_Begin, typename T_End, typename T_Stride>
-        auto withBlockSizeTune(ThreadBlockSizeTune<T, T_Begin, T_End, T_Stride> tune) const
+        template<typename T>
+        auto withBlockSizeTune(ThreadBlockSizeTune<T> tune) const
         {
-            using NewBlock = ThreadBlockSizeTune<T, T_Begin, T_End, T_Stride>;
+            using NewBlock = ThreadBlockSizeTune<T>;
             tune.userDef = true;
             TuningBuilder<T_Strategy, T_GridSize, NewBlock, grid, true> ret;
             ret.m_config = m_config;
@@ -155,7 +155,7 @@ namespace alpaka::tune
         {
             using VecType = decltype(tune);
 
-            using NewBlock = ThreadBlockSizeTune<VecType, VecType, VecType, VecType>;
+            using NewBlock = ThreadBlockSizeTune<VecType>;
             TuningBuilder<T_Strategy, T_GridSize, NewBlock, grid, true> ret;
             ret.m_config = m_config;
             ret.m_reRuns = m_reRuns;

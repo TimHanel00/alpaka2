@@ -54,14 +54,7 @@ inline std::vector<std::string> getTokens(std::string const& f)
 template<typename T>
 T convertFromString(std::string const& s)
 {
-    if constexpr(std::is_arithmetic_v<T>)
-    {
-        std::istringstream iss(s);
-        T val;
-        iss >> val;
-        return val;
-    }
-    else if constexpr(alpaka::isVector_v<T>)
+    if constexpr(alpaka::isVector_v<T>)
     {
         constexpr auto dim = alpaka::getDim(T{});
         using ElementType = typename T::type;
@@ -271,12 +264,12 @@ void toActive(ActiveKernelRun<T_GridSize, T_BlockSize, T_TuneableType>& active, 
     // Update gridSize if available.
     if(storeKernel.gridSize.has_value())
     {
-        active.gridSize = T_GridSize{convertFromString<decltype(active.gridSize->value)>(storeKernel.gridSize->value)};
+        active.gridSize = T_GridSize{convertFromString<decltype(active.gridSize.value)>(storeKernel.gridSize->value)};
     }
     if(storeKernel.threadBlockSize.has_value())
     {
         active.threadBlockSize = T_BlockSize{
-            convertFromString<decltype(active.threadBlockSize->value)>(storeKernel.threadBlockSize->value)};
+            convertFromString<decltype(active.threadBlockSize.value)>(storeKernel.threadBlockSize->value)};
     }
     constexpr std::size_t tupleSize = std::tuple_size_v<T_TuneableType>;
     updateTuneablesImpl(active.tuneables, storeKernel.tuneables, std::make_index_sequence<tupleSize>{});
@@ -290,18 +283,12 @@ StorageKernelRun toStore(ActiveKernelRun<T_GridSize, T_BlockSize, T_TuneableType
 {
     StorageKernelRun result;
     // Convert gridSize.
-    if(active.gridSize.has_value())
-    {
-        result.gridSize
-            = alpaka::tune::StorageTuneable{active.gridSize->name, convertToString(active.gridSize->value)};
-    }
+    result.gridSize = alpaka::tune::StorageTuneable{active.gridSize.name, convertToString(active.gridSize.value)};
     // Convert threadBlockSize.
-    if(active.threadBlockSize.has_value())
-    {
-        result.threadBlockSize = alpaka::tune::StorageTuneable{
-            active.threadBlockSize->name,
-            convertToString(active.threadBlockSize->value)};
-    }
+
+    result.threadBlockSize
+        = alpaka::tune::StorageTuneable{active.threadBlockSize.name, convertToString(active.threadBlockSize.value)};
+
     // Convert the metric.
     if(!std::isnan(active.metric))
     {

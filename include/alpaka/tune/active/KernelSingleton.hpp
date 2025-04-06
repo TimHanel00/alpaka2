@@ -86,23 +86,23 @@ public:
 #define DEBUG_Singleton
 #ifdef DEBUG_Singleton
         std::cout << " gridSize Range: fromUser" << std::endl;
-        printRange(activeRunPtr->gridSize->idxRange);
+        printRange(activeRunPtr->gridSize.idxRange);
         std::cout << " blockSize Range: fromUser" << std::endl;
-        printRange(activeRunPtr->threadBlockSize->idxRange);
+        printRange(activeRunPtr->threadBlockSize.idxRange);
 #endif
         frameSpec = alpaka::tune::SessAdjustThreadSpec(device, exec, frameSpec, *activeRunPtr);
 #ifdef DEBUG_Singleton
         std::cout << " gridSize Range: HWadjust" << std::endl;
-        printRange(activeRunPtr->gridSize->idxRange);
+        printRange(activeRunPtr->gridSize.idxRange);
         std::cout << " blockSize Range: HWadjust" << std::endl;
-        printRange(activeRunPtr->threadBlockSize->idxRange);
+        printRange(activeRunPtr->threadBlockSize.idxRange);
 #endif
         clampToSpec(frameSpec, *activeRunPtr);
 #ifdef DEBUG_Singleton
         std::cout << " gridSize Range: clampedToSpec" << std::endl;
-        printRange(activeRunPtr->gridSize->idxRange);
+        printRange(activeRunPtr->gridSize.idxRange);
         std::cout << " blockSize Range: clampedToSpec" << std::endl;
-        printRange(activeRunPtr->threadBlockSize->idxRange);
+        printRange(activeRunPtr->threadBlockSize.idxRange);
 
 #endif
 
@@ -123,66 +123,59 @@ auto makeConformToTVec(T_Vec const&, std::nullopt_t)
  * ensures that a a user defined tuning conforms to the framespec types and I know its ugly
  *
  */
-template<
-    typename T_Vec,
-    template<typename, typename, typename, typename> class T_Tunable,
-    typename T,
-    typename T_begin,
-    typename T_end,
-    typename T_stride>
-auto makeConformToTVec(T_Vec const& vec, std::optional<T_Tunable<T, T_begin, T_end, T_stride>> const& tuneable)
+template<typename T_Vec, template<typename> class T_Tunable, typename T>
+T_Tunable<alpaka::Vec<typename T_Vec::type, T_Vec::dim()>> makeConformToTVec(
+    T_Vec const& vec,
+    T_Tunable<T> const& tuneable)
 {
-    auto actualTuneable = tuneable.value();
-    if constexpr(std::is_integral_v<ALPAKA_TYPEOF(actualTuneable.value)> && T_Vec::dim() == 1)
+    constexpr std::size_t targetDim = T_Vec::dim();
+    constexpr std::size_t sourceDim = ALPAKA_TYPEOF(tuneable.value)::dim();
+
+    if constexpr(targetDim == 1)
     {
-        // if its defined with a size_t
         auto ret = T_Tunable(
-            T_Vec(actualTuneable.value),
+            T_Vec(tuneable.value),
             alpaka::IdxRange{
-                T_Vec(actualTuneable.idxRange.m_begin[0]),
-                T_Vec(actualTuneable.idxRange.m_end[0]),
-                T_Vec(actualTuneable.idxRange.m_stride[0])});
-        return std::optional<ALPAKA_TYPEOF(ret)>(ret);
+                T_Vec(tuneable.idxRange.m_begin[0]),
+                T_Vec(tuneable.idxRange.m_end[0]),
+                T_Vec(tuneable.idxRange.m_stride[0])});
+        return ret;
+    }
+    else if constexpr(sourceDim != targetDim)
+    {
+        if(!tuneable.userDef)
+        {
+            T_Vec ones = T_Vec::all(1);
+            auto ret = T_Tunable{vec, alpaka::IdxRange{ones, vec, ones}};
+            ret.userDef = false;
+            return ret;
+        }
+        std::string s = tuneable.name;
+        throw std::runtime_error("The dimension of " + s + " must match the dimension of the threadSpec.");
     }
     else
     {
-        if constexpr(std::is_integral_v<ALPAKA_TYPEOF(actualTuneable.value)> && T_Vec::dim() > 1)
+        if(tuneable.userDef)
         {
-            if(tuneable->userDef)
+            // Fallback case when targetDim == sourceDim
+            T_Vec value, begin, end, stride;
+
+            for(std::size_t i = 0; i < targetDim; ++i)
             {
-                std::string s = actualTuneable.name;
-                throw std::runtime_error(
-                    "the Dimension of " + s + " has to comply with the dimension of the threadSpec");
+                value[i] = tuneable.value[i];
+                begin[i] = tuneable.idxRange.m_begin[i];
+                end[i] = tuneable.idxRange.m_end[i];
+                stride[i] = tuneable.idxRange.m_stride[i];
             }
-            else
-            {
-                auto Vec_1 = alpaka::Vec<typename T_Vec::type, T_Vec::dim()>::all(1);
-                auto ret = T_Tunable{
-                    vec,
-                    alpaka::IdxRange{Vec_1, vec, Vec_1}}; // force tuneable to be of the frameSpec dimension
-                ret.userDef = false;
-                return std::optional<ALPAKA_TYPEOF(ret)>(ret);
-            }
+
+            T_Tunable ret{value, alpaka::IdxRange{begin, end, stride}};
+            return ret;
         }
-        else if constexpr(T_Vec::dim() != ALPAKA_TYPEOF(actualTuneable.value)::dim())
-        {
-            std::string s = actualTuneable.name;
-            throw std::runtime_error("the Dimension of " + s + " has to comply with the dimension of the threadSpec");
-        }
-        else
-        {
-            auto init = alpaka::Vec<typename T_Vec::type, T_Vec::dim()>::all(1);
-            auto value = init, begin = init, end = init, stride = init;
-            for(auto i = 0; i < T_Vec::dim(); ++i)
-            {
-                value[i] = actualTuneable.value[i];
-                begin[i] = actualTuneable.idxRange.m_begin[i];
-                end[i] = actualTuneable.idxRange.m_end[i];
-                stride[i] = actualTuneable.idxRange.m_stride[i];
-            }
-            auto ret = T_Tunable{value, alpaka::IdxRange{begin, end, stride}};
-            return std::optional<ALPAKA_TYPEOF(ret)>(ret);
-        }
+
+        T_Vec ones = T_Vec::all(1);
+        auto ret = T_Tunable{vec, alpaka::IdxRange{ones, vec, ones}};
+        ret.userDef = false;
+        return ret;
     }
 }
 

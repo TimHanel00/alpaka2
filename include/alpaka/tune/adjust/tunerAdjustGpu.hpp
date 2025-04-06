@@ -32,30 +32,25 @@ namespace alpaka::tune
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
             T_KernelRun& kernelRun)
         {
-            if(kernelRun.threadBlockSize)
+            if(!kernelRun.threadBlockSize->userDef)
             {
-                if(!kernelRun.threadBlockSize->userDef)
-                {
-                    kernelRun.threadBlockSize->idxRange.m_begin = primeFactorPartitioning(
-                        alpaka::onHost::getDeviceProperties(device).m_warpSize,
-                        T_NumThreads{});
-                    // if(dataBlocking.m_frameExtent.product()<alpaka::onHost::getDeviceProperties(device).m_maxThreadsPerBlock)
-                    kernelRun.threadBlockSize->idxRange.m_end = multipleOfPartitioning(
-                        alpaka::onHost::getDeviceProperties(device).m_maxThreadsPerBlock,
-                        kernelRun.threadBlockSize->idxRange.m_begin);
-                    kernelRun.threadBlockSize->idxRange.m_stride = kernelRun.threadBlockSize->idxRange.m_begin;
-                }
+                kernelRun.threadBlockSize->idxRange.m_begin
+                    = primeFactorPartitioning(alpaka::onHost::getDeviceProperties(device).m_warpSize, T_NumThreads{});
+                // if(dataBlocking.m_frameExtent.product()<alpaka::onHost::getDeviceProperties(device).m_maxThreadsPerBlock)
+                kernelRun.threadBlockSize->idxRange.m_end = multipleOfPartitioning(
+                    alpaka::onHost::getDeviceProperties(device).m_maxThreadsPerBlock,
+                    kernelRun.threadBlockSize->idxRange.m_begin);
+                kernelRun.threadBlockSize->idxRange.m_stride = kernelRun.threadBlockSize->idxRange.m_begin;
             }
-            if(kernelRun.gridSize)
+
+
+            if(!kernelRun.gridSize->userDef)
             {
-                if(!kernelRun.gridSize->userDef)
-                {
-                    kernelRun.gridSize->idxRange.m_begin = primeFactorPartitioning(
-                        alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
-                        T_NumBlocks{});
-                    kernelRun.gridSize->idxRange.m_end = dataBlocking.m_numFrames;
-                    kernelRun.gridSize->idxRange.m_stride = kernelRun.gridSize->idxRange.m_begin;
-                }
+                kernelRun.gridSize->idxRange.m_begin = primeFactorPartitioning(
+                    alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
+                    T_NumBlocks{});
+                kernelRun.gridSize->idxRange.m_end = dataBlocking.m_numFrames;
+                kernelRun.gridSize->idxRange.m_stride = kernelRun.gridSize->idxRange.m_begin;
             }
             return dataBlocking.getThreadSpec();
         }

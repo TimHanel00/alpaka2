@@ -14,50 +14,43 @@ namespace alpaka
     template<typename T_KernelRun, typename T_FrameSpec>
     static T_FrameSpec& applyCustomThreadSpec(T_KernelRun& kernelRun, T_FrameSpec& spec)
     {
-        if(kernelRun.gridSize != std::nullopt)
+        auto numBlockval = kernelRun.gridSize.value;
+        using tuneableGridType = ALPAKA_TYPEOF(numBlockval);
+        if constexpr(alpaka::isVector_v<tuneableGridType>)
         {
-            auto val = kernelRun.gridSize->value;
-            using tuneableGridType = ALPAKA_TYPEOF(val);
-            if constexpr(alpaka::isVector_v<tuneableGridType>)
+            if constexpr(std::is_same_v<tuneableGridType, ALPAKA_TYPEOF(spec.m_threadSpec.m_numBlocks)>)
             {
-                if constexpr(std::is_same_v<tuneableGridType, ALPAKA_TYPEOF(spec.m_threadSpec.m_numBlocks)>)
-                {
-                    spec.m_threadSpec.m_numBlocks = val;
-                }
-                else
-                {
-                    throw std::runtime_error(
-                        "TuningSession::applyCustomThreadSpec(): invalid custom gridSize tuning - must conform with "
-                        "type of numFrames");
-                }
+                spec.m_threadSpec.m_numBlocks = numBlockval;
             }
             else
             {
-                spec.m_threadSpec.m_numBlocks = ALPAKA_TYPEOF(spec.m_threadSpec.m_numBlocks)(val);
+                throw std::runtime_error(
+                    "TuningSession::applyCustomThreadSpec(): invalid custom gridSize tuning - must conform with "
+                    "type of numFrames");
             }
         }
-        if(kernelRun.threadBlockSize != std::nullopt)
+
+
+        auto threadval = kernelRun.threadBlockSize.value;
+        using tuneableBLockType = ALPAKA_TYPEOF(threadval);
+        if constexpr(alpaka::isVector_v<tuneableBLockType>)
         {
-            auto val = kernelRun.threadBlockSize->value;
-            using tuneableBLockType = ALPAKA_TYPEOF(val);
-            if constexpr(alpaka::isVector_v<tuneableBLockType>)
+            if constexpr(std::is_same_v<tuneableBLockType, ALPAKA_TYPEOF(spec.m_threadSpec.m_numThreads)>)
             {
-                if constexpr(std::is_same_v<tuneableBLockType, ALPAKA_TYPEOF(spec.m_threadSpec.m_numThreads)>)
-                {
-                    spec.m_threadSpec.m_numThreads = val;
-                }
-                else
-                {
-                    throw std::runtime_error(
-                        "TuningSession::applyCustomThreadSpec(): invalid custom threadBlockSize tuning - must conform "
-                        "with type of frameExtent");
-                }
+                spec.m_threadSpec.m_numThreads = threadval;
             }
             else
             {
-                spec.m_threadSpec.m_numThreads = ALPAKA_TYPEOF(spec.m_threadSpec.m_numThreads)(val);
+                throw std::runtime_error(
+                    "TuningSession::applyCustomThreadSpec(): invalid custom threadBlockSize tuning - must conform "
+                    "with type of frameExtent");
             }
         }
+        else
+        {
+            spec.m_threadSpec.m_numThreads = ALPAKA_TYPEOF(spec.m_threadSpec.m_numThreads)(threadval);
+        }
+
         return spec;
     }
 #    ifdef DEBUG

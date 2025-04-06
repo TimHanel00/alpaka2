@@ -177,17 +177,12 @@ namespace alpaka::tune
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
             T_KernelRun& kernelRun)
         {
-            using VecType = alpaka::Vec<std::size_t, 1>;
-            using idxRangeG = IdxRange<VecType, VecType, VecType>;
-            //@TODO add specialization
-            if(kernelRun.threadBlockSize)
-            {
-                kernelRun.threadBlockSize = std::nullopt;
-            }
-            if(kernelRun.gridSize)
-            {
-                kernelRun.gridSize = std::nullopt;
-            }
+            auto vec = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
+            kernelRun.gridSize.idxRange = IdxRange{vec, vec, vec};
+            kernelRun.gridSize.value = vec;
+            kernelRun.threadBlockSize.idxRange = IdxRange{vec, vec, vec};
+            kernelRun.threadBlockSize.value = vec;
+
             auto const numThreads = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
             auto const numBlocks = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
             return alpaka::onHost::ThreadSpec{numBlocks, numThreads};
@@ -214,26 +209,20 @@ namespace alpaka::tune
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
             T_KernelRun& kernelRun)
         {
-            using VecType = alpaka::Vec<std::size_t, 1>;
-            using idxRangeG = IdxRange<VecType, VecType, VecType>;
             //@TODO add specialization
-            if(kernelRun.threadBlockSize)
+            auto vec = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
+            kernelRun.threadBlockSize.idxRange = IdxRange{vec, vec, vec};
+            kernelRun.threadBlockSize.value = vec;
+            if(!kernelRun.gridSize.userDef)
             {
-                kernelRun.threadBlockSize = std::nullopt;
+                kernelRun.gridSize.idxRange.m_begin = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
+                kernelRun.gridSize.idxRange.m_end = ceilRootOverDimPartitioning(
+                    alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
+                    T_NumBlocks{});
+                kernelRun.gridSize.idxRange.m_stride = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
+                kernelRun.gridSize.toRange();
             }
-            if(kernelRun.gridSize)
-            {
-                if(!kernelRun.gridSize->userDef)
-                {
-                    kernelRun.gridSize->idxRange.m_begin = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
-                    kernelRun.gridSize->idxRange.m_end = ceilRootOverDimPartitioning(
-                        alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
-                        T_NumBlocks{});
-                    kernelRun.gridSize->idxRange.m_stride
-                        = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
-                    kernelRun.gridSize->toRange();
-                }
-            }
+
             auto const numThreads = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
             return alpaka::onHost::ThreadSpec{dataBlocking.m_threadSpec.m_numBlocks, numThreads};
         }
@@ -256,32 +245,26 @@ namespace alpaka::tune
             using VecType = alpaka::Vec<std::size_t, 1>;
             using idxRangeG = IdxRange<VecType, VecType, VecType>;
             //@TODO add specialization
-            if(kernelRun.threadBlockSize)
+            if(!kernelRun.threadBlockSize.userDef)
             {
-                if(!kernelRun.threadBlockSize->userDef)
-                {
-                    kernelRun.gridSize->idxRange.m_begin
-                        = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
-                    kernelRun.gridSize->idxRange.m_end = ceilRootOverDimPartitioning(
-                        alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
-                        T_NumThreads{});
-                    kernelRun.gridSize->idxRange.m_stride
-                        = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
-                    kernelRun.threadBlockSize->toRange();
-                }
+                kernelRun.threadBlockSize.idxRange.m_begin
+                    = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
+                kernelRun.threadBlockSize.idxRange.m_end = ceilRootOverDimPartitioning(
+                    alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
+                    T_NumThreads{});
+                kernelRun.threadBlockSize.idxRange.m_stride
+                    = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
+                kernelRun.threadBlockSize.toRange();
             }
-            if(kernelRun.gridSize)
+
+            if(!kernelRun.gridSize.userDef)
             {
-                if(!kernelRun.gridSize->userDef)
-                {
-                    kernelRun.gridSize->idxRange.m_begin = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
-                    kernelRun.gridSize->idxRange.m_end = ceilRootOverDimPartitioning(
-                        alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
-                        T_NumBlocks{});
-                    kernelRun.gridSize->idxRange.m_stride
-                        = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
-                    kernelRun.gridSize->toRange();
-                }
+                kernelRun.gridSize.idxRange.m_begin = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
+                kernelRun.gridSize.idxRange.m_end = ceilRootOverDimPartitioning(
+                    alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
+                    T_NumBlocks{});
+                kernelRun.gridSize.idxRange.m_stride = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
+                kernelRun.gridSize.toRange();
             }
             return dataBlocking.getThreadSpec();
         }

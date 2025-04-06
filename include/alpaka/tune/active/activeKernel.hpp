@@ -78,10 +78,8 @@ struct ActiveKernelRun
                 ((m += args.toHash()), ...); // fold expression over the comma operator
             },
             tuneables);
-        if(gridSize.has_value())
-            m += gridSize->toHash();
-        if(threadBlockSize.has_value())
-            m += threadBlockSize->toHash();
+        m += gridSize.toHash();
+        m += threadBlockSize.toHash();
         return m;
         // return "";
     }

@@ -37,8 +37,8 @@ struct is_tuneable : std::false_type
 {
 };
 
-template<typename T, typename T_End, typename T_Begin, typename T_Stride>
-struct is_tuneable<alpaka::tune::Tuneable<T, T_End, T_Begin, T_Stride>> : std::true_type
+template<typename T>
+struct is_tuneable<alpaka::tune::Tuneable<T>> : std::true_type
 {
 };
 
@@ -50,8 +50,8 @@ struct tuneable_underlying
 {
 };
 
-template<typename T, typename T_End, typename T_Begin, typename T_Stride>
-struct tuneable_underlying<alpaka::tune::Tuneable<T, T_End, T_Begin, T_Stride>>
+template<typename T>
+struct tuneable_underlying<alpaka::tune::Tuneable<T>>
 {
     using type = T;
 };
@@ -95,7 +95,7 @@ auto flattenImpl(TuneableType& tune, std::index_sequence<I...>)
 }
 
 template<typename T>
-auto flatten(alpaka::tune::Tuneable<T, T, T, T>& tune)
+auto flatten(alpaka::tune::Tuneable<T>& tune)
 {
     constexpr auto dim = alpaka::getDim(T{});
     return flattenImpl(tune, std::make_index_sequence<dim>{});
@@ -205,18 +205,18 @@ auto makeSharedParameterInterface(T_ActiveKernel& run)
         run.tuneables);
     if constexpr(grid && block)
     {
-        auto gridTuple = makeNonOwningTuneableTuple(*run.gridSize);
-        auto blockTuple = makeNonOwningTuneableTuple(*run.threadBlockSize);
+        auto gridTuple = makeNonOwningTuneableTuple(run.gridSize);
+        auto blockTuple = makeNonOwningTuneableTuple(run.threadBlockSize);
         return std::tuple_cat(tuneableTuple, gridTuple, blockTuple);
     }
     else if constexpr(grid)
     {
-        auto gridTuple = makeNonOwningTuneableTuple(*run.gridSize);
+        auto gridTuple = makeNonOwningTuneableTuple(run.gridSize);
         return std::tuple_cat(tuneableTuple, gridTuple);
     }
     else if constexpr(block)
     {
-        auto blockTuple = makeNonOwningTuneableTuple(*run.threadBlockSize);
+        auto blockTuple = makeNonOwningTuneableTuple(run.threadBlockSize);
         return std::tuple_cat(tuneableTuple, blockTuple);
     }
     else

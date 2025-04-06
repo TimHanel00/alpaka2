@@ -30,29 +30,25 @@ namespace alpaka::tune
     void recalculateMaxGridBlockRuns(T_ActiveKernel& active)
     {
         active.maxRuns = active.maxRunsDefault;
-        if(active.gridSize.has_value())
+
+        active.maxRuns *= active.gridSize.numSteps();
+        std::cout << "gridSTEPS:  " << active.gridSize.numSteps() << std::endl;
+        if(active.maxRuns < active.maxRunsDefault)
         {
-            active.maxRuns *= active.gridSize->numSteps();
-            std::cout << "gridSTEPS:  " << active.gridSize->numSteps() << std::endl;
-            if(active.maxRuns < active.maxRunsDefault)
-            {
-                std::cout << " WARNING: Overflow detected during tuning space calculation, ensure "
-                             "you have a max NumofRuns selected!"
-                          << std::endl;
-                active.maxRuns = UINT64_MAX;
-            }
+            std::cout << " WARNING: Overflow detected during tuning space calculation, ensure "
+                         "you have a max NumofRuns selected!"
+                      << std::endl;
+            active.maxRuns = UINT64_MAX;
         }
-        if(active.threadBlockSize.has_value())
+
+        active.maxRuns *= active.threadBlockSize.numSteps();
+        std::cout << "blockSteps:  " << active.threadBlockSize.numSteps() << std::endl;
+        if(active.maxRuns < active.maxRunsDefault)
         {
-            active.maxRuns *= active.threadBlockSize->numSteps();
-            std::cout << "blockSteps:  " << active.threadBlockSize->numSteps() << std::endl;
-            if(active.maxRuns < active.maxRunsDefault)
-            {
-                std::cout << " WARNING: Overflow detected during tuning space calculation, ensure "
-                             "you have a max NumofRuns selected!"
-                          << std::endl;
-                active.maxRuns = UINT64_MAX;
-            }
+            std::cout << " WARNING: Overflow detected during tuning space calculation, ensure "
+                         "you have a max NumofRuns selected!"
+                      << std::endl;
+            active.maxRuns = UINT64_MAX;
         }
     }
 
@@ -81,16 +77,10 @@ namespace alpaka::tune
 
     void clampToSpec(auto& frameSpec, auto& activeKernel)
     {
-        if(activeKernel.gridSize.has_value())
-        {
-            clampToSpec_elem(frameSpec.m_numFrames, activeKernel.gridSize->idxRange);
-            activeKernel.gridSize->toRange();
-        }
-        if(activeKernel.threadBlockSize.has_value())
-        {
-            clampToSpec_elem(frameSpec.m_frameExtent, activeKernel.threadBlockSize->idxRange);
-            activeKernel.threadBlockSize->toRange();
-        }
+        clampToSpec_elem(frameSpec.m_numFrames, activeKernel.gridSize.idxRange);
+        activeKernel.gridSize.toRange();
+        clampToSpec_elem(frameSpec.m_frameExtent, activeKernel.threadBlockSize.idxRange);
+        activeKernel.threadBlockSize.toRange();
     }
 
     void adjustToRange(auto& value, auto& begin, auto& end, auto& stride)
@@ -184,196 +174,27 @@ namespace alpaka::tune
 
     inline std::size_t globalId = 0;
 
-    template<
-        typename T,
-        typename T_Begin = alpaka::Vec<T, 1>,
-        typename T_End = alpaka::Vec<T, 1>,
-        typename T_Stride = alpaka::Vec<T, 1>>
-    struct Tuneable
-    {
-    };
-
-    template<typename T, typename T_Begin, typename T_End, typename T_Stride>
-    requires IsIntegral<T>
-    struct Tuneable<T, T_Begin, T_End, T_Stride>
-    {
-        static inline int globalId = 0;
-
-        T value;
-        std::string name;
-        bool userDef;
-        IdxRange<T_Begin, T_End, T_Stride> idxRange;
-
-        std::size_t numSteps() const
-        {
-            return (idxRange.distance() / idxRange.m_stride).product() + 1;
-        }
-
-        std::vector<T> getValues() const
-        {
-            return {value};
-        }
-
-        static constexpr std::size_t getDim()
-        {
-            return 1;
-        }
-
-        void toRange()
-        {
-            adjustToRange(value, this->idxRange.m_begin[0], this->idxRange.m_end[0], this->idxRange.m_stride[0]);
-        }
-
-        static IdxRange<T_Begin, T_End, T_Stride> defaultIdxRange(T val)
-        {
-            return IdxRange<T_Begin, T_End, T_Stride>{T_Begin(0), T_End(val), T_Stride(1)};
-        }
-
-        explicit Tuneable() : value(0), name("Tuneable: "), userDef(false), idxRange(defaultIdxRange(0))
-        {
-        }
-
-        explicit Tuneable(T val) : value(val), name("Tuneable: "), userDef(false), idxRange(defaultIdxRange(val))
-        {
-        }
-
-        // value and idxRange
-        explicit Tuneable(T val, IdxRange<T_Begin, T_End, T_Stride> ir)
-            : value(val)
-            , name("Tuneable: ")
-            , userDef(true)
-            , idxRange(ir)
-        {
-            toRange();
-        }
-
-        // idxRange only
-        explicit Tuneable(IdxRange<T_Begin, T_End, T_Stride> ir)
-            : name("Tuneable: ")
-            , userDef(true)
-            , idxRange(std::move(ir))
-        {
-            // Arbitrary example guess for default 'value'
-
-            value = (this->idxRange.m_end().product() - this->idxRange.m_begin.product()) / T(2);
-        }
-
-        // idxRange + custom name
-        explicit Tuneable(std::string iname, IdxRange<T_Begin, T_End, T_Stride> ir)
-            : name(std::move(iname))
-            , userDef(true)
-            , idxRange(std::move(ir))
-        {
-            value = (this->idxRange.m_end().product() - this->idxRange.m_begin.product()) / T(2);
-            toRange();
-        }
-
-        // value + custom name
-        explicit Tuneable(T val, std::string iname)
-            : value(val)
-            , name(std::move(iname))
-            , userDef(false)
-            , idxRange(defaultIdxRange(val))
-        {
-        }
-
-        // value + custom name + idxRange
-        explicit Tuneable(T val, std::string iname, IdxRange<T_Begin, T_End, T_Stride> ir)
-            : value(val)
-            , name(std::move(iname))
-            , userDef(true)
-            , idxRange(std::move(ir))
-        {
-            toRange();
-        }
-
-        [[nodiscard]] std::string valueToString() const
-        {
-            return std::to_string(this->value);
-        }
-
-        [[nodiscard]] std::string toHash() const
-        {
-            return name + "*" + valueToString();
-        }
-
-        bool operator==(Tuneable const& other) const
-        {
-            return (value == other.value) && (name == other.name);
-        }
-
-        // Avoid accidental copying
-        auto copy()
-        {
-            return Tuneable(value, name, idxRange);
-        }
-    };
-
-    template<typename T>
+    template<typename T = alpaka::Vec<std::size_t, 1>>
     requires alpaka::isVector_v<T>
-    struct Tuneable<T, T, T, T>
+    struct Tuneable
     {
         T value;
         std::string name;
         bool userDef;
         IdxRange<T, T, T> idxRange;
 
-        // For a vector, define a default range that goes from "0" to "value",
-        // and stride "1" in every dimension. For real code, adapt as needed.
         static IdxRange<T, T, T> defaultIdxRange(T const& val)
         {
-            // Here we assume you can default-construct a vector of zeros
-            // and a vector of "1" for stride. Or you might do something else.
-            T zero{};
-            T ones{};
+            T zero{}, one{};
             for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
             {
                 zero[i] = 0;
-                ones[i] = 1;
+                one[i] = 1;
             }
-            return IdxRange<T, T, T>{zero, val, ones};
+            return IdxRange<T, T, T>{zero, val, one};
         }
 
-        std::size_t numSteps() const
-        {
-            std::size_t numSteps = 0;
-            numSteps = ((idxRange.m_end[0] - idxRange.m_begin[0]) / idxRange.m_stride[0]) + 1;
-            for(std::size_t i = 1; i < alpaka::getDim(T{}); ++i)
-            {
-                numSteps *= (((idxRange.m_end[i] - idxRange.m_begin[i]) / idxRange.m_stride[i]) + 1);
-            }
-            return numSteps;
-        }
-
-        static constexpr std::size_t getDim()
-        {
-            return alpaka::getDim(T{});
-        }
-
-        std::vector<typename T::type> getValues() const
-        {
-            std::vector<typename T::type> ret;
-            for(auto i = 0; i < alpaka::getDim(T{}); ++i)
-            {
-                ret.emplace_back(value[i]);
-            }
-            return ret;
-        }
-
-        void toRange()
-        {
-            for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
-            {
-                adjustToRange(
-                    value[i],
-                    this->idxRange.m_begin[i],
-                    this->idxRange.m_end[i],
-                    this->idxRange.m_stride[i]);
-            }
-        }
-
-        // Constructors mimic the integral version, but with T => alpaka::Vec.
-        explicit Tuneable() : value{}, name("TuneableVec: default"), userDef(false), idxRange(defaultIdxRange(T{}))
+        Tuneable() : value{}, name("TuneableVec: default"), userDef(false), idxRange(defaultIdxRange(T{}))
         {
         }
 
@@ -385,42 +206,7 @@ namespace alpaka::tune
         {
         }
 
-        explicit Tuneable(T const& val, IdxRange<T, T, T> ir)
-            : value(val)
-            , name("TuneableVec: ")
-            , userDef(true)
-            , idxRange(ir)
-        {
-            toRange();
-        }
-
-        explicit Tuneable(IdxRange<T, T, T> ir) : name("TuneableVec: "), userDef(true), idxRange(std::move(ir))
-        {
-            // Example logic: set 'value' = (end - begin) / 2 in each dimension
-            T half{};
-            for(auto i = 0; i < alpaka::getDim(T{}); ++i)
-            {
-                half[i] = (idxRange.m_end()[i] - idxRange.m_begin()[i]) / 2;
-            }
-            value = half;
-            toRange();
-        }
-
-        explicit Tuneable(std::string iname, IdxRange<T, T, T> ir)
-            : name(std::move(iname))
-            , userDef(true)
-            , idxRange(std::move(ir))
-        {
-            T half{};
-            for(auto i = 0; i < alpaka::getDim(T{}); ++i)
-            {
-                half[i] = (idxRange.m_end()[i] - idxRange.m_begin()[i]) / 2;
-            }
-            value = half;
-            toRange();
-        }
-
-        explicit Tuneable(T const& val, std::string iname)
+        Tuneable(T const& val, std::string iname)
             : value(val)
             , name(std::move(iname))
             , userDef(false)
@@ -428,25 +214,65 @@ namespace alpaka::tune
         {
         }
 
-        explicit Tuneable(T const& val, std::string iname, IdxRange<T, T, T> ir)
-            : value(val)
-            , name(std::move(iname))
-            , userDef(true)
-            , idxRange(std::move(ir))
+        Tuneable(T const& val, IdxRange<T, T, T> ir) : value(val), name("TuneableVec: "), userDef(true), idxRange(ir)
         {
             toRange();
         }
 
-        std::string toHash() const
+        Tuneable(T const& val, std::string iname, IdxRange<T, T, T> ir)
+            : value(val)
+            , name(std::move(iname))
+            , userDef(true)
+            , idxRange(ir)
+        {
+            toRange();
+        }
+
+        Tuneable(std::string iname, IdxRange<T, T, T> ir)
+            : name(std::move(iname))
+            , userDef(true)
+            , idxRange(std::move(ir))
+        {
+            T half;
+            for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
+                half[i] = (idxRange.m_end()[i] - idxRange.m_begin()[i]) / 2;
+            value = half;
+            toRange();
+        }
+
+        Tuneable(IdxRange<T, T, T> ir) : name("TuneableVec: "), userDef(true), idxRange(std::move(ir))
+        {
+            T half;
+            for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
+                half[i] = (idxRange.m_end()[i] - idxRange.m_begin()[i]) / 2;
+            value = half;
+            toRange();
+        }
+
+        void toRange()
+        {
+            for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
+                adjustToRange(value[i], idxRange.m_begin[i], idxRange.m_end[i], idxRange.m_stride[i]);
+        }
+
+        [[nodiscard]] std::size_t numSteps() const
+        {
+            std::size_t numSteps = 1;
+            for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
+            {
+                numSteps *= ((idxRange.m_end[i] - idxRange.m_begin[i]) / idxRange.m_stride[i]) + 1;
+            }
+            return numSteps;
+        }
+
+        [[nodiscard]] std::string toHash() const
         {
             return name + "*" + value.toString();
         }
 
         bool operator==(Tuneable const& other) const
         {
-            // For vector equality, you'd compare each component, or rely
-            // on operator== if your library provides it for alpaka::Vec.
-            return (value == other.value) && (name == other.name);
+            return value == other.value && name == other.name;
         }
 
         auto copy()
@@ -455,89 +281,33 @@ namespace alpaka::tune
         }
     };
 
-    template<typename T>
-    requires alpaka::isVector_v<T>
-    Tuneable(T) -> Tuneable<T, T, T, T>;
-
     // Specialized tunables
 
 
-    template<
-        typename T = uint32_t,
-        typename T_End = alpaka::Vec<T, 1u>,
-        typename T_Begin = alpaka::Vec<T, 1u>,
-        typename T_Stride = alpaka::Vec<T, 1u>>
-    struct NumBlocksTune : public Tuneable<T, T_Begin, T_End, T_Stride>
-    {
-        T gridSize;
-
-        explicit NumBlocksTune() : Tuneable<T, T_Begin, T_End, T_Stride>(T(64), "gridSize"), gridSize(T(64))
-        {
-        }
-
-        explicit NumBlocksTune(T initial_value)
-            : Tuneable<T, T_Begin, T_End, T_Stride>(initial_value, "gridSize")
-            , gridSize(initial_value)
-        {
-        }
-
-        explicit NumBlocksTune(IdxRange<T_Begin, T_End, T_Stride> idxRange)
-            : Tuneable<T, T_Begin, T_End, T_Stride>(T(64), "gridSize", idxRange)
-            , gridSize(T(64))
-        {
-        }
-
-        explicit NumBlocksTune(T initial_value, IdxRange<T_Begin, T_End, T_Stride> idxRange)
-            : Tuneable<T, T_Begin, T_End, T_Stride>(initial_value, "gridSize", idxRange)
-            , gridSize(initial_value)
-        {
-        }
-
-        // this should only be used to create a modified instance of an existing numBlockTune
-        explicit NumBlocksTune(std::string const& name, T initial_value, IdxRange<T_Begin, T_End, T_Stride> idxRange)
-            : Tuneable<T, T_Begin, T_End, T_Stride>(initial_value, name, idxRange)
-            , gridSize(initial_value)
-        {
-        }
-
-        void setGrid(IdxRange<T_Begin, T_End, T_Stride> const& idxRange)
-        {
-            this->idxRange = std::optional<IdxRange<T_Begin, T_End, T_Stride>>(idxRange);
-        }
-    };
-
-    template<typename T>
+    template<typename T = alpaka::Vec<std::size_t, 1>>
     requires alpaka::isVector_v<T>
-    struct NumBlocksTune<T, T, T, T> : public Tuneable<T, T, T, T>
+    struct NumBlocksTune : public Tuneable<T>
     {
-        T gridSize;
-
-        explicit NumBlocksTune() : Tuneable<T, T, T, T>(T(64), "gridSize"), gridSize(T(64))
+        explicit NumBlocksTune() : Tuneable<T>(T(64), "gridSize")
         {
         }
 
-        explicit NumBlocksTune(T initial_value)
-            : Tuneable<T, T, T, T>(initial_value, "gridSize")
-            , gridSize(initial_value)
+        explicit NumBlocksTune(T initial_value) : Tuneable<T>(initial_value, "gridSize")
         {
         }
 
-        explicit NumBlocksTune(IdxRange<T, T, T> idxRange)
-            : Tuneable<T, T, T, T>(T(64), "gridSize", idxRange)
-            , gridSize(T(64))
+        explicit NumBlocksTune(IdxRange<T, T, T> idxRange) : Tuneable<T>(T(64), "gridSize", idxRange)
         {
         }
 
         // this should only be used to create a modified instance of an existing numBlockTune
         explicit NumBlocksTune(T initial_value, std::string const& name, IdxRange<T, T, T> idxRange)
-            : Tuneable<T, T, T, T>(initial_value, name, idxRange)
-            , gridSize(initial_value)
+            : Tuneable<T>(initial_value, name, idxRange)
         {
         }
 
         explicit NumBlocksTune(T initial_value, IdxRange<T, T, T> idxRange)
-            : Tuneable<T, T, T, T>(initial_value, "gridSize", idxRange)
-            , gridSize(initial_value)
+            : Tuneable<T>(initial_value, "gridSize", idxRange)
         {
         }
 
@@ -547,90 +317,37 @@ namespace alpaka::tune
         }
     };
 
-    template<typename T>
+    template<typename T = alpaka::Vec<std::size_t, 1>>
     requires alpaka::isVector_v<T>
-    NumBlocksTune(T) -> NumBlocksTune<T, T, T, T>;
-
-    template<
-        typename T = uint32_t,
-        typename T_End = alpaka::Vec<T, 1u>,
-        typename T_Begin = alpaka::Vec<T, 1u>,
-        typename T_Stride = alpaka::Vec<T, 1u>>
-    struct ThreadBlockSizeTune : public Tuneable<T, T_Begin, T_End, T_Stride>
+    struct ThreadBlockSizeTune : public Tuneable<T>
     {
         T blockThreadSize;
 
-        explicit ThreadBlockSizeTune()
-            : Tuneable<T, T_Begin, T_End, T_Stride>(T(256), "threadBlockSize")
-            , blockThreadSize(T(256))
-        {
-        }
-
-        explicit ThreadBlockSizeTune(T initial_value, IdxRange<T_Begin, T_End, T_Stride> idxRange)
-            : Tuneable<T, T_Begin, T_End, T_Stride>(initial_value, "threadBlockSize", idxRange)
-            , blockThreadSize(initial_value)
-        {
-        }
-
-        // this should only be used to create a modified instance of an existing threadblockTune
-        explicit ThreadBlockSizeTune(
-            T initial_value,
-            std::string const& name,
-            IdxRange<T_Begin, T_End, T_Stride> idxRange)
-            : Tuneable<T, T_Begin, T_End, T_Stride>(initial_value, name, idxRange)
-            , blockThreadSize(initial_value)
-        {
-        }
-
-        explicit ThreadBlockSizeTune(IdxRange<T_Begin, T_End, T_Stride> idxRange)
-            : Tuneable<T, T_Begin, T_End, T_Stride>(T(256), "threadBlockSize", idxRange)
-            , blockThreadSize(T(256))
-        {
-        }
-
-        explicit ThreadBlockSizeTune(T initial_value)
-            : Tuneable<T, T_Begin, T_End, T_Stride>(initial_value, "threadBlockSize")
-            , blockThreadSize(initial_value)
-        {
-        }
-
-        void setBlock(IdxRange<T_Begin, T_End, T_Stride> const& idxRange)
-        {
-            this->idxRange = std::optional<IdxRange<T_Begin, T_End, T_Stride>>(idxRange);
-        }
-    };
-
-    template<typename T>
-    requires alpaka::isVector_v<T>
-    struct ThreadBlockSizeTune<T, T, T, T> : public Tuneable<T, T, T, T>
-    {
-        T blockThreadSize;
-
-        explicit ThreadBlockSizeTune() : Tuneable<T, T, T, T>(T(256), "threadBlockSize"), blockThreadSize(T(256))
+        explicit ThreadBlockSizeTune() : Tuneable<T>(T(256), "threadBlockSize"), blockThreadSize(T(256))
         {
         }
 
         explicit ThreadBlockSizeTune(T initial_value, IdxRange<T, T, T> idxRange)
-            : Tuneable<T, T, T, T>(initial_value, "threadBlockSize", idxRange)
+            : Tuneable<T>(initial_value, "threadBlockSize", idxRange)
             , blockThreadSize(initial_value)
         {
         }
 
         // this should only be used to create a modified instance of an existing threadblockTune
         explicit ThreadBlockSizeTune(T initial_value, std::string const& name, IdxRange<T, T, T> idxRange)
-            : Tuneable<T, T, T, T>(initial_value, name, idxRange)
+            : Tuneable<T>(initial_value, name, idxRange)
             , blockThreadSize(initial_value)
         {
         }
 
         explicit ThreadBlockSizeTune(IdxRange<T, T, T> idxRange)
-            : Tuneable<T, T, T, T>(T(256), "threadBlockSize", idxRange)
+            : Tuneable<T>(T(256), "threadBlockSize", idxRange)
             , blockThreadSize(T(256))
         {
         }
 
         explicit ThreadBlockSizeTune(T initial_value)
-            : Tuneable<T, T, T, T>(initial_value, "threadBlockSize")
+            : Tuneable<T>(initial_value, "threadBlockSize")
             , blockThreadSize(initial_value)
         {
         }
@@ -641,30 +358,30 @@ namespace alpaka::tune
         }
     };
 
-    template<typename T>
+    template<typename T = alpaka::Vec<std::size_t, 1>>
     requires alpaka::isVector_v<T>
-    struct NumFramesTune : public Tuneable<T, T, T, T>
+    struct NumFramesTune : public Tuneable<T>
     {
-        explicit NumFramesTune() : Tuneable<T, T, T, T>(T(256), "numFrames")
+        explicit NumFramesTune() : Tuneable<T>(T(256), "numFrames")
         {
         }
 
         explicit NumFramesTune(T initial_value, IdxRange<T, T, T> idxRange)
-            : Tuneable<T, T, T, T>(initial_value, "numFrames", idxRange)
+            : Tuneable<T>(initial_value, "numFrames", idxRange)
         {
         }
 
         // this should only be used to create a modified instance of an existing threadblockTune
         explicit NumFramesTune(T initial_value, std::string const& name, IdxRange<T, T, T> idxRange)
-            : Tuneable<T, T, T, T>(initial_value, name, idxRange)
+            : Tuneable<T>(initial_value, name, idxRange)
         {
         }
 
-        explicit NumFramesTune(IdxRange<T, T, T> idxRange) : Tuneable<T, T, T, T>(T(256), "numFrames", idxRange)
+        explicit NumFramesTune(IdxRange<T, T, T> idxRange) : Tuneable<T>(T(256), "numFrames", idxRange)
         {
         }
 
-        explicit NumFramesTune(T initial_value) : Tuneable<T, T, T, T>(initial_value, "numFrames")
+        explicit NumFramesTune(T initial_value) : Tuneable<T>(initial_value, "numFrames")
         {
         }
 
@@ -674,30 +391,30 @@ namespace alpaka::tune
         }
     };
 
-    template<typename T>
+    template<typename T = alpaka::Vec<std::size_t, 1>>
     requires alpaka::isVector_v<T>
-    struct FrameExtentTune : public Tuneable<T, T, T, T>
+    struct FrameExtentTune : public Tuneable<T>
     {
-        explicit FrameExtentTune() : Tuneable<T, T, T, T>(T(256), "frameExtent")
+        explicit FrameExtentTune() : Tuneable<T>(T(256), "frameExtent")
         {
         }
 
         explicit FrameExtentTune(T initial_value, IdxRange<T, T, T> idxRange)
-            : Tuneable<T, T, T, T>(initial_value, "frameExtent", idxRange)
+            : Tuneable<T>(initial_value, "frameExtent", idxRange)
         {
         }
 
         // this should only be used to create a modified instance of an existing threadblockTune
         explicit FrameExtentTune(T initial_value, std::string const& name, IdxRange<T, T, T> idxRange)
-            : Tuneable<T, T, T, T>(initial_value, name, idxRange)
+            : Tuneable<T>(initial_value, name, idxRange)
         {
         }
 
-        explicit FrameExtentTune(IdxRange<T, T, T> idxRange) : Tuneable<T, T, T, T>(T(256), "frameExtent", idxRange)
+        explicit FrameExtentTune(IdxRange<T, T, T> idxRange) : Tuneable<T>(T(256), "frameExtent", idxRange)
         {
         }
 
-        explicit FrameExtentTune(T initial_value) : Tuneable<T, T, T, T>(initial_value, "frameExtent")
+        explicit FrameExtentTune(T initial_value) : Tuneable<T>(initial_value, "frameExtent")
         {
         }
 
