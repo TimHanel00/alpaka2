@@ -26,13 +26,13 @@ void for_each(Tuple&& tup, F&& f)
 
 namespace alpaka::tune
 {
-    template<typename T_ActiveKernel>
-    void recalculateMaxGridBlockRuns(T_ActiveKernel& active)
+    template<typename T_Tune, typename T_ActiveKernel>
+    void recalculateMaxRuns_forTune(T_ActiveKernel& active, T_Tune const& tune, char const* label)
     {
-        active.maxRuns = active.maxRunsDefault;
+        auto const steps = tune.numSteps();
+        std::cout << label << "STEPS:  " << steps << std::endl;
 
-        active.maxRuns *= active.gridSize.numSteps();
-        std::cout << "gridSTEPS:  " << active.gridSize.numSteps() << std::endl;
+        active.maxRuns *= steps;
         if(active.maxRuns < active.maxRunsDefault)
         {
             std::cout << " WARNING: Overflow detected during tuning space calculation, ensure "
@@ -40,15 +40,31 @@ namespace alpaka::tune
                       << std::endl;
             active.maxRuns = UINT64_MAX;
         }
+    }
 
-        active.maxRuns *= active.threadBlockSize.numSteps();
-        std::cout << "blockSteps:  " << active.threadBlockSize.numSteps() << std::endl;
-        if(active.maxRuns < active.maxRunsDefault)
+    template<typename T_ActiveKernel>
+    void recalculateMaxRuns(T_ActiveKernel& active)
+    {
+        active.maxRuns = active.maxRunsDefault;
+
+        if constexpr(T_ActiveKernel::hasNumBlocksTune())
         {
-            std::cout << " WARNING: Overflow detected during tuning space calculation, ensure "
-                         "you have a max NumofRuns selected!"
-                      << std::endl;
-            active.maxRuns = UINT64_MAX;
+            recalculateMaxRuns_forTune(active, active.getNumBlocksTune(), "grid");
+        }
+
+        if constexpr(T_ActiveKernel::hasThreadBlockSizeTune())
+        {
+            recalculateMaxRuns_forTune(active, active.getThreadBlockSizeTune(), "block");
+        }
+
+        if constexpr(T_ActiveKernel::hasNumFramesTune())
+        {
+            recalculateMaxRuns_forTune(active, active.getNumFramesTune(), "frame");
+        }
+
+        if constexpr(T_ActiveKernel::hasFrameExtentTune())
+        {
+            recalculateMaxRuns_forTune(active, active.getFrameExtentTune(), "extent");
         }
     }
 
@@ -75,12 +91,19 @@ namespace alpaka::tune
         }
     }
 
-    void clampToSpec(auto& frameSpec, auto& activeKernel)
+    template<typename T_activeKernel>
+    void clampToSpec(auto& frameSpec, T_activeKernel& activeKernel)
     {
-        clampToSpec_elem(frameSpec.m_numFrames, activeKernel.gridSize.idxRange);
-        activeKernel.gridSize.toRange();
-        clampToSpec_elem(frameSpec.m_frameExtent, activeKernel.threadBlockSize.idxRange);
-        activeKernel.threadBlockSize.toRange();
+        if constexpr(activeKernel.hasNumBlocksTune())
+        {
+            clampToSpec_elem(frameSpec.m_numFrames, activeKernel.getNumBlocksTune().idxRange);
+            activeKernel.getNumBlocksTune().toRange();
+        }
+        if constexpr(activeKernel.hasThreadBlockSizeTune())
+        {
+            clampToSpec_elem(frameSpec.m_frameExtent, activeKernel.getThreadBlockSizeTune().idxRange);
+            activeKernel.getThreadBlockSizeTune().toRange();
+        }
     }
 
     void adjustToRange(auto& value, auto& begin, auto& end, auto& stride)
@@ -174,8 +197,23 @@ namespace alpaka::tune
 
     inline std::size_t globalId = 0;
 
+    struct NoTune
+    {
+        [[nodiscard]] NoTune copy() const
+        {
+            return NoTune{};
+        }
+
+        [[nodiscard]] static std::string toHash()
+        {
+            return "";
+        }
+    };
+
+    template<typename T>
+    constexpr bool is_NoTune_v = std::is_same_v<T, NoTune>;
+
     template<typename T = alpaka::Vec<std::size_t, 1>>
-    requires alpaka::isVector_v<T>
     struct Tuneable
     {
         T value;
@@ -285,7 +323,6 @@ namespace alpaka::tune
 
 
     template<typename T = alpaka::Vec<std::size_t, 1>>
-    requires alpaka::isVector_v<T>
     struct NumBlocksTune : public Tuneable<T>
     {
         explicit NumBlocksTune() : Tuneable<T>(T(64), "gridSize")
@@ -318,7 +355,6 @@ namespace alpaka::tune
     };
 
     template<typename T = alpaka::Vec<std::size_t, 1>>
-    requires alpaka::isVector_v<T>
     struct ThreadBlockSizeTune : public Tuneable<T>
     {
         T blockThreadSize;
@@ -359,7 +395,6 @@ namespace alpaka::tune
     };
 
     template<typename T = alpaka::Vec<std::size_t, 1>>
-    requires alpaka::isVector_v<T>
     struct NumFramesTune : public Tuneable<T>
     {
         explicit NumFramesTune() : Tuneable<T>(T(256), "numFrames")
@@ -392,7 +427,6 @@ namespace alpaka::tune
     };
 
     template<typename T = alpaka::Vec<std::size_t, 1>>
-    requires alpaka::isVector_v<T>
     struct FrameExtentTune : public Tuneable<T>
     {
         explicit FrameExtentTune() : Tuneable<T>(T(256), "frameExtent")

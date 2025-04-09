@@ -12,6 +12,7 @@
 #include <alpaka/tune/utils/tupleHandle.hpp>
 
 #include <utility>
+#define DEBUG_Singleton
 
 template<typename T_Range>
 void printRange(T_Range& range)
@@ -22,8 +23,6 @@ void printRange(T_Range& range)
 }
 
 template<
-    bool grid,
-    bool block,
     typename T_Device,
     typename T_Exec,
     typename T_NumFrames,
@@ -36,10 +35,6 @@ class KernelSingleton
 {
 public:
     using FrameSpecType = alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent>;
-
-    // Public members
-    static constexpr auto m_grid = grid;
-    static constexpr auto m_block = block;
     T_Device device;
     T_Exec exec;
     FrameSpecType frameSpec;
@@ -83,30 +78,23 @@ public:
             ptrToHistory = history.getKernelFromHistory(device, exec, kernelBundle, sessionSpecifier_);
         }
         // acts like a guard only valid configs are used for the device
-#define DEBUG_Singleton
+
 #ifdef DEBUG_Singleton
-        std::cout << " gridSize Range: fromUser" << std::endl;
-        printRange(activeRunPtr->gridSize.idxRange);
-        std::cout << " blockSize Range: fromUser" << std::endl;
-        printRange(activeRunPtr->threadBlockSize.idxRange);
-#endif
-        frameSpec = alpaka::tune::SessAdjustThreadSpec(device, exec, frameSpec, *activeRunPtr);
-#ifdef DEBUG_Singleton
-        std::cout << " gridSize Range: HWadjust" << std::endl;
-        printRange(activeRunPtr->gridSize.idxRange);
-        std::cout << " blockSize Range: HWadjust" << std::endl;
-        printRange(activeRunPtr->threadBlockSize.idxRange);
+        std::cout << " gridSize Range: after adjust" << std::endl;
+        printRange(activeRunPtr->getNumBlocksTune().idxRange);
+        // std::cout << " blockSize Range: after adjust" << std::endl;
+        // printRange(activeRunPtr->getThreadBlockSizeTune().idxRange);
 #endif
         clampToSpec(frameSpec, *activeRunPtr);
 #ifdef DEBUG_Singleton
-        std::cout << " gridSize Range: clampedToSpec" << std::endl;
-        printRange(activeRunPtr->gridSize.idxRange);
-        std::cout << " blockSize Range: clampedToSpec" << std::endl;
-        printRange(activeRunPtr->threadBlockSize.idxRange);
+        std::cout << " gridSize Range: after adjust" << std::endl;
+        printRange(activeRunPtr->getNumBlocksTune().idxRange);
+        // std::cout << " blockSize Range: after adjust" << std::endl;
+        // printRange(activeRunPtr->getThreadBlockSizeTune().idxRange);
 
 #endif
 
-        recalculateMaxGridBlockRuns(*activeRunPtr);
+        recalculateMaxRuns(*activeRunPtr);
         applyCustomThreadSpec(*activeRunPtr, frameSpec);
     }
 
@@ -114,9 +102,9 @@ public:
 };
 
 template<typename T_Vec>
-auto makeConformToTVec(T_Vec const&, std::nullopt_t)
+auto makeConformToTVec(T_Vec const&, alpaka::tune::NoTune)
 {
-    return std::nullopt;
+    return alpaka::tune::NoTune{};
 }
 
 /*
@@ -179,14 +167,21 @@ T_Tunable<alpaka::Vec<typename T_Vec::type, T_Vec::dim()>> makeConformToTVec(
     }
 }
 
-template<
-    bool grid,
-    bool block,
-    typename T_Device,
-    typename T_Exec,
-    typename T_NumFrames,
-    typename T_FrameExtent,
-    typename T_KernelBundle>
+template<typename T_frameSpec, typename... T_Args>
+auto makeConformToFrameSpec(T_frameSpec& spec, ActiveKernelRun<T_Args...>& kernelRun)
+{
+    // auto h = makeConformToTVec(spec.m_numFrames, kernelRun.getNumFramesTune());
+
+    return makeActiveKernel(
+        kernelRun.userDefTuneables,
+        makeConformToTVec(spec.m_numFrames, kernelRun.getNumFramesTune()),
+
+        makeConformToTVec(spec.m_frameExtent, kernelRun.getFrameExtentTune()),
+        makeConformToTVec(spec.m_threadSpec.m_numBlocks, kernelRun.getNumBlocksTune()),
+        makeConformToTVec(spec.m_threadSpec.m_numThreads, kernelRun.getThreadBlockSizeTune()));
+}
+
+template<typename T_Device, typename T_Exec, typename T_NumFrames, typename T_FrameExtent, typename T_KernelBundle>
 auto createKernelSingleton(
     T_Device device,
     T_Exec exec,
@@ -196,20 +191,32 @@ auto createKernelSingleton(
     auto& sessionSpecifier,
     auto& history)
 {
-    auto activeRun = ActiveKernelRun{
-        makeConformToTVec(spec.m_numFrames, run.gridSize),
-        makeConformToTVec(spec.m_frameExtent, run.threadBlockSize),
-        extractTuneables(bundle)};
-    auto activePtr = std::make_unique<ALPAKA_TYPEOF(activeRun)>(activeRun);
-    auto sharedParams = makeSharedParameterInterface<grid, block, ALPAKA_TYPEOF(*activePtr)>(*activePtr);
+    auto activeRun = makeConformToFrameSpec(spec, run);
+    auto retPair = alpaka::tune::applyHwConstraints(device, exec, spec, activeRun);
+    auto newFrameSpec = retPair.first;
+    auto newRun = retPair.second;
+
+    /*
+     *newRun is a ActiveKernelRun -- check its function signature at compile time: trigger an compilation error where
+     *its signature is revealed
+     *
+     */
+// #define DEBUG_Singleton
+#ifdef DEBUG_Singleton
+    std::cout << " gridSize Range: fromUser" << std::endl;
+    printRange(newRun.getNumBlocksTune().idxRange);
+    // std::cout << " blockSize Range: fromUser" << std::endl;
+    // printRange(newRun.getThreadBlockSizeTune().idxRange);
+#endif
+
+    auto activePtr = std::make_unique<ALPAKA_TYPEOF(newRun)>(newRun);
+    auto sharedParams = makeSharedParameterInterface(*activePtr);
     auto ptrToHistory = history.getKernelFromHistory(device, exec, bundle, sessionSpecifier);
     using kernelSingletonType = KernelSingleton<
-        grid,
-        block,
         T_Device,
         T_Exec,
-        T_NumFrames,
-        T_FrameExtent,
+        ALPAKA_TYPEOF(newFrameSpec.m_frameExtent),
+        ALPAKA_TYPEOF(newFrameSpec.m_numFrames),
         T_KernelBundle,
         ALPAKA_TYPEOF(activePtr),
         ALPAKA_TYPEOF(ptrToHistory),
@@ -217,7 +224,7 @@ auto createKernelSingleton(
     auto singleTon = std::make_unique<kernelSingletonType>(
         device,
         exec,
-        spec,
+        newFrameSpec,
         bundle,
         std::move(activePtr),
         ptrToHistory,

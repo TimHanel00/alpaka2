@@ -1,9 +1,12 @@
 
+#ifndef SESSIONBUILDER_HPP
+#define SESSIONBUILDER_HPP
 #include "alpaka/onHost.hpp"
 #include "alpaka/tune/active/KernelSingleton.hpp"
 #include "alpaka/tune/utils/environmentVars.hpp"
 
 #include <alpaka/tune/IO/tuningHistory.hpp>
+#include <alpaka/tune/active/activeKernel.hpp>
 #include <alpaka/tune/active/strategy.hpp>
 #include <alpaka/tune/utils/TimeEvent.hpp>
 #include <alpaka/tune/utils/tupleHandle.hpp>
@@ -17,7 +20,7 @@
 
 namespace alpaka
 {
-    template<typename T_Strategy, typename T_GridSize, typename T_BlockSize, bool grid, bool block>
+    template<typename T_Strategy, typename... T_KernelRunArgs>
     struct TuningSession;
 } // namespace alpaka
 
@@ -26,16 +29,25 @@ namespace alpaka::tune
     // forward declaration of TuningSession
 
 
-    template<
-        typename T_Strategy = strategy::randomSearch,
-        typename T_GridSize = NumBlocksTune<>,
-        typename T_BlockSize = ThreadBlockSizeTune<>,
-        bool grid = false,
-        bool block = false>
+    template<typename T_Strategy = strategy::randomSearch, typename... T_KernelRunArgs>
     class TuningBuilder
     {
     public:
         TuningBuilder() = default;
+        explicit TuningBuilder(ActiveKernelRun<T_KernelRunArgs...> const& newRun) : m_run(newRun) {};
+
+        template<typename T_Tune>
+        auto withTuning(T_Tune tuningObject) const
+        {
+            auto newRun = appendTuning(m_run, tuningObject);
+
+            auto ret = helperCreateNewBuilder<T_Strategy>(newRun);
+            ret.m_config = m_config;
+            ret.m_reRuns = m_reRuns;
+            ret.m_dynamicRuns = m_dynamicRuns;
+            ret.m_sessionSpecifiers = m_sessionSpecifiers;
+            return ret;
+        }
 
         TuningBuilder& withReRuns(std::size_t reruns)
         {
@@ -58,13 +70,12 @@ namespace alpaka::tune
         template<typename NewStrategy>
         auto withStrategy(NewStrategy strategy) const
         {
-            TuningBuilder<NewStrategy, T_GridSize, T_BlockSize, grid, block> ret;
+            TuningBuilder<NewStrategy, T_KernelRunArgs...> ret;
             ret.m_config = m_config;
             ret.m_reRuns = m_reRuns;
             ret.m_dynamicRuns = m_dynamicRuns;
             ret.m_sessionSpecifiers = m_sessionSpecifiers;
-            ret.m_gridTune = m_gridTune;
-            ret.m_blockTune = m_blockTune;
+            ret.m_run = m_run;
             return ret;
         }
 
@@ -77,108 +88,104 @@ namespace alpaka::tune
 
         auto withNumBlocksTune() const
         {
-            auto tuningObject = NumBlocksTune{};
+            std::cout << " in numblockstune" << std::endl;
+            NumBlocksTune tuningObject{};
             tuningObject.userDef = false;
-            TuningBuilder<T_Strategy, ALPAKA_TYPEOF(tuningObject), T_BlockSize, true, block> ret;
-            ret.m_config = m_config;
-            ret.m_reRuns = m_reRuns;
-            ret.m_dynamicRuns = m_dynamicRuns;
-            ret.m_sessionSpecifiers = m_sessionSpecifiers;
-            ret.m_gridTune = std::move(tuningObject);
-            ret.m_blockTune = m_blockTune;
-            return ret;
+            return this->withTuning(tuningObject);
         }
 
         template<typename T>
         auto withNumBlocksTune(NumBlocksTune<T> tune) const
         {
-            using NewGrid = NumBlocksTune<T>;
             tune.userDef = true;
-            TuningBuilder<T_Strategy, NewGrid, T_BlockSize, true, block> ret;
-            ret.m_config = m_config;
-            ret.m_reRuns = m_reRuns;
-            ret.m_dynamicRuns = m_dynamicRuns;
-            ret.m_sessionSpecifiers = m_sessionSpecifiers;
-            ret.m_gridTune = std::move(tune);
-            ret.m_blockTune = m_blockTune;
-            return ret;
+            return this->withTuning(tune);
         }
 
         template<typename T, auto dim>
         auto withNumBlocksTune(alpaka::Vec<T, dim> tune) const
         {
-            using VecType = decltype(tune);
-            using NewGrid = NumBlocksTune<VecType>;
-            TuningBuilder<T_Strategy, NewGrid, T_BlockSize, true, block> ret;
-            ret.m_config = m_config;
-            ret.m_reRuns = m_reRuns;
-            ret.m_dynamicRuns = m_dynamicRuns;
-            ret.m_sessionSpecifiers = m_sessionSpecifiers;
-            auto tuningObject = NewGrid{tune};
+            NumBlocksTune<decltype(tune)> tuningObject{tune};
             tuningObject.userDef = false;
-            ret.m_gridTune = tuningObject;
-            ret.m_blockTune = m_blockTune;
-            return ret;
+            return this->withTuning(tuningObject);
         }
 
         auto withBlockSizeTune() const
         {
-            auto tuningObject = ThreadBlockSizeTune{};
+            ThreadBlockSizeTune tuningObject{};
             tuningObject.userDef = false;
-            TuningBuilder<T_Strategy, T_GridSize, ALPAKA_TYPEOF(tuningObject), grid, true> ret;
-            ret.m_config = m_config;
-            ret.m_reRuns = m_reRuns;
-            ret.m_dynamicRuns = m_dynamicRuns;
-            ret.m_sessionSpecifiers = m_sessionSpecifiers;
-            ret.m_gridTune = m_gridTune;
-            ret.m_blockTune = std::move(ThreadBlockSizeTune{});
-            return ret;
+            return this->withTuning(tuningObject);
         }
 
         template<typename T>
         auto withBlockSizeTune(ThreadBlockSizeTune<T> tune) const
         {
-            using NewBlock = ThreadBlockSizeTune<T>;
+            std::cout << " in blockSIzeTune" << std::endl;
             tune.userDef = true;
-            TuningBuilder<T_Strategy, T_GridSize, NewBlock, grid, true> ret;
-            ret.m_config = m_config;
-            ret.m_reRuns = m_reRuns;
-            ret.m_dynamicRuns = m_dynamicRuns;
-            ret.m_sessionSpecifiers = m_sessionSpecifiers;
-            ret.m_gridTune = m_gridTune;
-            ret.m_blockTune = std::move(tune);
-            return ret;
+            return this->withTuning(tune);
         }
 
         template<typename T, auto dim>
         auto withBlockSizeTune(alpaka::Vec<T, dim> tune) const
         {
-            using VecType = decltype(tune);
-
-            using NewBlock = ThreadBlockSizeTune<VecType>;
-            TuningBuilder<T_Strategy, T_GridSize, NewBlock, grid, true> ret;
-            ret.m_config = m_config;
-            ret.m_reRuns = m_reRuns;
-            ret.m_dynamicRuns = m_dynamicRuns;
-            ret.m_sessionSpecifiers = m_sessionSpecifiers;
-            ret.m_gridTune = m_gridTune;
-            auto tuningObject = NewBlock{tune};
+            ThreadBlockSizeTune<decltype(tune)> tuningObject{tune};
             tuningObject.userDef = false;
-            ret.m_blockTune = tuningObject;
-            return ret;
+            return this->withTuning(tuningObject);
+        }
+
+        auto withNumFramesTune() const
+        {
+            NumFramesTune tuningObject{};
+            tuningObject.userDef = false;
+            return this->withTuning(tuningObject);
+        }
+
+        template<typename T>
+        auto withNumFramesTune(NumFramesTune<T> tune) const
+        {
+            tune.userDef = true;
+            return this->withTuning(tune);
+        }
+
+        template<typename T, auto dim>
+        auto withNumFramesTune(alpaka::Vec<T, dim> tune) const
+        {
+            NumFramesTune<decltype(tune)> tuningObject{tune};
+            tuningObject.userDef = false;
+            return this->withTuning(tuningObject);
+        }
+
+        auto withFrameExtentTune() const
+        {
+            FrameExtentTune tuningObject{};
+            tuningObject.userDef = false;
+            return this->withTuning(tuningObject);
+        }
+
+        template<typename T>
+        auto withFrameExtentTune(FrameExtentTune<T> tune) const
+        {
+            tune.userDef = true;
+            return this->withTuning(tune);
+        }
+
+        template<typename T, auto dim>
+        auto withFrameExtentTune(alpaka::Vec<T, dim> tune) const
+        {
+            FrameExtentTune<decltype(tune)> tuningObject{tune};
+            tuningObject.userDef = false;
+            return this->withTuning(tuningObject);
         }
 
         // Output a fully constructed TuningSession
         auto build() const
         {
-            return TuningSession<T_Strategy, T_GridSize, T_BlockSize, grid, block>(
+            return TuningSession<T_Strategy, T_KernelRunArgs...>(
                 T_Strategy{},
                 m_config,
                 m_reRuns.value_or(0),
                 m_dynamicRuns.value_or(0),
                 m_sessionSpecifiers,
-                m_gridTune,
-                m_blockTune);
+                m_run);
         }
 
         std::optional<std::size_t> m_reRuns;
@@ -186,7 +193,13 @@ namespace alpaka::tune
         std::string m_config;
         std::vector<std::string> m_sessionSpecifiers;
 
-        T_GridSize m_gridTune;
-        T_BlockSize m_blockTune;
+        ActiveKernelRun<T_KernelRunArgs...> m_run;
     };
+
+    template<typename T_Strategy, typename... T_KernelRunArgs>
+    auto helperCreateNewBuilder(ActiveKernelRun<T_KernelRunArgs...> const& newRun)
+    {
+        return TuningBuilder<T_Strategy, T_KernelRunArgs...>(newRun);
+    }
 }; // namespace alpaka::tune
+#endif

@@ -139,7 +139,7 @@ namespace alpaka::tune
                                             auto value_tuneAble = tuneablesV[i].as_string();
                                             if(tkey == "gridSize")
                                             {
-                                                run.gridSize = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
+                                                run.numBlocksTune = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
                                             }
                                             else if(tkey == "threadBlockSize")
                                             {
@@ -288,13 +288,13 @@ namespace alpaka::tune
 #endif
                     }
 
-                    if(run.second.gridSize != std::nullopt)
+                    if(run.second.numBlocksTune != std::nullopt)
                     {
 #ifdef DEBUG_Hist
                         std::cout << "    - GridSize: " << run.second.gridSize->value << std::endl;
 #endif
                         tuneableNames.emplace_back("gridSize");
-                        tuneableValues.emplace_back(run.second.gridSize->value);
+                        tuneableValues.emplace_back(run.second.numBlocksTune->value);
                     }
                     else
                     {

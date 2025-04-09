@@ -52,7 +52,7 @@ inline std::vector<std::string> getTokens(std::string const& f)
 }
 
 template<typename T>
-T convertFromString(std::string const& s)
+auto vectorFromString(std::string const& s)
 {
     if constexpr(alpaka::isVector_v<T>)
     {
@@ -75,6 +75,20 @@ T convertFromString(std::string const& s)
         { return T{parse(tokens[I])...}; }(std::make_index_sequence<dim>{});
     }
     throw std::runtime_error("tuneable string does not match any known type");
+}
+
+template<typename T_Tune>
+inline void tuneableFromString(alpaka::tune::StorageTuneable const& s, T_Tune& k)
+{
+    if constexpr(std::is_same_v<std::remove_const_t<T_Tune>, alpaka::tune::NoTune>)
+    {
+        return;
+    }
+    else
+    {
+        k.value = vectorFromString<ALPAKA_TYPEOF(k.value)>(s.value);
+        k.name = s.name;
+    }
 }
 
 template<typename T>
@@ -114,6 +128,11 @@ T convertToT(U const& value)
     }
 }
 
+inline double_t accessMetric(std::priority_queue<double_t, std::vector<double_t>, std::greater<>> const& h)
+{
+    return h.top();
+}
+
 template<typename T_KernelBundle, typename T_FrameSpec>
 struct TuningResult
 {
@@ -131,9 +150,11 @@ struct StorageKernelRun
         Initialized,
     };
     std::vector<alpaka::tune::StorageTuneable> tuneables;
-    std::optional<alpaka::tune::StorageTuneable> gridSize{std::nullopt};
+    std::optional<alpaka::tune::StorageTuneable> numBlocksTune{std::nullopt};
     std::optional<alpaka::tune::StorageTuneable> threadBlockSize{std::nullopt};
-    std::priority_queue<double_t> metric;
+    std::optional<alpaka::tune::StorageTuneable> numFramesTune{std::nullopt};
+    std::optional<alpaka::tune::StorageTuneable> frameExtentTune{std::nullopt};
+    std::priority_queue<double_t, std::vector<double_t>, std::greater<>> metric;
     std::size_t nr_runs{1};
     State state{State::Uninitialized};
 
@@ -144,10 +165,15 @@ struct StorageKernelRun
         {
             m += tuneable.toHash();
         }
-        if(gridSize.has_value())
-            m += gridSize.value().toHash();
+        if(numFramesTune.has_value())
+            m += numFramesTune.value().toHash();
+        if(frameExtentTune.has_value())
+            m += frameExtentTune.value().toHash();
+        if(numBlocksTune.has_value())
+            m += numBlocksTune.value().toHash();
         if(threadBlockSize.has_value())
             m += threadBlockSize.value().toHash();
+
         return m;
     }
 
@@ -183,9 +209,9 @@ struct StorageKernelRun
                 std::make_move_iterator(valueArray.begin()),
                 std::make_move_iterator(valueArray.end()));
         }
-        if(gridSize.has_value())
+        if(numBlocksTune.has_value())
         {
-            auto valueArray = convertToValueArray<T>(gridSize.value());
+            auto valueArray = convertToValueArray<T>(numBlocksTune.value());
             result.insert(
                 result.end(),
                 std::make_move_iterator(valueArray.begin()),
@@ -257,22 +283,37 @@ void updateTuneablesImpl(
      ...);
 }
 
-// A free function that updates an ActiveKernelRun from a StorageKernelRun.
-template<typename T_GridSize, typename T_BlockSize, typename T_TuneableType>
-void toActive(ActiveKernelRun<T_GridSize, T_BlockSize, T_TuneableType>& active, StorageKernelRun const& storeKernel)
+// A free function that updates an the configuration found in a storageKernel
+template<
+    typename T_numFramesTune,
+    typename T_frameExtentTune,
+    typename T_numBlocksTune,
+    typename T_numThreadsTune,
+    typename T_UserDefTuneablesTune>
+void toActive(
+    ActiveKernelRun<T_numFramesTune, T_frameExtentTune, T_numBlocksTune, T_numThreadsTune, T_UserDefTuneablesTune>&
+        active,
+    StorageKernelRun const& storeKernel)
 {
     // Update gridSize if available.
-    if(storeKernel.gridSize.has_value())
+    if(storeKernel.numFramesTune.has_value())
     {
-        active.gridSize = T_GridSize{convertFromString<decltype(active.gridSize.value)>(storeKernel.gridSize->value)};
+        tuneableFromString(storeKernel.numBlocksTune.value(), active.getNumFramesTune());
+    }
+    if(storeKernel.frameExtentTune.has_value())
+    {
+        tuneableFromString(storeKernel.frameExtentTune.value(), active.getFrameExtentTune());
+    };
+    if(storeKernel.numBlocksTune.has_value())
+    {
+        tuneableFromString(storeKernel.numBlocksTune.value(), active.getNumBlocksTune());
     }
     if(storeKernel.threadBlockSize.has_value())
     {
-        active.threadBlockSize = T_BlockSize{
-            convertFromString<decltype(active.threadBlockSize.value)>(storeKernel.threadBlockSize->value)};
+        tuneableFromString(storeKernel.threadBlockSize.value(), active.getThreadBlockSizeTune());
     }
-    constexpr std::size_t tupleSize = std::tuple_size_v<T_TuneableType>;
-    updateTuneablesImpl(active.tuneables, storeKernel.tuneables, std::make_index_sequence<tupleSize>{});
+    constexpr std::size_t tupleSize = std::tuple_size_v<T_UserDefTuneablesTune>;
+    updateTuneablesImpl(active.userDefTuneables, storeKernel.tuneables, std::make_index_sequence<tupleSize>{});
 
     // Update metric by converting the storage string metric to the active kernel's floating type.
     active.metric = storeKernel.metric.top();
@@ -283,11 +324,33 @@ StorageKernelRun toStore(ActiveKernelRun<T_GridSize, T_BlockSize, T_TuneableType
 {
     StorageKernelRun result;
     // Convert gridSize.
-    result.gridSize = alpaka::tune::StorageTuneable{active.gridSize.name, convertToString(active.gridSize.value)};
+    if constexpr(active.hasNumFramesTune())
+    {
+        result.numFramesTune = alpaka::tune::StorageTuneable{
+            active.getNumFramesTune().name,
+            convertToString(active.getNumFramesTune().value)};
+    }
+    if constexpr(active.hasFrameExtentTune())
+    {
+        result.frameExtentTune = alpaka::tune::StorageTuneable{
+            active.getFrameExtentTune().name,
+            convertToString(active.getFrameExtentTune().value)};
+    }
+    if constexpr(active.hasNumBlocksTune())
+    {
+        result.numBlocksTune = alpaka::tune::StorageTuneable{
+            active.getNumBlocksTune().name,
+            convertToString(active.getNumBlocksTune().value)};
+    }
+    if constexpr(active.hasThreadBlockSizeTune())
+    {
+        result.threadBlockSize = alpaka::tune::StorageTuneable{
+            active.getThreadBlockSizeTune().name,
+            convertToString(active.getThreadBlockSizeTune().value)};
+    }
+
     // Convert threadBlockSize.
 
-    result.threadBlockSize
-        = alpaka::tune::StorageTuneable{active.threadBlockSize.name, convertToString(active.threadBlockSize.value)};
 
     // Convert the metric.
     if(!std::isnan(active.metric))
@@ -303,7 +366,7 @@ StorageKernelRun toStore(ActiveKernelRun<T_GridSize, T_BlockSize, T_TuneableType
                  alpaka::tune::StorageTuneable{tuneable.name, convertToString(tuneable.value)})),
              ...);
         },
-        active.tuneables);
+        active.userDefTuneables);
     return result;
 }
 

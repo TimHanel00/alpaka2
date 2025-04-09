@@ -301,7 +301,7 @@ namespace alpaka::tune::strategy
         template<typename T_storageKernel, typename T_activeKernel>
         void acceptNewKernel(T_storageKernel& storekernel, T_activeKernel& activeKernel, double_t temperature)
         {
-            if(acceptanceFunction(storekernel.metric, activeKernel.metric, temperature))
+            if(acceptanceFunction(accessMetric(storekernel.metric), activeKernel.metric, temperature))
             {
                 toActive(activeKernel, storekernel);
             }
@@ -341,7 +341,7 @@ namespace alpaka::tune::strategy
         auto operator()(
             T_tuneables&& tuneables,
             T_ActiveKernel& kernelRun,
-            std::unordered_map<std::string, storageKernel>& history) const
+            std::unordered_map<std::string, storageKernel>& history)
         {
             auto& state = kernelRun.m_strategyState;
             auto maxRuns = getMaxRuns();
@@ -350,22 +350,25 @@ namespace alpaka::tune::strategy
                 state.runs = 1;
                 return;
             }
-            state.temperatur = calcTemperature(maxRuns, history.size()); // assign new temperature
+            state.temperature = calcTemperature(maxRuns, history.size()); // assign new temperature
             int checkOverlow = 0;
             while(history.contains(kernelRun.toHash()) && checkOverlow < 100)
             {
                 for_each(
                     tuneables,
-                    [state](auto& parameter)
+                    [state, this](auto& parameter)
                     {
                         parameter.value
-                            = applyProbabilityFunction(parameter.value, parameter.idxRange, state.temperatur);
+                            = applyProbabilityFunction(parameter.value, parameter.idxRange, state.temperature);
                     });
                 if(history.contains(kernelRun.toHash()))
                 {
-                    acceptNewKernel(history[kernelRun.toHash()], kernelRun);
-                    if(history[kernelRun.toHash()].metric)
-                        toActive(kernelRun, history[kernelRun.toHash()]);
+                    if(history[kernelRun.toHash()].metric.size() < getRunsPerConfig())
+                    {
+                        return; // we havent yet timed this config well enough
+                    }
+                    acceptNewKernel(history[kernelRun.toHash()], kernelRun, state.temperature);
+
                     ++state.runs;
                 }
                 checkOverlow++;
@@ -396,7 +399,7 @@ namespace alpaka::tune::strategy
             std::size_t dim,
             T_ActiveKernel& kernelRun,
             std::unordered_map<std::string, StorageKernel>& history,
-            bool& found) const
+            bool& found)
         {
             constexpr std::size_t N = std::tuple_size_v<std::remove_reference_t<Tuple>>;
             auto hash = kernelRun.toHash();
@@ -448,7 +451,7 @@ namespace alpaka::tune::strategy
         auto operator()(
             T_tuneables&& tuneables,
             T_ActiveKernel& kernelRun,
-            std::unordered_map<std::string, storageKernel>& history) const
+            std::unordered_map<std::string, storageKernel>& history)
         {
             if(history.contains(kernelRun.toHash()))
             {
@@ -464,7 +467,7 @@ namespace alpaka::tune::strategy
         auto operator()(
             T_tuneables&& tuneables,
             T_ActiveKernel& kernelRun,
-            std::unordered_map<std::string, StorageKernelRun>& history) const
+            std::unordered_map<std::string, StorageKernelRun>& history)
         {
             randomSample{}(tuneables, kernelRun, history);
             if(history.contains(kernelRun.toHash()))
@@ -485,7 +488,7 @@ namespace alpaka::tune::strategy
                 auto best = history.begin()->second;
                 for(auto& run : history)
                 {
-                    if(run.second.metric.top() < best.metric.top())
+                    if(accessMetric(run.second.metric) < accessMetric(best.metric))
                     {
                         best = run.second; // Update selectedRun to the run with the smaller time
                     }
@@ -501,7 +504,7 @@ namespace alpaka::tune::strategy
         auto operator()(
             std::vector<std::shared_ptr<tuneables>>& tuningParameters,
             T_KernelRun& kernelRun,
-            std::unordered_map<std::string, KernelRun>& history) const
+            std::unordered_map<std::string, KernelRun>& history)
         {
             return tuningParameters;
         }

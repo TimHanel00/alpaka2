@@ -174,54 +174,49 @@ auto extractTuneables(alpaka::KernelBundle<TKernelFn, TArgs...> const& kb)
     return extractTuneables_impl(kb, std::make_index_sequence<sizeof...(TArgs)>{});
 }
 
+// Return empty tuple for NoTune
+inline auto makeNonOwningTuneableTuple(alpaka::tune::NoTune const&)
+{
+    return std::tuple<>{};
+}
+
+// Main handler for general tunables
 template<typename TuneableType>
 auto makeNonOwningTuneableTuple(TuneableType& t)
 {
-    using ValueType = std::remove_reference_t<TuneableType>;
     using elementType = ALPAKA_TYPEOF(t.value);
+
     if constexpr(alpaka::isVector_v<elementType>)
     {
-        return flatten(t);
-    }
-    else if constexpr(std::is_integral_v<elementType>)
-    {
-        return std::tuple(
-            alpaka::tune::FlatTuneableHandle<elementType>{
-                t.value,
-                t.name,
-                t.userDef,
-                t.idxRange.m_begin[0],
-                t.idxRange.m_end[0],
-                t.idxRange.m_stride[0]});
-    }
-    throw std::runtime_error("unrecognized tuneableType");
-}
-
-template<bool grid, bool block, typename T_ActiveKernel>
-auto makeSharedParameterInterface(T_ActiveKernel& run)
-{
-    auto tuneableTuple = std::apply(
-        [](auto&... elems) { return std::tuple_cat(makeNonOwningTuneableTuple(elems)...); },
-        run.tuneables);
-    if constexpr(grid && block)
-    {
-        auto gridTuple = makeNonOwningTuneableTuple(run.gridSize);
-        auto blockTuple = makeNonOwningTuneableTuple(run.threadBlockSize);
-        return std::tuple_cat(tuneableTuple, gridTuple, blockTuple);
-    }
-    else if constexpr(grid)
-    {
-        auto gridTuple = makeNonOwningTuneableTuple(run.gridSize);
-        return std::tuple_cat(tuneableTuple, gridTuple);
-    }
-    else if constexpr(block)
-    {
-        auto blockTuple = makeNonOwningTuneableTuple(run.threadBlockSize);
-        return std::tuple_cat(tuneableTuple, blockTuple);
+        // flatten() needs non-const access — cast safely
+        return flatten(const_cast<std::remove_cv_t<TuneableType>&>(t));
     }
     else
     {
-        return tuneableTuple;
+        static_assert(!sizeof(TuneableType), "Unhandled Tuneable Type does not contain a Vector !");
     }
+}
+
+template<typename Tuple, std::size_t... Is>
+auto makeNonOwningframeSpecTuple(Tuple const& tuple, std::index_sequence<Is...>)
+{
+    return std::tuple_cat(makeNonOwningTuneableTuple(std::get<Is>(tuple))...);
+}
+
+template<typename Tuple>
+auto makeNonOwningframeSpecTuple(Tuple const& tuple)
+{
+    constexpr std::size_t N = std::tuple_size_v<std::remove_reference_t<Tuple>>;
+    return makeNonOwningframeSpecTuple(tuple, std::make_index_sequence<N>{});
+}
+
+template<typename T_KernelRun>
+auto makeSharedParameterInterface(T_KernelRun& run)
+{
+    auto userDef_tuneableTupleInterface = std::apply(
+        [](auto&... elems) { return std::tuple_cat(makeNonOwningTuneableTuple(elems)...); },
+        run.userDefTuneables);
+
+    return std::tuple_cat(userDef_tuneableTupleInterface, makeNonOwningframeSpecTuple(run.frameSpecTuple));
 }
 #endif // TUPLEHANDLE_H

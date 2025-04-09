@@ -11,83 +11,58 @@
 
 namespace alpaka
 {
-    template<typename T_KernelRun, typename T_FrameSpec>
-    static T_FrameSpec& applyCustomThreadSpec(T_KernelRun& kernelRun, T_FrameSpec& spec)
+    template<typename T_FrameSpec, typename... T_Args>
+    static T_FrameSpec& applyCustomThreadSpec(ActiveKernelRun<T_Args...>& kernelRun, T_FrameSpec& spec)
     {
-        auto numBlockval = kernelRun.gridSize.value;
-        using tuneableGridType = ALPAKA_TYPEOF(numBlockval);
-        if constexpr(alpaka::isVector_v<tuneableGridType>)
+        if constexpr(kernelRun.hasNumFramesTune())
         {
-            if constexpr(std::is_same_v<tuneableGridType, ALPAKA_TYPEOF(spec.m_threadSpec.m_numBlocks)>)
-            {
-                spec.m_threadSpec.m_numBlocks = numBlockval;
-            }
-            else
-            {
-                throw std::runtime_error(
-                    "TuningSession::applyCustomThreadSpec(): invalid custom gridSize tuning - must conform with "
-                    "type of numFrames");
-            }
+            spec.m_numFrames = kernelRun.getNumFramesTune().value;
         }
-
-
-        auto threadval = kernelRun.threadBlockSize.value;
-        using tuneableBLockType = ALPAKA_TYPEOF(threadval);
-        if constexpr(alpaka::isVector_v<tuneableBLockType>)
+        if constexpr(kernelRun.hasFrameExtentTune())
         {
-            if constexpr(std::is_same_v<tuneableBLockType, ALPAKA_TYPEOF(spec.m_threadSpec.m_numThreads)>)
-            {
-                spec.m_threadSpec.m_numThreads = threadval;
-            }
-            else
-            {
-                throw std::runtime_error(
-                    "TuningSession::applyCustomThreadSpec(): invalid custom threadBlockSize tuning - must conform "
-                    "with type of frameExtent");
-            }
+            spec.m_frameExtent = kernelRun.getFrameExtentTune().value;
         }
-        else
+        if constexpr(kernelRun.hasNumBlocksTune())
         {
-            spec.m_threadSpec.m_numThreads = ALPAKA_TYPEOF(spec.m_threadSpec.m_numThreads)(threadval);
+            spec.m_threadSpec.m_numBlocks = kernelRun.getNumBlocksTune().value;
+        }
+        if constexpr(kernelRun.hasThreadBlockSizeTune())
+        {
+            spec.m_threadSpec.m_numThreads = kernelRun.getThreadBlockSizeTune().value;
         }
 
         return spec;
     }
-#    ifdef DEBUG
-    template<typename T_active>
-    void printGBFromActive(T_active& active)
+
+    template<typename... Args>
+    void printGBFromActive(ActiveKernelRun<Args...>& active)
     {
-        if(active.gridSize.has_value())
+        if(active.hasNumBlocksTune())
         {
-            std::cout << "G: " << active.gridSize->valueToString() << std::endl;
+            std::cout << "G: " << active.getNumBlocksTune().valueToString() << std::endl;
             return;
         }
-        if(active.threadBlockSize.has_value())
+        if(active.hasNumFramesTune())
         {
             std::cout << "B: " << active.threadBlockSize->valueToString() << std::endl;
             return;
         }
 
-        if(active.threadBlockSize.has_value() && active.gridSize.has_value())
+        if(active.threadBlockSize.has_value() && active.numBlocksTune.has_value())
         {
-            std::cout << "G: " << active.gridSize->valueToString()
+            std::cout << "G: " << active.numBlocksTune->valueToString()
                       << " , B: " << active.threadBlockSize->valueToString() << std::endl;
         }
     }
-#    endif
+
 #    define MetricUndefined std::numeric_limits<float>::quiet_NaN()
 
-    template<
-        typename T_Strategy = alpaka::tune::strategy::randomSearch,
-        typename T_GridSize = alpaka::tune::NumBlocksTune<>,
-        typename T_BlockSize = alpaka::tune::ThreadBlockSizeTune<>,
-        bool grid = false,
-        bool block = false>
+    template<typename T_Strategy = alpaka::tune::strategy::randomSearch, typename... T_KernelRunArgs>
     struct TuningSession
     {
         using T_floating = double_t;
         using T_Integer = std::size_t;
-        ActiveKernelRun<T_GridSize, T_BlockSize, T_floating> run;
+        ActiveKernelRun<T_KernelRunArgs...> run;
         tune::TuningHistory& history = tune::TuningHistory::get();
         T_Strategy strategy;
         T_Integer dynamicRuns_Nr{0};
@@ -103,18 +78,16 @@ namespace alpaka
             std::size_t reRuns,
             std::size_t dynamicRuns,
             std::vector<std::string> sessionSpecifiers,
-            T_GridSize gridTune,
-            T_BlockSize blockTune)
+            ActiveKernelRun<T_KernelRunArgs...> const& kernel_run)
             : strategy(std::move(strategy))
             , config(std::move(config))
             , dynamicRuns_Nr(dynamicRuns)
             , sessionSpecifier(std::move(sessionSpecifiers))
+            , run(kernel_run)
             , m_initialized(false)
         {
             this->reRuns = getRunsPerConfig();
             run.metric = MetricUndefined;
-            run.gridSize = std::move(gridTune);
-            run.threadBlockSize = std::move(blockTune);
         }
 
         template<typename... T_Specifiers>
@@ -171,14 +144,8 @@ namespace alpaka
 #    ifdef DEBUG
             std::cout << "[DEBUG] After load history." << std::endl;
 #    endif
-            static auto kernelptr = createKernelSingleton<grid, block>(
-                device,
-                exec,
-                frameSpec,
-                kernelBundle,
-                this->run,
-                sessionSpecifier,
-                history);
+            static auto kernelptr
+                = createKernelSingleton(device, exec, frameSpec, kernelBundle, this->run, sessionSpecifier, history);
 
             auto& activeRun = *kernelptr->activeRunPtr;
             if(sessionSpecifier
@@ -186,7 +153,7 @@ namespace alpaka
                                                        // multiple tuning sessions with different sessionSpecifier but
                                                        // same template types
             {
-                kernelptr = createKernelSingleton<grid, block>(
+                kernelptr = createKernelSingleton(
                     device,
                     exec,
                     frameSpec,
@@ -219,7 +186,7 @@ namespace alpaka
                           << ", Threads = " << kernel.frameSpec.m_threadSpec.m_numThreads << std::endl;
                 std::cout << "[DEBUG] Enqueueing best config kernel..." << std::endl;
 #    endif
-                auto bundle = recreate(kernelBundle, activeRun.tuneables);
+                auto bundle = recreate(kernelBundle, activeRun.userDefTuneables);
                 onHost::enqueue(queue, exec, kernelptr->frameSpec, bundle);
                 onHost::wait(queue);
 #    ifdef DEBUG
@@ -312,7 +279,7 @@ namespace alpaka
                       << ", Threads = " << spec.m_threadSpec.m_numThreads << std::endl;
 #    endif
 
-            auto bundle = recreate(kernelBundle, run.tuneables);
+            auto bundle = recreate(kernelBundle, run.userDefTuneables);
 #    ifdef DEBUG
             std::cout << "[DEBUG] Kernel bundle recreated with tuneables." << std::endl;
 #    endif

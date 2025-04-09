@@ -123,24 +123,62 @@ namespace alpaka::tune
         return max;
     }
 
+#define NrOfNumFrameConfigs 10
+#define NrOfFrameExtentConfigs 10
+
     template<
         typename T_DeviceHandle,
         typename T_Exec,
         typename T_NumBlocks,
         typename T_NumThreads,
         typename T_KernelRun>
-    onHost::FrameSpec<T_NumBlocks, T_NumThreads> SessAdjustThreadSpec(
+    auto applyHwConstraints(
         T_DeviceHandle device,
         T_Exec exec,
         onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& frameSpec,
-        T_KernelRun& run)
-    {
-        auto spec = adjustThreadSpec(device, exec, frameSpec, run);
-        return alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads>{
-            T_NumBlocks(frameSpec.m_numFrames),
-            T_NumThreads(frameSpec.m_frameExtent),
-            T_NumBlocks(spec.m_numBlocks),
-            T_NumThreads(spec.m_numThreads)};
+        T_KernelRun const& run)
+    { // always apply current frameTuning
+        auto newRun = makeActiveKernel(
+            run.userDefTuneables,
+            run.getNumFramesTune(),
+            run.getFrameExtentTune(),
+            run.getNumBlocksTune(),
+            run.getThreadBlockSizeTune());
+        if constexpr(run.hasNumFramesTune())
+        {
+            if(!run.getNumFramesTune().userDef)
+            {
+                newRun.getNumFramesTune().value = frameSpec.m_numFrames;
+                auto numFramesPartitioned = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
+                auto resultVec = primeFactorPartitioning(NrOfNumFrameConfigs, numFramesPartitioned); //->z.B 2,5,
+                auto stride = alpaka::divCeil(frameSpec.m_numFrames, resultVec);
+                newRun.getNumFramesTune().idxRange = alpaka::IdxRange(stride, frameSpec.m_numFrames, stride);
+            }
+        }
+        if constexpr(run.hasFrameExtentTune())
+        {
+            if(!run.getFrameExtentTune().userDef)
+            {
+                newRun.getFrameExtentTune().value = frameSpec.m_frameExtent;
+                auto numFramesExtentPartitioned = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
+                auto resultVec = primeFactorPartitioning(NrOfFrameExtentConfigs, numFramesExtentPartitioned); //-> 2,5,
+                auto stride = alpaka::divCeil(frameSpec.m_frameExtent, resultVec);
+                newRun.getFrameExtentTune().idxRange = alpaka::IdxRange(stride, frameSpec.m_frameExtent, stride);
+            }
+        }
+
+
+        auto ret = adjustThreadSpec(device, exec, frameSpec, newRun);
+        auto spec = ret.first;
+        auto kernel = ret.second;
+
+        return std::make_pair(
+            onHost::FrameSpec<T_NumBlocks, T_NumThreads>(
+                frameSpec.m_numFrames,
+                frameSpec.m_frameExtent,
+                spec.m_numBlocks,
+                spec.m_numThreads),
+            kernel);
     }
 
     struct tunerAdjust
@@ -152,12 +190,13 @@ namespace alpaka::tune
                 T_Device& device,
                 T_Exec const& exec,
                 T_FrameSpec const& dataBlocking,
-                T_KernelRun& kernelRun)
+                T_KernelRun const& kernelRun)
             {
                 std::cout << " Device: " << typeid(T_Device).name() << std::endl;
                 std::cout << " Device: " << alpaka::core::demangledName<T_Device>(device) << std::endl;
                 std::cout << "Exec: " << alpaka::core::demangledName<T_Exec>(exec) << std::endl;
-                return dataBlocking.getThreadSpec();
+                // we can not modify kernelRun or dataBlocking since we need to change their signature
+                return std::make_pair(dataBlocking, kernelRun);
             }
         };
     };
@@ -175,17 +214,17 @@ namespace alpaka::tune
                 device, //@TODO fix this its a bug with that extra wrapped layer
             alpaka::exec::CpuSerial const& executor,
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
-            T_KernelRun& kernelRun)
+            T_KernelRun const& kernelRun)
         {
-            auto vec = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
-            kernelRun.gridSize.idxRange = IdxRange{vec, vec, vec};
-            kernelRun.gridSize.value = vec;
-            kernelRun.threadBlockSize.idxRange = IdxRange{vec, vec, vec};
-            kernelRun.threadBlockSize.value = vec;
-
-            auto const numThreads = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
-            auto const numBlocks = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
-            return alpaka::onHost::ThreadSpec{numBlocks, numThreads};
+            auto newRun = makeActiveKernel(
+                kernelRun.userDefTuneables,
+                kernelRun.getNumFramesTune(),
+                kernelRun.getFrameExtentTune());
+            auto numThreads = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
+            auto numBlocks = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
+            auto newFrameSpec = onHost::FrameSpec{dataBlocking};
+            newFrameSpec.m_threadSpec = alpaka::onHost::ThreadSpec{numBlocks, numThreads};
+            return std::make_pair(newFrameSpec, newRun);
         }
     };
 
@@ -207,24 +246,30 @@ namespace alpaka::tune
                 device, //@TODO fix this its a bug with that extra wrapped layer
             T_Mapping const& executor,
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
-            T_KernelRun& kernelRun)
+            T_KernelRun const& kernelRun)
         {
             //@TODO add specialization
-            auto vec = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
-            kernelRun.threadBlockSize.idxRange = IdxRange{vec, vec, vec};
-            kernelRun.threadBlockSize.value = vec;
-            if(!kernelRun.gridSize.userDef)
-            {
-                kernelRun.gridSize.idxRange.m_begin = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
-                kernelRun.gridSize.idxRange.m_end = ceilRootOverDimPartitioning(
-                    alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
-                    T_NumBlocks{});
-                kernelRun.gridSize.idxRange.m_stride = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
-                kernelRun.gridSize.toRange();
-            }
-
+            auto newRun = makeActiveKernel(
+                kernelRun.userDefTuneables,
+                kernelRun.getNumFramesTune(),
+                kernelRun.getFrameExtentTune(),
+                kernelRun.getNumBlocksTune());
             auto const numThreads = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
-            return alpaka::onHost::ThreadSpec{dataBlocking.m_threadSpec.m_numBlocks, numThreads};
+            if constexpr(newRun.hasNumBlocksTune())
+            {
+                if(!newRun.getNumBlocksTune().userDef)
+                {
+                    newRun.getNumBlocksTune().idxRange.m_begin
+                        = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
+                    newRun.getNumBlocksTune().idxRange.m_end = ceilRootOverDimPartitioning(
+                        alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
+                        T_NumThreads{});
+                    newRun.getNumBlocksTune().idxRange.m_stride
+                        = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
+                    newRun.getNumBlocksTune().toRange();
+                }
+            }
+            return std::make_pair(dataBlocking.getThreadSpec(), newRun);
         }
     };
 
@@ -240,33 +285,40 @@ namespace alpaka::tune
             alpaka::onHost::Device<alpaka::onHost::cpu::Device<T_Platform>>& device,
             exec::CpuOmpBlocksAndThreads const& executor,
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
-            T_KernelRun& kernelRun)
+            T_KernelRun const& kernelRun)
         {
-            using VecType = alpaka::Vec<std::size_t, 1>;
-            using idxRangeG = IdxRange<VecType, VecType, VecType>;
+            auto newRun = kernelRun;
             //@TODO add specialization
-            if(!kernelRun.threadBlockSize.userDef)
-            {
-                kernelRun.threadBlockSize.idxRange.m_begin
-                    = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
-                kernelRun.threadBlockSize.idxRange.m_end = ceilRootOverDimPartitioning(
-                    alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
-                    T_NumThreads{});
-                kernelRun.threadBlockSize.idxRange.m_stride
-                    = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
-                kernelRun.threadBlockSize.toRange();
-            }
 
-            if(!kernelRun.gridSize.userDef)
+            if constexpr(newRun.hasThreadBlockSizeTune())
             {
-                kernelRun.gridSize.idxRange.m_begin = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
-                kernelRun.gridSize.idxRange.m_end = ceilRootOverDimPartitioning(
-                    alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
-                    T_NumBlocks{});
-                kernelRun.gridSize.idxRange.m_stride = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
-                kernelRun.gridSize.toRange();
+                if(!newRun.getThreadBlockSizeTune().userDef)
+                {
+                    newRun.getThreadBlockSizeTune().idxRange.m_begin
+                        = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
+                    newRun.getThreadBlockSizeTune().idxRange.m_end = ceilRootOverDimPartitioning(
+                        alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
+                        T_NumThreads{});
+                    newRun.getThreadBlockSizeTune().idxRange.m_stride
+                        = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
+                    newRun.getThreadBlockSizeTune().toRange();
+                }
             }
-            return dataBlocking.getThreadSpec();
+            if constexpr(newRun.hasNumBlocksTune())
+            {
+                if(!newRun.getNumBlocksTune().userDef)
+                {
+                    newRun.getNumBlocksTune().idxRange.m_begin
+                        = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
+                    newRun.getNumBlocksTune().idxRange.m_end = ceilRootOverDimPartitioning(
+                        alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
+                        T_NumThreads{});
+                    newRun.getNumBlocksTune().idxRange.m_stride
+                        = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
+                    newRun.getNumBlocksTune().toRange();
+                }
+            }
+            return std::make_pair(dataBlocking.getThreadSpec(), newRun);
         }
     };
 
@@ -275,7 +327,7 @@ namespace alpaka::tune
         auto& deviceHandle,
         auto const& executor,
         alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
-        T_KernelRun& run)
+        T_KernelRun const& run)
     {
         return tunerAdjust::Op<
             ALPAKA_TYPEOF(deviceHandle),
@@ -283,5 +335,7 @@ namespace alpaka::tune
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads>,
             T_KernelRun>{}(deviceHandle, executor, dataBlocking, run);
     }
+
+
 }; // namespace alpaka::tune
 #endif // TUNERCPU_HPP

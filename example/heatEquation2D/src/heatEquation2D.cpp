@@ -137,6 +137,7 @@ auto example(T_Cfg const& cfg) -> int
     using fVec = ALPAKA_TYPEOF(toRTime.m_frameExtent);
     using uVec = ALPAKA_TYPEOF(toRTime.m_numFrames);
     tune::TuningBuilder builder;
+    //  builder.build();
     /*
     auto tuningSession
         = builder.withStrategy(alpaka::tune::strategy::randomSearch{})
@@ -159,11 +160,14 @@ auto example(T_Cfg const& cfg) -> int
                   alpaka::tune::NumBlocksTune{uVec{56, 56}, IdxRange{uVec{56, 56}, toRTime.m_numFrames, uVec{56, 56}}})
               .withConfig("./config/babelstream.toml")
               .build(); // #gpu*/
-    auto tuningSession = builder.withStrategy(alpaka::tune::strategy::randomSearch{})
+
+    auto tuningSession = builder.withStrategy(alpaka::tune::strategy::simulatedAnnealing{})
                              .withBlockSizeTune(
                                  alpaka::tune::ThreadBlockSizeTune{
                                      fVec{toRTime.m_frameExtent},
                                      alpaka::IdxRange{fVec{4, 8}, fVec{toRTime.m_frameExtent}, fVec{4, 8}}})
+                             .withFrameExtentTune()
+                             .withNumFramesTune()
                              .withNumBlocksTune()
                              .withConfig("./config/babelstream.toml")
                              .build();
@@ -190,7 +194,6 @@ auto example(T_Cfg const& cfg) -> int
                 dx,
                 dy,
                 dt});
-
         // Apply boundaries
         alpaka::onHost::enqueue(
             computeQueue,
