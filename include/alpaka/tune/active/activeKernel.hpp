@@ -284,32 +284,7 @@ struct ActiveKernelRun
         return m;
         // return "";
     }
-
-    /*
-    auto createActiveDummyKernel() const
-    {
-        T_UserDefTuneablesTune defaultTuneables = createDefaultTuple<T_UserDefTuneablesTune>();
-        T_frameSpecTuple defaultFrameTuneables = createDefaultTuple<T_frameSpecTuple>();
-
-        return std::apply(
-            [&]<typename... T0>(T0&&... frameTunings)
-            {
-                return ActiveKernelRun<
-                    T_numFramesTune,
-                    T_frameExtentTune,
-                    T_numBlocksTune,
-                    T_numThreadsTune,
-                    T_UserDefTuneablesTune>{std::forward<T0>(frameTunings)..., defaultTuneables};
-            },
-            defaultFrameTuneables);
-    }*/
 };
-
-template<typename... Ts, typename F>
-constexpr void for_each_type(F&& f)
-{
-    (f.template operator()<Ts>(), ...);
-}
 
 template<typename T_UserDefTuneables, typename... T_tunings>
 auto makeActiveKernel(T_UserDefTuneables const& defs, T_tunings&&... tunings)
@@ -331,8 +306,7 @@ auto makeActiveKernel(T_UserDefTuneables const& defs, T_tunings&&... tunings)
 
     auto kernel = ActiveKernelRun<T_numFrames, T_frameExtent, T_numBlocks, T_numThreads, T_UserDefTuneables>{
         defs,
-        frameSpecTuple}; // here we propably need to remove the references and actually copy the
-                         // value held by the refence returned by get_from_tuple<T_numFrames>(tup)
+        frameSpecTuple};
     return kernel;
 }
 
@@ -361,11 +335,6 @@ constexpr bool containsTunable()
 template<typename ExistingKernel, typename NewTuning>
 auto appendTuning(ExistingKernel const& kernel, NewTuning const& newTuning)
 {
-    bool a = ExistingKernel::hasNumFramesTune();
-    bool b = ExistingKernel::hasFrameExtentTune();
-    bool c = ExistingKernel::hasNumBlocksTune();
-    bool d = ExistingKernel::hasThreadBlockSizeTune();
-    std::cout << a << " " << b << " " << c << " " << d << std::endl;
     if constexpr(containsTunable<NewTuning, ExistingKernel>())
     {
         std::cout << " TUNER ERROR: this tuning was already assigned to this builder/session .. skipping assignment"

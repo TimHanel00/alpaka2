@@ -94,12 +94,12 @@ namespace alpaka::tune
     template<typename T_activeKernel>
     void clampToSpec(auto& frameSpec, T_activeKernel& activeKernel)
     {
-        if constexpr(activeKernel.hasNumBlocksTune())
+        if constexpr(T_activeKernel::hasNumBlocksTune())
         {
             clampToSpec_elem(frameSpec.m_numFrames, activeKernel.getNumBlocksTune().idxRange);
             activeKernel.getNumBlocksTune().toRange();
         }
-        if constexpr(activeKernel.hasThreadBlockSizeTune())
+        if constexpr(T_activeKernel::hasThreadBlockSizeTune())
         {
             clampToSpec_elem(frameSpec.m_frameExtent, activeKernel.getThreadBlockSizeTune().idxRange);
             activeKernel.getThreadBlockSizeTune().toRange();
@@ -171,7 +171,7 @@ namespace alpaka::tune
 
     /**
      *this is a 1 dim non-owning tuple handle for a tuneable object - these are used for defining strategies and
-     *allowing uniform access
+     *allowing uniform access treating every dimension of any tunable as uniform
      * @tparam T a primitive type used to store the reference to the tuneable object in a tuple
      *
      */
@@ -347,11 +347,6 @@ namespace alpaka::tune
             : Tuneable<T>(initial_value, "gridSize", idxRange)
         {
         }
-
-        void setGrid(IdxRange<T, T, T> const& idxRange)
-        {
-            this->idxRange = std::optional<IdxRange<T, T, T>>(idxRange);
-        }
     };
 
     template<typename T = alpaka::Vec<std::size_t, 1>>
@@ -387,11 +382,6 @@ namespace alpaka::tune
             , blockThreadSize(initial_value)
         {
         }
-
-        void setBlock(IdxRange<T, T, T> const& idxRange)
-        {
-            this->idxRange = std::optional<IdxRange<T, T, T>>(idxRange);
-        }
     };
 
     template<typename T = alpaka::Vec<std::size_t, 1>>
@@ -419,11 +409,6 @@ namespace alpaka::tune
         explicit NumFramesTune(T initial_value) : Tuneable<T>(initial_value, "numFrames")
         {
         }
-
-        void setBlock(IdxRange<T, T, T> const& idxRange)
-        {
-            this->idxRange = std::optional<IdxRange<T, T, T>>(idxRange);
-        }
     };
 
     template<typename T = alpaka::Vec<std::size_t, 1>>
@@ -450,11 +435,6 @@ namespace alpaka::tune
 
         explicit FrameExtentTune(T initial_value) : Tuneable<T>(initial_value, "frameExtent")
         {
-        }
-
-        void setBlock(IdxRange<T, T, T> const& idxRange)
-        {
-            this->idxRange = std::optional<IdxRange<T, T, T>>(idxRange);
         }
     };
 

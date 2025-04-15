@@ -7,6 +7,8 @@
 #include "alpaka/tune/IO/storageTypes.hpp"
 #include "alpaka/tune/utils/environmentVars.hpp"
 
+#include <alpaka/tune/active/MetricInterface.hpp>
+
 #include <random>
 #include <vector>
 
@@ -211,54 +213,15 @@ namespace alpaka::tune::strategy
         };
     } // namespace propabilityFunctions
 
+    class Timing
+    {
+    };
+
     /**
      * extensible compare operator for certain metrics
      * */
-    struct MetricAdjust
-    {
-        template<typename T_Metric>
-        struct best
-        {
-            T_Metric operator()(T_Metric const& a, T_Metric const& b) const
-            {
-                // Default: assume higher is better
-                return (a < b) ? a : b;
-            }
-        };
 
-        template<typename T_Metric>
-        struct costDifference
-        {
-            T_Metric operator()(T_Metric const& a, T_Metric const& b) const
-            {
-                // Default: assume higher is better
-                return a - b;
-            }
-        };
-    };
-
-    /*
-     * since time is currently no defined interface this is used to compare time metrics
-     * */
-    template<>
-    struct MetricAdjust::best<double_t>
-    {
-        double_t operator()(double_t const& a, double_t const& b) const
-        {
-            return (a < b) ? a : b;
-        }
-    };
-
-    // Specialize costDifference<double_t>
-    template<>
-    struct MetricAdjust::costDifference<double_t>
-    {
-        double_t operator()(double_t const& old_, double_t const& new_) const
-        {
-            return old_ - new_;
-        }
-    };
-
+    template<typename T_Metric = alpaka::tune::Timing>
     struct simulatedAnnealing
     {
         using T_propabilityFunction = propabilityFunctions::Exponential;
@@ -276,14 +239,21 @@ namespace alpaka::tune::strategy
         /*
          *TODO add genericOperator
          */
-        template<typename T_Metric>
-        bool acceptanceFunction(T_Metric const& metricNew, T_Metric const& metricOld, double const& temperature)
+        template<typename T_Elem>
+        bool acceptanceFunction(
+            StorageKernelRun const& metricNew,
+            StorageKernelRun const& metricOld,
+            double const& temperature)
         {
-            if(metricNew == MetricAdjust::best<ALPAKA_TYPEOF(metricNew)>{}(metricNew, metricOld))
-                return true;
+            if(metricNew.getMetric<median_t>().as<t_ns>() < metricOld.getMetric<median_t>().as<t_ns>())
+            {
+                auto preferred = MetricAdjust::aLTb<T_Metric>{}(metricNew, metricOld);
+                if(&preferred == &metricNew)
+                    return true;
+            }
 
-            double_t probability = std::exp(
-                -(MetricAdjust::costDifference<ALPAKA_TYPEOF(metricNew)>{}(metricNew, metricOld) / temperature));
+            double_t probability
+                = std::exp(-(MetricAdjust::costDifference<T_Metric>{}(metricNew, metricOld) / temperature));
             std::uniform_int_distribution<std::size_t> dis(0, 1000);
             auto k = dis(RNG::get());
             if(k < probability * 1000)
@@ -301,7 +271,10 @@ namespace alpaka::tune::strategy
         template<typename T_storageKernel, typename T_activeKernel>
         void acceptNewKernel(T_storageKernel& storekernel, T_activeKernel& activeKernel, double_t temperature)
         {
-            if(acceptanceFunction(accessMetric(storekernel.metric), activeKernel.metric, temperature))
+            if(acceptanceFunction(
+                   accessMetric(storekernel.metricContainer),
+                   activeKernel.metricContainer,
+                   temperature))
             {
                 toActive(activeKernel, storekernel);
             }
@@ -351,8 +324,8 @@ namespace alpaka::tune::strategy
                 return;
             }
             state.temperature = calcTemperature(maxRuns, history.size()); // assign new temperature
-            int checkOverlow = 0;
-            while(history.contains(kernelRun.toHash()) && checkOverlow < 100)
+            int checkOverflow = 0;
+            while(history.contains(kernelRun.toHash()) && checkOverflow < 100)
             {
                 for_each(
                     tuneables,
@@ -363,7 +336,7 @@ namespace alpaka::tune::strategy
                     });
                 if(history.contains(kernelRun.toHash()))
                 {
-                    if(history[kernelRun.toHash()].metric.size() < getRunsPerConfig())
+                    if(history[kernelRun.toHash()].metricContainer.size() < getRunsPerConfig())
                     {
                         return; // we havent yet timed this config well enough
                     }
@@ -371,9 +344,9 @@ namespace alpaka::tune::strategy
 
                     ++state.runs;
                 }
-                checkOverlow++;
+                checkOverflow++;
             }
-            if(checkOverlow > 99)
+            if(checkOverflow > 99)
             {
                 std::cout << " Simulated Annealing: no more valid config found for the last 100 iterations"
                           << std::endl;
@@ -391,6 +364,7 @@ namespace alpaka::tune::strategy
      *might not even be on the range (meaning: (value-begin)%stride!=0 && (end-value)%stride!=0)
      *
      * */
+    template<typename T_Metric = alpaka::tune::Timing>
     struct exhaustiveSearch
     {
         template<typename Tuple, typename T_ActiveKernel, typename StorageKernel>
@@ -461,6 +435,7 @@ namespace alpaka::tune::strategy
         }
     };
 
+    template<typename T_Metric = alpaka::tune::Timing>
     struct randomSearch
     {
         template<typename T_tuneables, typename T_ActiveKernel>
@@ -472,32 +447,74 @@ namespace alpaka::tune::strategy
             randomSample{}(tuneables, kernelRun, history);
             if(history.contains(kernelRun.toHash()))
             {
-                exhaustiveSearch{}(tuneables, kernelRun, history);
+                exhaustiveSearch<T_Metric>{}(tuneables, kernelRun, history);
             }
         };
     };
 
     //@TODO move to different namespace
+    template<typename T_Metric = alpaka::tune::Timing>
     struct bestRecorded
     {
         template<typename T_ActiveKernel>
-        auto operator()(T_ActiveKernel& kernelRun, std::unordered_map<std::string, StorageKernelRun>& history)
+        auto operator()(T_ActiveKernel& kernelRun, KernelData& history)
         {
-            if(!history.empty())
+            static std::unordered_map<std::string, std::vector<StorageKernelRun>> storeBestResults;
+            // the first entry of each map is used to stay unique across several session instances (where for example
+            // specifier could change)
+            static std::unordered_map<std::string, std::string> bestResult;
+            if(bestResult.contains(history.toHash()) && bestResult[history.toHash()] == kernelRun.toHash())
+                return;
+            if(!history.runs.empty())
             {
-                auto best = history.begin()->second;
-                for(auto& run : history)
+                auto best = history.runs.begin()->second;
+                for(auto& entry : history.runs)
                 {
-                    if(accessMetric(run.second.metric) < accessMetric(best.metric))
+                    StorageKernelRun& run = entry.second;
+                    ::detail::Comparison res = run.compare(best);
+                    switch(res)
                     {
-                        best = run.second; // Update selectedRun to the run with the smaller time
+                    case ::detail::Comparison::Greater:
+                        best = MetricAdjust::aGTb<T_Metric>{}(run, best);
+                        break;
+                    case ::detail::Comparison::Less:
+                        best = MetricAdjust::aLTb<T_Metric>{}(run, best);
+                        break;
+                    case ::detail::Comparison::Inconclusive:
+                        if(run.getMetric<mean_t>().as<t_ns>() < best.getMetric<mean_t>().as<t_ns>())
+
+                            best = run; // use mean as a tie-breaker in case statistical characteristics of the
+                                        // distribution are similar
+                        break;
+                    default:
+                        break;
                     }
                 }
+                bestResult[history.toHash()] = kernelRun.toHash();
+                storeBestResults[history.toHash()].push_back(best);
                 toActive(kernelRun, best);
+                /**
+                 *go again over all entries, now that we have identified one "best" configuration,
+                 *this time write out "equal" entries according the kruskal wallis test
+                 *this can be useful for later debugging or to write out a compact result list in production runs.
+                 **/
+                for(auto& entry : history.runs)
+                {
+                    StorageKernelRun& run = entry.second;
+                    ::detail::Comparison res = run.compare(best);
+                    switch(res)
+                    {
+                    case ::detail::Comparison::Inconclusive:
+                        storeBestResults[history.toHash()].push_back(run);
+                    default:
+                        break;
+                    }
+                }
             }
         }
     };
 
+    template<typename T_Metric = alpaka::tune::Timing>
     struct initialValues
     {
         template<typename tuneables, typename T_KernelRun, typename KernelRun>

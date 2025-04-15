@@ -29,7 +29,7 @@ namespace alpaka::tune
     // forward declaration of TuningSession
 
 
-    template<typename T_Strategy = strategy::randomSearch, typename... T_KernelRunArgs>
+    template<typename T_Strategy = strategy::randomSearch<Timing>, typename... T_KernelRunArgs>
     class TuningBuilder
     {
     public:

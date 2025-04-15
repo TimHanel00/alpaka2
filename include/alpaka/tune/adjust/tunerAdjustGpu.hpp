@@ -10,6 +10,7 @@
 
 #include <alpaka/onHost/FrameSpec.hpp>
 #include <alpaka/tune/adjust/tunerAdjustCpu.hpp>
+// #define ALPAKA_LANG_HIP 1
 #if ALPAKA_LANG_CUDA || ALPAKA_LANG_HIP
 namespace alpaka::tune
 {
@@ -32,40 +33,32 @@ namespace alpaka::tune
             T_KernelRun const& kernelRun)
         {
             auto newRun = kernelRun;
-            if constexpr(newRun.hasFrameExtentTune())
+            using T_newActiveRunType = ALPAKA_TYPEOF(newRun);
+            if constexpr(T_newActiveRunType::hasThreadBlockSizeTune())
             {
-                if(!run.getFrameExtentTune().userDef)
+                if(!newRun.getThreadBlockSizeTune().userDef)
                 {
-                    newRun.getFrameExtentTune().value = frameSpec.m_frameExtent;
-                    auto numBlocks = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
-                    auto resultVec = primeFactorPartitioning(
+                    newRun.getThreadBlockSizeTune().idxRange.m_begin = primeFactorPartitioning(
                         alpaka::onHost::getDeviceProperties(device).m_warpSize,
-                        numBlocks); //-> 2,5,
-                    auto stride = alpaka::divCeil(frameSpec, resultVec);
-                    newRun.getFrameExtentTune().idxRange = alpaka::IdxRange(stride, frameSpec.m_frameExtent, stride);
+                        T_NumThreads{});
+                    // if(dataBlocking.m_frameExtent.product()<alpaka::onHost::getDeviceProperties(device).m_maxThreadsPerBlock)
+                    newRun.getThreadBlockSizeTune().idxRange.m_end = multipleOfPartitioning(
+                        alpaka::onHost::getDeviceProperties(device).m_maxThreadsPerBlock,
+                        newRun.getThreadBlockSizeTune().idxRange.m_begin);
+                    newRun.getThreadBlockSizeTune().idxRange.m_stride
+                        = newRun.getThreadBlockSizeTune().idxRange.m_begin;
                 }
             }
-            if(!newRun.getThreadBlockSizeTune().userDef)
-            {
-                newRun.getThreadBlockSizeTune().idxRange.m_begin
-                    = primeFactorPartitioning(alpaka::onHost::getDeviceProperties(device).m_warpSize, T_NumThreads{});
-                // if(dataBlocking.m_frameExtent.product()<alpaka::onHost::getDeviceProperties(device).m_maxThreadsPerBlock)
-                newRun.getThreadBlockSizeTune().idxRange.m_end = multipleOfPartitioning(
-                    alpaka::onHost::getDeviceProperties(device).m_maxThreadsPerBlock,
-                    newRun.getThreadBlockSizeTune().idxRange.m_begin);
-                newRun.getThreadBlockSizeTune().idxRange.m_stride = newRun.getThreadBlockSizeTune().idxRange.m_begin;
-            }
 
-
-            if constexpr(newRun.hasNumBlocksTune())
+            if constexpr(T_newActiveRunType::hasNumBlocksTune())
             {
                 if(!newRun.getNumBlocksTune().userDef)
                 {
-                    newRun.getNumBlocksTune().value.idxRange.m_begin = primeFactorPartitioning(
+                    newRun.getNumBlocksTune().idxRange.m_begin = primeFactorPartitioning(
                         alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
                         T_NumBlocks{});
-                    newRun.getNumBlocksTune().value.m_end = dataBlocking.m_numFrames;
-                    newRun.getNumBlocksTune().value.m_stride = kernelRun.gridSize.idxRange.m_begin;
+                    newRun.getNumBlocksTune().idxRange.m_end = dataBlocking.m_numFrames;
+                    newRun.getNumBlocksTune().idxRange.m_stride = newRun.getNumBlocksTune().idxRange.m_begin;
                 }
             }
             return std::make_pair(dataBlocking.getThreadSpec(), newRun);

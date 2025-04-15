@@ -64,14 +64,20 @@ auto example(T_Cfg const& cfg) -> int
 
     // withGridSizeTune(tune::GridSizeTune{fVec{108}, IdxRange{fVec{108}, dataBlocking.m_numFrames, fVec{108}}}).
     // withGridSizeTune(tune::GridSizeTune{fVec{22}, IdxRange{fVec{22}, fVec{32}, fVec{1}}}).//#cpu
-
-    constexpr IdxVec numNodes{4 * 1024, 4 * 1024};
+    /*
+    constexpr IdxVec numNodes{8 * 1024, 8 * 1024};
     constexpr IdxVec haloSize{2, 2};
     constexpr IdxVec extent = numNodes + haloSize;
 
     constexpr uint32_t numTimeSteps = 4000 * 32;
     constexpr double tMax = 0.0000001;
+    */ //GPU settings
+    constexpr IdxVec numNodes{16 * 1024, 16 * 1024};
+    constexpr IdxVec haloSize{2, 2};
+    constexpr IdxVec extent = numNodes + haloSize;
 
+    constexpr uint32_t numTimeSteps = 4000 * 16;
+    constexpr double tMax = 0.0000001;
     // x, y in [0, 1], t in [0, tMax]
     constexpr double dx = 1.0 / static_cast<double>(extent[1] - 1);
     constexpr double dy = 1.0 / static_cast<double>(extent[0] - 1);
@@ -136,7 +142,6 @@ auto example(T_Cfg const& cfg) -> int
         Vec{dataBlockingStencil.m_frameExtent.x(), dataBlockingStencil.m_frameExtent.y()}};
     using fVec = ALPAKA_TYPEOF(toRTime.m_frameExtent);
     using uVec = ALPAKA_TYPEOF(toRTime.m_numFrames);
-    tune::TuningBuilder builder;
     //  builder.build();
     /*
     auto tuningSession
@@ -161,16 +166,14 @@ auto example(T_Cfg const& cfg) -> int
               .withConfig("./config/babelstream.toml")
               .build(); // #gpu*/
 
-    auto tuningSession = builder.withStrategy(alpaka::tune::strategy::simulatedAnnealing{})
-                             .withBlockSizeTune(
-                                 alpaka::tune::ThreadBlockSizeTune{
-                                     fVec{toRTime.m_frameExtent},
-                                     alpaka::IdxRange{fVec{4, 8}, fVec{toRTime.m_frameExtent}, fVec{4, 8}}})
-                             .withFrameExtentTune()
-                             .withNumFramesTune()
-                             .withNumBlocksTune()
-                             .withConfig("./config/babelstream.toml")
-                             .build();
+    using VecType = ALPAKA_TYPEOF(dataBlockingBorder.m_numFrames);
+    auto tuningSession
+        = tune::TuningBuilder{}
+              .withStrategy(alpaka::tune::strategy::randomSearch{})
+              .withNumFramesTune(
+                  alpaka::tune::NumFramesTune{toRTime.m_numFrames, IdxRange{fVec{1, 1}, fVec{3, 4}, fVec{1, 1}}})
+              .withConfig("./config/babelstream.toml")
+              .build();
     std::cout << " max thread spec: " << toRTime.m_frameExtent.toString()
               << " max numFrames: " << toRTime.m_numFrames.toString() << std::endl;
     auto startTime = std::chrono::high_resolution_clock::now();

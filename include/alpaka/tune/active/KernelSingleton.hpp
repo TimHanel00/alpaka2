@@ -12,7 +12,8 @@
 #include <alpaka/tune/utils/tupleHandle.hpp>
 
 #include <utility>
-#define DEBUG_Singleton
+
+// #define DEBUG_Singleton
 
 template<typename T_Range>
 void printRange(T_Range& range)

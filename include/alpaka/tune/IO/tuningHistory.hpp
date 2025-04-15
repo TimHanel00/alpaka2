@@ -124,7 +124,7 @@ namespace alpaka::tune
                                 auto const& runTable = runValue.as_table();
                                 for(auto const& elem : runTable.at("metric").as_array())
                                 {
-                                    run.metric.push(elem.as_floating());
+                                    run.pushMetric(elem.as_floating());
                                 }
                                 run.nr_runs = runTable.at("nrRuns").as_integer();
                                 if(runTable.contains("tuneableNames"))
@@ -137,11 +137,22 @@ namespace alpaka::tune
                                         {
                                             auto tkey = tuneablesID[i].as_string();
                                             auto value_tuneAble = tuneablesV[i].as_string();
-                                            if(tkey == "gridSize")
+                                            if(tkey == alpaka::tune::NumBlocksTune<>{}.name)
                                             {
-                                                run.numBlocksTune = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
+                                                run.numBlocksTune
+                                                    = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
                                             }
-                                            else if(tkey == "threadBlockSize")
+                                            else if(tkey == alpaka::tune::ThreadBlockSizeTune<>{}.name)
+                                            {
+                                                run.threadBlockSize
+                                                    = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
+                                            }
+                                            else if(tkey == alpaka::tune::NumFramesTune<>{}.name)
+                                            {
+                                                run.numFramesTune
+                                                    = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
+                                            }
+                                            else if(tkey == alpaka::tune::FrameExtentTune<>{}.name)
                                             {
                                                 run.threadBlockSize
                                                     = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
@@ -161,7 +172,7 @@ namespace alpaka::tune
                                 }
 
                                 std::string kernelKey = run.toHash();
-                                kernelData.sumOfRuns += run.nr_runs;
+                                kernelData.nrOfConfigs += run.nr_runs;
                                 kernelData.runs[kernelKey] = std::move(run);
                             }
                         }
@@ -245,14 +256,9 @@ namespace alpaka::tune
 #endif
 
                     toml::array metrics;
-                    while(!run.second.metric.empty())
+                    for(auto const& m : run.second.metricContainer.getAll())
                     {
-                        auto val = run.second.metric.top();
-#ifdef DEBUG_Hist
-                        std::cout << "    - Metric value: " << val << std::endl;
-#endif
-                        metrics.emplace_back(val);
-                        run.second.metric.pop();
+                        metrics.emplace_back(m);
                     }
                     runTable.emplace("metric", metrics);
 
@@ -263,44 +269,14 @@ namespace alpaka::tune
                     std::cout << "  - Checking tuneables size: " << run.second.tuneables.size() << std::endl;
 #endif
 
-                    for(const auto& tuneable : run.second.tuneables)
+                    for(const auto& tuneable : run.second.view())
                     {
 #ifdef DEBUG_Hist
                         std::cout << "    - Adding tuneable: " << tuneable.name << " = " << tuneable.value
                                   << std::endl;
-                        tuneableNames.emplace_back(tuneable.name);
-                        tuneableValues.emplace_back(tuneable.value);
 #endif
-                    }
-
-                    if(run.second.threadBlockSize != std::nullopt)
-                    {
-#ifdef DEBUG_Hist
-                        std::cout << "    - ThreadBlockSize: " << run.second.threadBlockSize->value << std::endl;
-#endif
-                        tuneableNames.emplace_back("threadBlockSize");
-                        tuneableValues.emplace_back(run.second.threadBlockSize->value);
-                    }
-                    else
-                    {
-#ifdef DEBUG_Hist
-                        std::cout << "    - ThreadBlockSize is std::nullopt" << std::endl;
-#endif
-                    }
-
-                    if(run.second.numBlocksTune != std::nullopt)
-                    {
-#ifdef DEBUG_Hist
-                        std::cout << "    - GridSize: " << run.second.gridSize->value << std::endl;
-#endif
-                        tuneableNames.emplace_back("gridSize");
-                        tuneableValues.emplace_back(run.second.numBlocksTune->value);
-                    }
-                    else
-                    {
-#ifdef DEBUG_Hist
-                        std::cout << "    - GridSize is std::nullopt" << std::endl;
-#endif
+                        tuneableNames.emplace_back(tuneable.get().name);
+                        tuneableValues.emplace_back(tuneable.get().value);
                     }
                     runTable.emplace("tuneableNames", tuneableNames);
                     runTable.emplace("tuneableVals", tuneableValues);

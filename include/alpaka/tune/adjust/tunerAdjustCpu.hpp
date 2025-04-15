@@ -123,8 +123,8 @@ namespace alpaka::tune
         return max;
     }
 
-#define NrOfNumFrameConfigs 10
-#define NrOfFrameExtentConfigs 10
+#define NrOfNumFrameConfigs 20
+#define NrOfFrameExtentConfigs 20
 
     template<
         typename T_DeviceHandle,
@@ -144,7 +144,8 @@ namespace alpaka::tune
             run.getFrameExtentTune(),
             run.getNumBlocksTune(),
             run.getThreadBlockSizeTune());
-        if constexpr(run.hasNumFramesTune())
+        using T_newRunType = ALPAKA_TYPEOF(newRun);
+        if constexpr(T_newRunType::hasNumFramesTune())
         {
             if(!run.getNumFramesTune().userDef)
             {
@@ -155,7 +156,7 @@ namespace alpaka::tune
                 newRun.getNumFramesTune().idxRange = alpaka::IdxRange(stride, frameSpec.m_numFrames, stride);
             }
         }
-        if constexpr(run.hasFrameExtentTune())
+        if constexpr(T_newRunType::hasFrameExtentTune())
         {
             if(!run.getFrameExtentTune().userDef)
             {
@@ -222,9 +223,7 @@ namespace alpaka::tune
                 kernelRun.getFrameExtentTune());
             auto numThreads = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
             auto numBlocks = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
-            auto newFrameSpec = onHost::FrameSpec{dataBlocking};
-            newFrameSpec.m_threadSpec = alpaka::onHost::ThreadSpec{numBlocks, numThreads};
-            return std::make_pair(newFrameSpec, newRun);
+            return std::make_pair(alpaka::onHost::ThreadSpec{numBlocks, numThreads}, newRun);
         }
     };
 
@@ -254,7 +253,7 @@ namespace alpaka::tune
                 kernelRun.getNumFramesTune(),
                 kernelRun.getFrameExtentTune(),
                 kernelRun.getNumBlocksTune());
-            auto const numThreads = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
+            auto numThreads = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
             if constexpr(newRun.hasNumBlocksTune())
             {
                 if(!newRun.getNumBlocksTune().userDef)
@@ -269,7 +268,10 @@ namespace alpaka::tune
                     newRun.getNumBlocksTune().toRange();
                 }
             }
-            return std::make_pair(dataBlocking.getThreadSpec(), newRun);
+
+            return std::make_pair(
+                alpaka::onHost::ThreadSpec{dataBlocking.getThreadSpec().m_numBlocks, numThreads},
+                newRun);
         }
     };
 
@@ -289,8 +291,8 @@ namespace alpaka::tune
         {
             auto newRun = kernelRun;
             //@TODO add specialization
-
-            if constexpr(newRun.hasThreadBlockSizeTune())
+            using T_newRunType = ALPAKA_TYPEOF(newRun);
+            if constexpr(T_newRunType::hasThreadBlockSizeTune())
             {
                 if(!newRun.getThreadBlockSizeTune().userDef)
                 {
@@ -304,7 +306,7 @@ namespace alpaka::tune
                     newRun.getThreadBlockSizeTune().toRange();
                 }
             }
-            if constexpr(newRun.hasNumBlocksTune())
+            if constexpr(T_newRunType::hasNumBlocksTune())
             {
                 if(!newRun.getNumBlocksTune().userDef)
                 {

@@ -38,25 +38,47 @@ struct StencilKernel
         double const dt) const -> void
     {
         using namespace alpaka;
+        auto numFrames = acc[frame::count];
+        auto frameExtent = acc[frame::extent];
+        auto frameDomain = numFrames * frameExtent;
+        auto traverseOverFrames
+            = onAcc::makeIdxMap(acc, onAcc::worker::blocksInGrid, IdxRange{Vec{0u, 0u}, frameDomain, frameExtent});
+        using _2Vec = alpaka::Vec<u_int32_t, 2u>;
+        auto const sMem = _2Vec{sharedMemExtents.x(), sharedMemExtents.y()};
+        auto const _0Vec = Vec{0u, 0u};
+        auto const blockCount = acc[layer::thread].count();
+        auto traverseOverExtents = onAcc::makeIdxMap(
+            acc,
+            onAcc::worker::threadsInBlock,
+            IdxRange{
+                Vec{0u, 0u},
+                alpaka::Vec{std::min(frameExtent.x(), sMem.x()), std::min(frameExtent.y(), sMem.y())},
+                // in case the sMem is to small we take the minimuum
+                Vec{1u, 1u}});
 
-        for(alpaka::concepts::Dim<2u> auto blockStartIdx :
-            onAcc::makeIdxMap(acc, onAcc::worker::blocksInGrid, IdxRange{Vec{0u, 0u}, numNodes, chunkSize}))
+        for(auto frameIdx : traverseOverFrames)
         {
+            onAcc::syncBlockThreads(acc);
             auto sdata = onAcc::declareSharedMdArray<double, uniqueId()>(acc, sharedMemExtents);
 
-            // avoid data race with the stencil calculation at the end
-            onAcc::syncBlockThreads(acc);
-            alpaka::Vec<std::size_t, 1u> h;
-            for(alpaka::concepts::Dim<2u> auto idx2d :
-                onAcc::makeIdxMap(acc, onAcc::worker::threadsInBlock, IdxRange{sharedMemExtents}))
+
+            for(auto elemIdxInFrame : traverseOverExtents)
             {
-                auto bufIdx = idx2d + blockStartIdx;
-                sdata[idx2d] = uCurrBuf[bufIdx];
+                for(auto DataElemIdxInFrame : onAcc::makeIdxMap(
+                        acc,
+                        onAcc::WorkerGroup{elemIdxInFrame, frameExtent},
+                        IdxRange{_0Vec, 2u << sMem, frameExtent}))
+                {
+                    for(auto bufIdx : onAcc::makeIdxMap(
+                            acc,
+                            onAcc::WorkerGroup{frameIdx + elemIdxInFrame, frameDomain},
+                            IdxRange{numNodes}))
+                    {
+                        sdata[DataElemIdxInFrame + elemIdxInFrame] = uCurrBuf[bufIdx];
+                    }
+                }
             }
-
             onAcc::syncBlockThreads(acc);
-
-            // Each kernel executes one element
             double const rX = dt / (dx * dx);
             double const rY = dt / (dy * dy);
 
@@ -65,17 +87,67 @@ struct StencilKernel
 
             // go over only core cells
             // Vec{1, 1}; offset for halo above and to the left
-            for(alpaka::concepts::Dim<2u> auto idx2D : onAcc::makeIdxMap(
-                    acc,
-                    onAcc::worker::threadsInBlock,
-                    IdxRange{chunkSize} >> 1u,
-                    onAcc::traverse::tiled))
-            {
-                auto bufIdx = idx2D + blockStartIdx;
 
-                uNextBuf[bufIdx] = sdata[idx2D] * (1.0 - 2.0 * rX - 2.0 * rY) + sdata[idx2D - xDir] * rX
-                                   + sdata[idx2D + xDir] * rX + sdata[idx2D - yDir] * rY + sdata[idx2D + yDir] * rY;
+            for(auto elemIdxInFrame : traverseOverExtents)
+            {
+                for(auto DataElemIdxInFrame : onAcc::makeIdxMap(
+                        acc,
+                        onAcc::WorkerGroup{elemIdxInFrame, frameExtent},
+                        IdxRange{_0Vec, 2u << sMem, frameExtent}))
+                {
+                    for(auto bufIdx : onAcc::makeIdxMap(
+                            acc,
+                            onAcc::WorkerGroup{frameIdx + elemIdxInFrame, frameDomain},
+                            IdxRange{numNodes} >> 1u))
+                    {
+                        auto idx2D = (DataElemIdxInFrame + elemIdxInFrame) + Vec{1u, 1u};
+                        uNextBuf[bufIdx] = sdata[idx2D] * (1.0 - 2.0 * rX - 2.0 * rY) + sdata[idx2D - xDir] * rX
+                                           + sdata[idx2D + xDir] * rX + sdata[idx2D - yDir] * rY
+                                           + sdata[idx2D + yDir] * rY;
+                    }
+                }
             }
         }
     }
+
+    /*
+    for(alpaka::concepts::Dim<2u> auto blockStartIdx :
+        onAcc::makeIdxMap(acc, onAcc::worker::blocksInGrid, IdxRange{Vec{0u, 0u}, numNodes, chunkSize}))
+    {
+        auto sdata = onAcc::declareSharedMdArray<double, uniqueId()>(acc, sharedMemExtents);
+
+        // avoid data race with the stencil calculation at the end
+        onAcc::syncBlockThreads(acc);
+        alpaka::Vec<std::size_t, 1u> h;
+        for(alpaka::concepts::Dim<2u> auto idx2d :
+            onAcc::makeIdxMap(acc, onAcc::worker::threadsInBlock, IdxRange{sharedMemExtents}))
+        {
+            auto bufIdx = idx2d + blockStartIdx;
+            sdata[idx2d] = uCurrBuf[bufIdx];
+        }
+
+        onAcc::syncBlockThreads(acc);
+
+        // Each kernel executes one element
+        double const rX = dt / (dx * dx);
+        double const rY = dt / (dy * dy);
+
+        constexpr auto xDir = CVec<uint32_t, 0u, 1u>{};
+        constexpr auto yDir = CVec<uint32_t, 1u, 0u>{};
+
+        // go over only core cells
+        // Vec{1, 1}; offset for halo above and to the left
+        for(alpaka::concepts::Dim<2u> auto idx2D : onAcc::makeIdxMap(
+                acc,
+                onAcc::worker::threadsInBlock,
+                IdxRange{chunkSize} >> 1u,
+                onAcc::traverse::tiled))
+        {
+            auto bufIdx = idx2D + blockStartIdx;
+
+            uNextBuf[bufIdx] = sdata[idx2D] * (1.0 - 2.0 * rX - 2.0 * rY) + sdata[idx2D - xDir] * rX
+                               + sdata[idx2D + xDir] * rX + sdata[idx2D - yDir] * rY + sdata[idx2D + yDir] * rY;
+        }
+    }
+    */
 };

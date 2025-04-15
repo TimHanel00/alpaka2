@@ -14,19 +14,19 @@ namespace alpaka
     template<typename T_FrameSpec, typename... T_Args>
     static T_FrameSpec& applyCustomThreadSpec(ActiveKernelRun<T_Args...>& kernelRun, T_FrameSpec& spec)
     {
-        if constexpr(kernelRun.hasNumFramesTune())
+        if constexpr(ActiveKernelRun<T_Args...>::hasNumFramesTune())
         {
             spec.m_numFrames = kernelRun.getNumFramesTune().value;
         }
-        if constexpr(kernelRun.hasFrameExtentTune())
+        if constexpr(ActiveKernelRun<T_Args...>::hasFrameExtentTune())
         {
             spec.m_frameExtent = kernelRun.getFrameExtentTune().value;
         }
-        if constexpr(kernelRun.hasNumBlocksTune())
+        if constexpr(ActiveKernelRun<T_Args...>::hasNumBlocksTune())
         {
             spec.m_threadSpec.m_numBlocks = kernelRun.getNumBlocksTune().value;
         }
-        if constexpr(kernelRun.hasThreadBlockSizeTune())
+        if constexpr(ActiveKernelRun<T_Args...>::hasThreadBlockSizeTune())
         {
             spec.m_threadSpec.m_numThreads = kernelRun.getThreadBlockSizeTune().value;
         }
@@ -34,30 +34,9 @@ namespace alpaka
         return spec;
     }
 
-    template<typename... Args>
-    void printGBFromActive(ActiveKernelRun<Args...>& active)
-    {
-        if(active.hasNumBlocksTune())
-        {
-            std::cout << "G: " << active.getNumBlocksTune().valueToString() << std::endl;
-            return;
-        }
-        if(active.hasNumFramesTune())
-        {
-            std::cout << "B: " << active.threadBlockSize->valueToString() << std::endl;
-            return;
-        }
-
-        if(active.threadBlockSize.has_value() && active.numBlocksTune.has_value())
-        {
-            std::cout << "G: " << active.numBlocksTune->valueToString()
-                      << " , B: " << active.threadBlockSize->valueToString() << std::endl;
-        }
-    }
-
 #    define MetricUndefined std::numeric_limits<float>::quiet_NaN()
 
-    template<typename T_Strategy = alpaka::tune::strategy::randomSearch, typename... T_KernelRunArgs>
+    template<typename T_Strategy = alpaka::tune::strategy::randomSearch<tune::Timing>, typename... T_KernelRunArgs>
     struct TuningSession
     {
         using T_floating = double_t;
@@ -174,11 +153,11 @@ namespace alpaka
             std::cout << "[DEBUG] kernelBundle demangled: " << alpaka::core::demangledName(kernelBundle) << std::endl;
 #    endif
 
-            if(historyKernelData.sumOfRuns >= getMaxRuns(activeRun.maxRuns) * this->reRuns)
+            if(historyKernelData.nrOfConfigs >= getMaxRuns(activeRun.maxRuns))
             {
                 std::cout << "[DEBUG] Selecting best config." << std::endl;
-                auto event = tune::createTimeEventFromActive(activeRun);
-                alpaka::tune::strategy::bestRecorded{}(activeRun, historyKernelData.runs);
+                // auto event = tune::createTimeEventFromActive(activeRun);
+                alpaka::tune::strategy::bestRecorded<alpaka::tune::Timing>{}(activeRun, historyKernelData);
                 std::cout << activeRun.toHash() << std::endl;
                 applyCustomThreadSpec(activeRun, kernelptr->frameSpec);
 #    ifdef DEBUG
@@ -212,9 +191,9 @@ namespace alpaka
                     kernelptr->sharedParams);
             }
             std::cout << " to hash: " << activeRun.toHash() << std::endl;
-            std::cout << "[DEBUG] Active run maxRuns: " << activeRun.maxRuns
+            std::cout << "[DEBUG] Max configs: " << getMaxRuns(activeRun.maxRuns)
                       << ", History size: " << historyKernelData.runs.size()
-                      << ", Sum of runs: " << historyKernelData.sumOfRuns << std::endl;
+                      << ", Sum of runs: " << historyKernelData.nrOfConfigs << std::endl;
         }
 
         //---internal_enqueue---
@@ -243,8 +222,14 @@ namespace alpaka
                           << std::endl;
 #    endif
                 StorageKernelRun& storeKernel = data.runs[runHash];
-                if(storeKernel.nr_runs >= this->reRuns)
+                /*only skip to next config if our CI (confidence Intervall) goal (indicated by fullFlag) is reached
+                    and storeKernel.nr_runs is greater atleast env variable runsPerConfig*/
+                if(storeKernel.nr_runs >= this->reRuns && storeKernel.fullFlag)
                 {
+                    ++data.nrOfConfigs; // we know that one config is completed and we are skipping to the next
+                    if(data.nrOfConfigs == getMaxRuns(run.maxRuns))
+                        return;
+
 #    ifdef DEBUG
                     std::cout << "[DEBUG] Stored run reached reRuns limit, applying strategy." << std::endl;
 #    endif
@@ -294,7 +279,7 @@ namespace alpaka
                 std::cout << "[DEBUG] Kernel execution completed. Metric: " << run.metric << std::endl;
 #    endif
             }
-            ++data.sumOfRuns;
+
 #    ifdef DEBUG
             std::cout << "[DEBUG] Kernel execution time: " << run.metric << " {" << spec.m_threadSpec.m_numBlocks
                       << "," << spec.m_threadSpec.m_numThreads << "}" << std::endl;
@@ -310,13 +295,13 @@ namespace alpaka
                 StorageKernelRun& storeKernel = data.runs[runHash];
                 using T_state = ALPAKA_TYPEOF(storeKernel.state);
                 storeKernel.state = T_state::WarmUp;
-                --data.sumOfRuns; // the first run of every config doesnt count towards the tuning objective
+                // the first run of every config doesnt count towards the tuning objective
                 storeKernel.nr_runs = 0;
             }
             else
             {
                 StorageKernelRun& storeKernel = data.runs[runHash];
-                if(storeKernel.nr_runs <= this->reRuns)
+                if(storeKernel.nr_runs <= this->reRuns || !storeKernel.fullFlag)
                 {
 #    ifdef DEBUG
                     std::cout << "[DEBUG] Updating stored run. Previous best metric: " << storeKernel.metric.top()
@@ -326,14 +311,14 @@ namespace alpaka
                     switch(storeKernel.state)
                     {
                     case T_state::WarmUp:
-                        storeKernel.metric.pop(); // pop one or more initial runs
-                        storeKernel.metric.push(run.metric); // we keep the same number of runs in this instance
+                        storeKernel.metricContainer.pop(); // pop one or more initial runs
+                        storeKernel.pushMetric(run.metric); // we keep the same number of runs in this instance
                         storeKernel.state = T_state::Initialized;
                         ++storeKernel.nr_runs;
                         break;
 
                     case T_state::Initialized:
-                        storeKernel.metric.push(run.metric);
+                        storeKernel.pushMetric(run.metric);
                         ++storeKernel.nr_runs;
                         break;
                     default:;
