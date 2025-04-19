@@ -95,7 +95,6 @@ namespace alpaka::tune
         // start with the 1s Vector
         auto resultVec = vec.toRT();
         auto initVec = resultVec;
-        std::size_t dimIndex = 0;
         while(resultVec.product() <= max - initVec.product())
         {
             // round robin approach of incrementing dims since all of those combinations can be used in the backend

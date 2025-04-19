@@ -12,7 +12,9 @@
 struct strategyState
 {
     double_t temperature{};
-    std::size_t runs{0};
+    std::size_t runs{1};
+    std::size_t configStamp{0};
+    std::string oldKernelHash;
 };
 
 template<typename Tuple, std::size_t... I>

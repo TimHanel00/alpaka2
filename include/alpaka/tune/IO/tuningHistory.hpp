@@ -91,7 +91,7 @@ namespace alpaka::tune
                     kernelData.executor = find_str(kernelTable, "executor");
                     kernelData.kernel = find_str(kernelTable, "kernel");
                     kernelData.targetMetric = find_str(kernelTable, "targetMetric");
-
+                    std::size_t highestStamp = 0;
                     // Process the "specifiers" array if it exists.
                     if(kernelTable.contains("specifiers"))
                     {
@@ -118,6 +118,7 @@ namespace alpaka::tune
                         try
                         {
                             auto const& runs = kernelTable.at("runs").as_array();
+
                             for(auto const& runValue : runs)
                             {
                                 StorageKernelRun run;
@@ -131,6 +132,8 @@ namespace alpaka::tune
                                 {
                                     try
                                     {
+                                        run.stamp = static_cast<std::size_t>(runTable.at("stamp").as_integer());
+                                        highestStamp = std::max(highestStamp, run.stamp);
                                         auto const& tuneablesV = runTable.at("tuneableVals").as_array();
                                         auto const& tuneablesID = runTable.at("tuneableNames").as_array();
                                         for(int i = 0; i < tuneablesID.size(); i++)
@@ -182,7 +185,7 @@ namespace alpaka::tune
                             // Ignore if "runs" is not an array
                         }
                     }
-
+                    kernelData.highestStamp = highestStamp;
                     std::string dataHash = kernelData.toHash();
                     m_tuningHistory[dataHash] = std::move(kernelData);
                 }
@@ -280,6 +283,7 @@ namespace alpaka::tune
                     }
                     runTable.emplace("tuneableNames", tuneableNames);
                     runTable.emplace("tuneableVals", tuneableValues);
+                    runTable.emplace("stamp", run.second.stamp);
 
                     runsArray.emplace_back(runTable);
 

@@ -33,6 +33,8 @@ namespace alpaka::tune
 
     struct MetricAdjust
     {
+        // at the moment we call this we know that a is greater than b,
+        // but which one is better is selected by the optimization Metric
         template<typename T_Metric>
         struct aGTb
         {
@@ -89,9 +91,9 @@ namespace alpaka::tune
     template<>
     struct MetricAdjust::costDifference<Timing>
     {
-        auto operator()(StorageKernelRun& old_, StorageKernelRun& new_)
+        auto operator()(StorageKernelRun& new_, StorageKernelRun& old_)
         {
-            return old_.getMetric<median_t>().as<t_ns>() - new_.getMetric<median_t>().as<t_ns>();
+            return new_.getMetric<median_t>().as<t_ns>() - old_.getMetric<median_t>().as<t_ns>();
         }
     };
 
@@ -117,9 +119,9 @@ namespace alpaka::tune
     template<>
     struct MetricAdjust::costDifference<Occupancy>
     {
-        auto operator()(StorageKernelRun& old_, StorageKernelRun& new_)
+        auto operator()(StorageKernelRun& new_, StorageKernelRun& old_)
         {
-            return new_.getMetric<median_t>().as<t_ns>() - old_.getMetric<median_t>().as<t_ns>();
+            return old_.getMetric<median_t>().as<t_ns>() - new_.getMetric<median_t>().as<t_ns>();
         }
     };
 

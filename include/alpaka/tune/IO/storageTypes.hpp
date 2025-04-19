@@ -392,6 +392,7 @@ struct StorageKernelRun
         WarmUp,
         Initialized,
     };
+    std::size_t stamp; // indicates this is the nth configuration found for a kernel.
     std::vector<alpaka::tune::StorageTuneable> tuneables;
     std::optional<alpaka::tune::StorageTuneable> numBlocksTune{std::nullopt};
     std::optional<alpaka::tune::StorageTuneable> threadBlockSize{std::nullopt};
@@ -477,6 +478,11 @@ struct StorageKernelRun
     [[nodiscard]] metricWrapper<double_t> getMetric() const
     {
         return metricContainer.get(T{});
+    }
+
+    [[nodiscard]] std::size_t size() const
+    {
+        return metricContainer.size();
     }
 
     template<typename T>
@@ -597,6 +603,7 @@ struct KernelData
     std::vector<std::string> specifiers;
     bool exhausted = false;
     std::size_t nrOfConfigs{0};
+    std::size_t highestStamp{0};
 
     std::string toHash()
     {

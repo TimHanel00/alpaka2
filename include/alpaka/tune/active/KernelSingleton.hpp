@@ -78,8 +78,9 @@ public:
             history.m_tuningHistory.emplace(tmp.toHash(), std::move(tmp));
             ptrToHistory = history.getKernelFromHistory(device, exec, kernelBundle, sessionSpecifier_);
         }
+        KernelData& h = *ptrToHistory;
+        activeRunPtr->m_strategyState.configStamp = h.highestStamp;
         // acts like a guard only valid configs are used for the device
-
 #ifdef DEBUG_Singleton
         std::cout << " gridSize Range: after adjust" << std::endl;
         printRange(activeRunPtr->getNumBlocksTune().idxRange);
@@ -96,6 +97,13 @@ public:
 #endif
 
         recalculateMaxRuns(*activeRunPtr);
+#ifdef DEBUG_Singleton
+        std::cout << " gridSize Range: after adjust" << std::endl;
+        printRange(activeRunPtr->getNumBlocksTune().idxRange);
+        // std::cout << " blockSize Range: after adjust" << std::endl;
+        // printRange(activeRunPtr->getThreadBlockSizeTune().idxRange);
+
+#endif
         applyCustomThreadSpec(*activeRunPtr, frameSpec);
     }
 
@@ -204,7 +212,7 @@ auto createKernelSingleton(
      */
 // #define DEBUG_Singleton
 #ifdef DEBUG_Singleton
-    std::cout << " gridSize Range: fromUser" << std::endl;
+    // std::cout << " gridSize Range: fromUser" << std::endl;
     printRange(newRun.getNumBlocksTune().idxRange);
     // std::cout << " blockSize Range: fromUser" << std::endl;
     // printRange(newRun.getThreadBlockSizeTune().idxRange);

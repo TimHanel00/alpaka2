@@ -22,6 +22,7 @@ namespace alpaka
     class KernelBundle
     {
     public:
+        using T_Kernel = TKernelFn;
         //! The function object type
         using KernelFn = std::decay_t<TKernelFn>;
         //! Tuple type to encapsulate kernel function argument types and argument values
@@ -43,7 +44,7 @@ namespace alpaka
             std::apply([&](auto const&... args) constexpr { m_kernelFn(acc, args...); }, m_args);
         }
 
-        KernelFn const m_kernelFn;
+        KernelFn m_kernelFn;
         ArgTuple const m_args; // Store the argument types without const and reference
     };
 

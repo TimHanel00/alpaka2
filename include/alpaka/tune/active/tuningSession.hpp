@@ -4,6 +4,7 @@
 #ifndef TUNER_H
 #define TUNER_H
 #define ENABLE_AUTOTUNE
+#include "../../../../example/heatEquation2D/src/StencilKernel.hpp"
 
 #ifdef ENABLE_AUTOTUNE
 
@@ -83,6 +84,17 @@ namespace alpaka
         TuningSession& operator=(const TuningSession&) = delete;
         TuningSession(TuningSession&&) noexcept = default;
         TuningSession& operator=(TuningSession&&) noexcept = default;*/
+        template<typename Tuple, std::size_t... I>
+        auto copyTupleImpl(Tuple const& t, std::index_sequence<I...>)
+        {
+            return std::make_tuple(std::get<I>(t)...);
+        }
+
+        template<typename... Ts>
+        auto copyTuple(std::tuple<Ts...> const& t)
+        {
+            return copyTupleImpl(t, std::index_sequence_for<Ts...>{});
+        }
 
         /** Enqueue and Execute a kernel for the tuning session
          * @param device
@@ -123,14 +135,27 @@ namespace alpaka
 #    ifdef DEBUG
             std::cout << "[DEBUG] After load history." << std::endl;
 #    endif
+            // that is not a true singleton as we switch it everytime we use the same kernel with different run
+            // specifier (which is not cool)
             static auto kernelptr
                 = createKernelSingleton(device, exec, frameSpec, kernelBundle, this->run, sessionSpecifier, history);
 
             auto& activeRun = *kernelptr->activeRunPtr;
             if(sessionSpecifier
-               != kernelptr->ptrToHistory->specifiers) // super ugly but thats currently the solution to handle
-                                                       // multiple tuning sessions with different sessionSpecifier but
-                                                       // same template types
+               != kernelptr->ptrToHistory
+                      ->specifiers) // super ugly but thats currently the solution to handle
+                                    // multiple tuning sessions with different sessionSpecifier but
+                                    // same template types
+                                    // @TODO: add a definition of a state in a seperate map for
+                                    // retrieving it this state is only runtime active and can
+                                    // be used for strategies,
+                                    // storing last configs etc. specifying interleaved nr of runs etc.
+                                    // mayby we should create a kernelsingleton for every "state" storing them in a
+                                    // seperate map mayby this should also contain a variable nr of evaluations.
+                                    // also I introduced a bug that is easily fixed with this kind of state,
+                                    // (we change a global variable with the current activeRun.maxRuns (so even two
+                                    // kernels brake this)
+                                    //
             {
                 kernelptr = createKernelSingleton(
                     device,
@@ -156,6 +181,14 @@ namespace alpaka
             if(historyKernelData.nrOfConfigs >= getMaxRuns(activeRun.maxRuns))
             {
                 std::cout << "[DEBUG] Selecting best config." << std::endl;
+                static bool write = true;
+                if(write)
+                {
+                    history.storeConfig(config); // write the config once to no loose all progress
+                    // if the user decides to terminate after that point
+                    write = false;
+                }
+
                 // auto event = tune::createTimeEventFromActive(activeRun);
                 alpaka::tune::strategy::bestRecorded<alpaka::tune::Timing>{}(activeRun, historyKernelData);
                 std::cout << activeRun.toHash() << std::endl;
@@ -190,7 +223,8 @@ namespace alpaka
                     kernelptr->frameSpec,
                     kernelptr->sharedParams);
             }
-            std::cout << " to hash: " << activeRun.toHash() << std::endl;
+
+            // std::cout << " to hash: " << activeRun.toHash() << std::endl;
             std::cout << "[DEBUG] Max configs: " << getMaxRuns(activeRun.maxRuns)
                       << ", History size: " << historyKernelData.runs.size()
                       << ", Sum of runs: " << historyKernelData.nrOfConfigs << std::endl;
@@ -226,15 +260,22 @@ namespace alpaka
                     and storeKernel.nr_runs is greater atleast env variable runsPerConfig*/
                 if(storeKernel.nr_runs >= this->reRuns && storeKernel.fullFlag)
                 {
-                    ++data.nrOfConfigs; // we know that one config is completed and we are skipping to the next
-                    if(data.nrOfConfigs == getMaxRuns(run.maxRuns))
+                    if(data.nrOfConfigs == getMaxRuns(run.maxRuns) - 1)
+                    {
+                        ++data.nrOfConfigs;
                         return;
+                    }
+
 
 #    ifdef DEBUG
                     std::cout << "[DEBUG] Stored run reached reRuns limit, applying strategy." << std::endl;
 #    endif
-                    strategy(sharedParameters, run, data.runs);
-                    runHash = run.toHash(); // rehash if parameters changed
+                    std::string oldHash = run.toHash();
+                    strategy(sharedParameters, run, data);
+                    if(run.toHash() != oldHash && !data.runs.contains(run.toHash()))
+                    {
+                        ++data.nrOfConfigs;
+                    }
 #    ifdef DEBUG
                     std::cout << "[DEBUG] Run hash updated after strategy: " << runHash << std::endl;
 #    endif
@@ -265,7 +306,11 @@ namespace alpaka
 #    endif
 
             auto bundle = recreate(kernelBundle, run.userDefTuneables);
+            bundle.m_kernelFn = StencilKernel{
+                static_cast<uint32_t>(spec.m_frameExtent.x() * spec.m_frameExtent.y() * sizeof(double))};
+
 #    ifdef DEBUG
+            std::cout << " num Threads: " << spec.m_threadSpec.m_numThreads << std::endl;
             std::cout << "[DEBUG] Kernel bundle recreated with tuneables." << std::endl;
 #    endif
             {
@@ -294,9 +339,12 @@ namespace alpaka
                 data.runs[runHash] = toStore(run);
                 StorageKernelRun& storeKernel = data.runs[runHash];
                 using T_state = ALPAKA_TYPEOF(storeKernel.state);
+
+                storeKernel.stamp = run.m_strategyState.configStamp;
                 storeKernel.state = T_state::WarmUp;
                 // the first run of every config doesnt count towards the tuning objective
                 storeKernel.nr_runs = 0;
+                ++run.m_strategyState.configStamp;
             }
             else
             {

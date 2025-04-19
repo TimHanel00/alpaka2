@@ -25,6 +25,8 @@
 //! \param dt step in t
 struct StencilKernel
 {
+    uint32_t dynSharedMemBytes = 256u * 4u;
+
     template<typename TAcc>
     ALPAKA_FN_ACC auto operator()(
         TAcc const& acc,
@@ -40,6 +42,8 @@ struct StencilKernel
         using namespace alpaka;
         auto numFrames = acc[frame::count];
         auto frameExtent = acc[frame::extent];
+        auto sdata = onAcc::getDynSharedMem<double>(acc);
+        // auto span = alpaka::makeMdSpan(ptr,Vec{3,3},alpaka::onHost::calculatePitchesFromExtents<float>(Vec{3,3});
         auto frameDomain = numFrames * frameExtent;
         auto traverseOverFrames
             = onAcc::makeIdxMap(acc, onAcc::worker::blocksInGrid, IdxRange{Vec{0u, 0u}, frameDomain, frameExtent});

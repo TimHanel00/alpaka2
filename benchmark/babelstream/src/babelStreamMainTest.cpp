@@ -293,7 +293,14 @@ struct DotKernel
             onAcc::atomicAdd(acc, &sum[0], tbSum[local_i]);
     }
 };
+struct sampleKernel{
+    template<typename TAcc>
+ALPAKA_FN_ACC auto operator()(
+   TAcc const& acc,std::size_t t_final) const -> void
+    {
 
+    }
+};
 //! \brief The Function for testing babelstream kernels for given Acc type and data type.
 //! \tparam TAcc the accelerator type
 //! \tparam DataType The data type to differentiate single or double data type based tests.
@@ -361,15 +368,19 @@ void testKernels(auto cfg)
 
     auto numFrames = divExZero(arraySize, static_cast<Idx>(blockThreadExtentMain) * elementsPerFrameItem);
     auto dataBlocking = onHost::FrameSpec{numFrames, static_cast<Idx>(blockThreadExtentMain)};
-    TuningSession session{tune::strategy::randomSearch{}};
     using fVec=ALPAKA_TYPEOF(dataBlocking.m_frameExtent);
-    auto latestSession = session.
-                         withBlockSizeTune(tune::ThreadBlockSizeTune{dataBlocking.m_frameExtent, IdxRange{fVec{32}, dataBlocking.m_frameExtent, fVec{32}}}).
-                         //withGridSizeTune(tune::GridSizeTune{fVec{56}, IdxRange{fVec{56}, dataBlocking.m_numFrames, fVec{56}}}).//#gpu
-                         withGridSizeTune(tune::GridSizeTune{fVec{108}, IdxRange{fVec{108}, dataBlocking.m_numFrames, fVec{108}}}).
-                         //withGridSizeTune(tune::GridSizeTune{fVec{22}, IdxRange{fVec{22}, fVec{32}, fVec{1}}}).//#cpu
-                         withConfig("./config/babelstream.toml");
-
+    using uVec=ALPAKA_TYPEOF(dataBlocking.m_numFrames);
+    auto tuningSession
+       = tune::TuningBuilder{}.withStrategy(alpaka::tune::strategy::randomSearch{})
+             .withBlockSizeTune(
+                 alpaka::tune::ThreadBlockSizeTune{
+                     fVec{64},
+                     IdxRange{fVec{64}, dataBlocking.m_frameExtent, fVec{64}}})
+             .withRunSpecifiers(std::to_string(arraySize))
+             .withNumBlocksTune(
+                 alpaka::tune::NumBlocksTune{uVec{56*2}, IdxRange{uVec{56*2}, uVec{dataBlocking.m_numFrames}, uVec{56*2}}})
+             .withConfig("./config/babelstream.toml")
+             .build();
     // To record runtime data generated while running the kernels
     RuntimeResults runtimeResults;
 
@@ -413,7 +424,7 @@ void testKernels(auto cfg)
     measureKernelExec(
         [&]()
         {
-            latestSession.enqueue(
+            tuningSession.enqueue(
                 devAcc,
                 queue,
                 exec,
@@ -445,7 +456,7 @@ void testKernels(auto cfg)
             measureKernelExec(
                 [&]()
                 {
-                    latestSession.enqueue(
+                    tuningSession.enqueue(
                 		devAcc,
                         queue,
                         exec,
@@ -457,7 +468,7 @@ void testKernels(auto cfg)
             // Test the scaling-kernel. Calculate B=scalar*C. Where C = A.
             measureKernelExec(
                 [&]() {
-                    latestSession.enqueue(
+                    tuningSession.enqueue(
                 		devAcc,
                         queue,
                         exec,
@@ -473,7 +484,7 @@ void testKernels(auto cfg)
             measureKernelExec(
                 [&]()
                 {
-                    latestSession.enqueue(
+                    tuningSession.enqueue(
                 		devAcc,
                         queue,
                         exec,
@@ -494,7 +505,7 @@ void testKernels(auto cfg)
             measureKernelExec(
                 [&]()
                 {
-                    latestSession.enqueue(
+                    tuningSession.enqueue(
                         devAcc,
                         queue,
                         exec,
@@ -528,7 +539,7 @@ void testKernels(auto cfg)
                 {
                     // set initial value of the sum to 0
                     onHost::memset(queue, bufAccSumPerBlock, 0);
-                    latestSession.enqueue(
+                    tuningSession.enqueue(
                         devAcc,
                         queue,
                         exec,
@@ -555,7 +566,7 @@ void testKernels(auto cfg)
             measureKernelExec(
                 [&]()
                 {
-                    latestSession.enqueue(
+                    tuningSession.enqueue(
                 		devAcc,
                         queue,
                         exec,

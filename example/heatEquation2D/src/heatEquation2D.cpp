@@ -142,6 +142,7 @@ auto example(T_Cfg const& cfg) -> int
         Vec{dataBlockingStencil.m_frameExtent.x(), dataBlockingStencil.m_frameExtent.y()}};
     using fVec = ALPAKA_TYPEOF(toRTime.m_frameExtent);
     using uVec = ALPAKA_TYPEOF(toRTime.m_numFrames);
+
     //  builder.build();
     /*
     auto tuningSession
@@ -169,7 +170,7 @@ auto example(T_Cfg const& cfg) -> int
     using VecType = ALPAKA_TYPEOF(dataBlockingBorder.m_numFrames);
     auto tuningSession
         = tune::TuningBuilder{}
-              .withStrategy(alpaka::tune::strategy::randomSearch{})
+              .withStrategy(alpaka::tune::strategy::simulatedAnnealing{})
               .withNumFramesTune(
                   alpaka::tune::NumFramesTune{toRTime.m_numFrames, IdxRange{fVec{1, 1}, fVec{3, 4}, fVec{1, 1}}})
               .withConfig("./config/babelstream.toml")

@@ -12,6 +12,16 @@
 #include <random>
 #include <vector>
 
+template<typename T_history, typename T_kernelRun>
+static bool kernelConfigChecked(T_history& history, T_kernelRun& kernel)
+{
+    if(!history.contains(kernel.toHash()))
+        return false;
+    if(history[kernel.toHash()].size() < getRunsPerConfig() || !history[kernel.toHash()].fullFlag)
+        return false;
+    return true;
+}
+
 namespace alpaka::tune::strategy
 {
     class RNG
@@ -120,11 +130,11 @@ namespace alpaka::tune::strategy
 
     struct randomSample
     {
-        template<typename T_tuneables, typename T_ActiveKernel, typename storageKernel>
+        template<typename T_tuneables, typename T_ActiveKernel>
         auto operator()(
             T_tuneables&& tuneables,
             [[maybe_unused]] T_ActiveKernel& kernelRun,
-            [[maybe_unused]] std::unordered_map<std::string, storageKernel>& history) const
+            [[maybe_unused]] KernelData& kernel_data) const
         {
             for_each(
                 tuneables,
@@ -217,6 +227,68 @@ namespace alpaka::tune::strategy
     {
     };
 
+    //@TODO move to different namespace
+    template<typename T_Metric = alpaka::tune::Timing>
+    struct bestRecorded
+    {
+        template<typename T_ActiveKernel>
+        auto operator()(T_ActiveKernel& kernelRun, KernelData& history)
+        {
+            static std::unordered_map<std::string, std::vector<StorageKernelRun>> storeBestResults;
+            // the first entry of each map is used to stay unique across several session instances (where for example
+            // specifier could change)
+            static std::unordered_map<std::string, std::string> bestResult;
+            if(bestResult.contains(history.toHash()) && bestResult[history.toHash()] == kernelRun.toHash())
+                return;
+            if(!history.runs.empty())
+            {
+                auto best = history.runs.begin()->second;
+                for(auto& entry : history.runs)
+                {
+                    StorageKernelRun& run = entry.second;
+                    ::detail::Comparison res = run.compare(best);
+                    switch(res)
+                    {
+                    case ::detail::Comparison::Greater:
+                        best = MetricAdjust::aGTb<T_Metric>{}(run, best);
+                        break;
+                    case ::detail::Comparison::Less:
+                        best = MetricAdjust::aLTb<T_Metric>{}(run, best);
+                        break;
+                    case ::detail::Comparison::Inconclusive:
+                        if(run.getMetric<mean_t>().as<t_ns>() < best.getMetric<mean_t>().as<t_ns>())
+
+                            best = run; // use mean as a tie-breaker in case statistical characteristics of the
+                                        // distribution are similar
+                        break;
+                    default:
+                        break;
+                    }
+                }
+                bestResult[history.toHash()] = kernelRun.toHash();
+                storeBestResults[history.toHash()].push_back(best);
+                toActive(kernelRun, best);
+                /**
+                 *go again over all entries, now that we have identified one "best" configuration,
+                 *this time write out "equal" entries according the kruskal wallis test
+                 *this can be useful for later debugging or to write out a compact result list in production runs.
+                 **/
+                for(auto& entry : history.runs)
+                {
+                    StorageKernelRun& run = entry.second;
+                    ::detail::Comparison res = run.compare(best);
+                    switch(res)
+                    {
+                    case ::detail::Comparison::Inconclusive:
+                        storeBestResults[history.toHash()].push_back(run);
+                    default:
+                        break;
+                    }
+                }
+            }
+        }
+    };
+
     /**
      * extensible compare operator for certain metrics
      * */
@@ -226,28 +298,28 @@ namespace alpaka::tune::strategy
     {
         using T_propabilityFunction = propabilityFunctions::Exponential;
         static constexpr double T_final
-            = 0.1; // magic Number that indicates the lower bound of the temperature used for simulated annealing
+            = 2.0; // magic Number that indicates the lower bound of the temperature used for simulated annealing
 
         double_t calcTemperature(auto const& maxRuns, auto currentRuns) const
         {
+            auto currentRuns_local = std::max<std::size_t>(1, currentRuns);
             auto n0 = static_cast<double_t>(maxRuns) * 0.1; // log stabilizer prevent div by 0
             auto lambda = T_final * std::log(maxRuns + n0); // Tfinal*ln(N+n0)-> lamda is the the scaling
                                                             // factor of the temperature cooling
-            return lambda / std::log(static_cast<double_t>(currentRuns) * n0);
+            auto result = lambda / std::log(static_cast<double_t>(currentRuns_local) * n0);
+            std::cout << "[SA temp]: maxRuns" << maxRuns << " curRuns " << currentRuns_local
+                      << " resulting temperature: " << result << std::endl;
+            return result;
         }
 
         /*
          *TODO add genericOperator
          */
-        template<typename T_Elem>
-        bool acceptanceFunction(
-            StorageKernelRun const& metricNew,
-            StorageKernelRun const& metricOld,
-            double const& temperature)
+        bool acceptanceFunction(StorageKernelRun& metricNew, StorageKernelRun& metricOld, double const& temperature)
         {
             if(metricNew.getMetric<median_t>().as<t_ns>() < metricOld.getMetric<median_t>().as<t_ns>())
             {
-                auto preferred = MetricAdjust::aLTb<T_Metric>{}(metricNew, metricOld);
+                auto& preferred = MetricAdjust::aLTb<T_Metric>{}(metricNew, metricOld);
                 if(&preferred == &metricNew)
                     return true;
             }
@@ -268,15 +340,20 @@ namespace alpaka::tune::strategy
         /*
          * accept a already stored ParameterConfiguration with the likelyhood of the acceptance function
          */
-        template<typename T_storageKernel, typename T_activeKernel>
-        void acceptNewKernel(T_storageKernel& storekernel, T_activeKernel& activeKernel, double_t temperature)
+        template<typename T_activeKernel>
+        void acceptNewKernel(
+            StorageKernelRun& oldKernel,
+            StorageKernelRun& newKernel,
+            T_activeKernel& activeKernel,
+            double_t temperature)
         {
-            if(acceptanceFunction(
-                   accessMetric(storekernel.metricContainer),
-                   activeKernel.metricContainer,
-                   temperature))
+            if(acceptanceFunction(newKernel, oldKernel, temperature))
             {
-                toActive(activeKernel, storekernel);
+                toActive(activeKernel, newKernel);
+            }
+            else
+            {
+                toActive(activeKernel, oldKernel);
             }
         }
 
@@ -290,67 +367,103 @@ namespace alpaka::tune::strategy
          */
         std::size_t applyProbabilityFunction(auto currentValue, auto const& range, double_t temperature)
         {
-            std::size_t maxSteps = (range.m_end - currentValue) / range.m_stride;
-            std::vector<double> weights(maxSteps + 1);
+            std::size_t backwardSteps = (currentValue - range.m_begin) / range.m_stride;
+            std::size_t forwardSteps = (range.m_end - currentValue) / range.m_stride;
+            std::vector<double> weights(backwardSteps + forwardSteps + 1);
             double total = 0.0;
 
-            for(std::size_t distance = 0; distance <= maxSteps; ++distance)
+            for(std::size_t i = 0; i <= backwardSteps; ++i)
             {
-                weights[distance] = T_propabilityFunction{}(distance, temperature);
-                total += weights[distance];
+                weights[backwardSteps - i] = T_propabilityFunction{}(i, temperature); // backward
+                total += weights[backwardSteps - i];
+            }
+            for(std::size_t i = 1; i <= forwardSteps; ++i)
+            {
+                weights[backwardSteps + i] = T_propabilityFunction{}(i, temperature); // forward
+                total += weights[backwardSteps + i];
             }
 
             for(auto& w : weights)
                 w /= total;
-
-            // Sample d from this distribution
             std::discrete_distribution<std::size_t> dist(weights.begin(), weights.end());
-            std::size_t d = dist(RNG::get());
-
-            return currentValue + d * range.m_stride;
+            std::size_t sampledIndex = dist(RNG::get());
+            if(sampledIndex < backwardSteps)
+            {
+                std::size_t stepsBack = backwardSteps - sampledIndex;
+                return currentValue - stepsBack * range.m_stride; // go backwards
+            }
+            std::size_t stepsForward = sampledIndex - backwardSteps;
+            return currentValue + stepsForward * range.m_stride; // go forwards
         }
 
-        template<typename T_tuneables, typename T_ActiveKernel, typename storageKernel>
-        auto operator()(
-            T_tuneables&& tuneables,
-            T_ActiveKernel& kernelRun,
-            std::unordered_map<std::string, storageKernel>& history)
+#define SimA_MaxCachedSteps 100
+
+        template<typename T_tuneables, typename T_ActiveKernel>
+        auto operator()(T_tuneables&& tuneables, T_ActiveKernel& kernelRun, KernelData& kernel_data)
         {
+            auto& history = kernel_data.runs;
             auto& state = kernelRun.m_strategyState;
-            auto maxRuns = getMaxRuns();
-            if(!history.contains(kernelRun.toHash()))
+            if(state.runs >= SimA_MaxCachedSteps)
             {
-                state.runs = 1;
+                std::cout << " selecting best config due to SimA steps exceeded" << std::endl;
+                alpaka::tune::strategy::bestRecorded{}(kernelRun, kernel_data);
                 return;
             }
-            state.temperature = calcTemperature(maxRuns, history.size()); // assign new temperature
-            int checkOverflow = 0;
-            while(history.contains(kernelRun.toHash()) && checkOverflow < 100)
+            state.runs = 0; // reset
+            auto maxRuns = getMaxRuns();
+            if(!kernelConfigChecked(history, kernelRun))
             {
+                return;
+                // we havent yet timed this parameter config often enough to make a educated guess on its performance
+                // therefore we return with the  -- this check might be redundant (TODO check if redundant)
+            };
+            // this means we evaluated the kernelRun activeKernel well enough
+            if(!state.oldKernelHash.empty())
+            {
+                acceptNewKernel(
+                    history[state.oldKernelHash],
+                    history[kernelRun.toHash()],
+                    kernelRun,
+                    state.temperature); // we might switch to the latest config nevertheless
+                // we accept the "new" config always if its better and with a propability of e^(-new+old)/temp)
+                // if its worse (if lower is better)
+            }
+
+
+            state.temperature = calcTemperature(getMaxRuns(), history.size()); // assign new temperature
+            while(kernelConfigChecked(history, kernelRun) && state.runs < SimA_MaxCachedSteps)
+            {
+                std::string oldKernelHash = kernelRun.toHash();
                 for_each(
                     tuneables,
                     [state, this](auto& parameter)
                     {
-                        parameter.value
-                            = applyProbabilityFunction(parameter.value, parameter.idxRange, state.temperature);
+                        auto newVal = applyProbabilityFunction(parameter.value, parameter.idxRange, state.temperature);
+                        parameter.value = newVal;
                     });
-                if(history.contains(kernelRun.toHash()))
+                if(kernelRun.toHash() != state.oldKernelHash)
                 {
-                    if(history[kernelRun.toHash()].metricContainer.size() < getRunsPerConfig())
-                    {
-                        return; // we havent yet timed this config well enough
-                    }
-                    acceptNewKernel(history[kernelRun.toHash()], kernelRun, state.temperature);
-
-                    ++state.runs;
+                    state.oldKernelHash = oldKernelHash;
                 }
-                checkOverflow++;
-            }
-            if(checkOverflow > 99)
-            {
-                std::cout << " Simulated Annealing: no more valid config found for the last 100 iterations"
-                          << std::endl;
-                getMaxRuns(1);
+                if(kernelConfigChecked(history, kernelRun))
+                {
+                    // we run in this case if the newly found config was already cached (evaluated enough)
+                    // so we can decide directly if we want to go there
+                    // we accept the new found config always if its better and with a propability of e^(-new+old)/temp)
+                    // if its worse (if lower is better)
+                    acceptNewKernel(
+                        history[state.oldKernelHash],
+                        history[kernelRun.toHash()],
+                        kernelRun,
+                        state.temperature);
+                    ++state.runs;
+                    // here we also count if we accept equal configs.
+                }
+                else
+                {
+                    // kernel not yet in history, therefore we have no evalutation of the new parameters and take them
+                    return;
+                }
             }
 
 
@@ -421,12 +534,10 @@ namespace alpaka::tune::strategy
                 });
         }
 
-        template<typename T_tuneables, typename T_ActiveKernel, typename storageKernel>
-        auto operator()(
-            T_tuneables&& tuneables,
-            T_ActiveKernel& kernelRun,
-            std::unordered_map<std::string, storageKernel>& history)
+        template<typename T_tuneables, typename T_ActiveKernel>
+        auto operator()(T_tuneables&& tuneables, T_ActiveKernel& kernelRun, KernelData& kernel_data)
         {
+            auto& history = kernel_data.runs;
             if(history.contains(kernelRun.toHash()))
             {
                 bool found{false};
@@ -439,79 +550,15 @@ namespace alpaka::tune::strategy
     struct randomSearch
     {
         template<typename T_tuneables, typename T_ActiveKernel>
-        auto operator()(
-            T_tuneables&& tuneables,
-            T_ActiveKernel& kernelRun,
-            std::unordered_map<std::string, StorageKernelRun>& history)
+        auto operator()(T_tuneables&& tuneables, T_ActiveKernel& kernelRun, KernelData& kernel_data)
         {
-            randomSample{}(tuneables, kernelRun, history);
+            auto& history = kernel_data.runs;
+            randomSample{}(tuneables, kernelRun, kernel_data);
             if(history.contains(kernelRun.toHash()))
             {
-                exhaustiveSearch<T_Metric>{}(tuneables, kernelRun, history);
+                exhaustiveSearch<T_Metric>{}(tuneables, kernelRun, kernel_data);
             }
         };
-    };
-
-    //@TODO move to different namespace
-    template<typename T_Metric = alpaka::tune::Timing>
-    struct bestRecorded
-    {
-        template<typename T_ActiveKernel>
-        auto operator()(T_ActiveKernel& kernelRun, KernelData& history)
-        {
-            static std::unordered_map<std::string, std::vector<StorageKernelRun>> storeBestResults;
-            // the first entry of each map is used to stay unique across several session instances (where for example
-            // specifier could change)
-            static std::unordered_map<std::string, std::string> bestResult;
-            if(bestResult.contains(history.toHash()) && bestResult[history.toHash()] == kernelRun.toHash())
-                return;
-            if(!history.runs.empty())
-            {
-                auto best = history.runs.begin()->second;
-                for(auto& entry : history.runs)
-                {
-                    StorageKernelRun& run = entry.second;
-                    ::detail::Comparison res = run.compare(best);
-                    switch(res)
-                    {
-                    case ::detail::Comparison::Greater:
-                        best = MetricAdjust::aGTb<T_Metric>{}(run, best);
-                        break;
-                    case ::detail::Comparison::Less:
-                        best = MetricAdjust::aLTb<T_Metric>{}(run, best);
-                        break;
-                    case ::detail::Comparison::Inconclusive:
-                        if(run.getMetric<mean_t>().as<t_ns>() < best.getMetric<mean_t>().as<t_ns>())
-
-                            best = run; // use mean as a tie-breaker in case statistical characteristics of the
-                                        // distribution are similar
-                        break;
-                    default:
-                        break;
-                    }
-                }
-                bestResult[history.toHash()] = kernelRun.toHash();
-                storeBestResults[history.toHash()].push_back(best);
-                toActive(kernelRun, best);
-                /**
-                 *go again over all entries, now that we have identified one "best" configuration,
-                 *this time write out "equal" entries according the kruskal wallis test
-                 *this can be useful for later debugging or to write out a compact result list in production runs.
-                 **/
-                for(auto& entry : history.runs)
-                {
-                    StorageKernelRun& run = entry.second;
-                    ::detail::Comparison res = run.compare(best);
-                    switch(res)
-                    {
-                    case ::detail::Comparison::Inconclusive:
-                        storeBestResults[history.toHash()].push_back(run);
-                    default:
-                        break;
-                    }
-                }
-            }
-        }
     };
 
     template<typename T_Metric = alpaka::tune::Timing>
