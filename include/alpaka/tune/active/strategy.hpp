@@ -298,7 +298,7 @@ namespace alpaka::tune::strategy
     {
         using T_propabilityFunction = propabilityFunctions::Exponential;
         static constexpr double T_final
-            = 2.0; // magic Number that indicates the lower bound of the temperature used for simulated annealing
+            = 5.0; // magic Number that indicates the lower bound of the temperature used for simulated annealing
 
         double_t calcTemperature(auto const& maxRuns, auto currentRuns) const
         {
@@ -396,14 +396,14 @@ namespace alpaka::tune::strategy
             return currentValue + stepsForward * range.m_stride; // go forwards
         }
 
-#define SimA_MaxCachedSteps 100
+#define SimA_MaxCachedSteps 300
 
         template<typename T_tuneables, typename T_ActiveKernel>
         auto operator()(T_tuneables&& tuneables, T_ActiveKernel& kernelRun, KernelData& kernel_data)
         {
             auto& history = kernel_data.runs;
             auto& state = kernelRun.m_strategyState;
-            if(state.runs >= SimA_MaxCachedSteps)
+            if(state.runs >= std::max(getMaxRuns(), SimA_MaxCachedSteps))
             {
                 std::cout << " selecting best config due to SimA steps exceeded" << std::endl;
                 alpaka::tune::strategy::bestRecorded{}(kernelRun, kernel_data);

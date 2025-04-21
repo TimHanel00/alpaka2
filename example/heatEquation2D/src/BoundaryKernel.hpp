@@ -26,7 +26,7 @@ struct BoundaryKernel
     template<typename TAcc>
     ALPAKA_FN_ACC auto operator()(
         TAcc const& acc,
-        auto uBuf,
+        alpaka::concepts::MdSpan auto uBuf,
         alpaka::concepts::Vector auto const chunkSize,
         alpaka::concepts::Vector auto numNodes,
         uint32_t step,
@@ -46,6 +46,7 @@ struct BoundaryKernel
             auto nodeIdxEnd = Vec{numNodes.y() - Idx{1u}, x};
             uBuf[nodeIdxEnd] = exactSolution(nodeIdxEnd.x() * dx, nodeIdxEnd.y() * dy, step * dt);
         }
+
         // move over Y surfaces, skip first and last node
         for(auto [y] :
             onAcc::makeIdxMap(acc, onAcc::worker::linearThreadsInGrid, IdxRange{Vec{1u}, Vec{numNodes.y() - 1u}}))
