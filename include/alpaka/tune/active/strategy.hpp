@@ -261,7 +261,7 @@ namespace alpaka::tune::strategy
                             best = run; // use mean as a tie-breaker in case statistical characteristics of the
                                         // distribution are similar
                         break;
-                    default:
+                    default: //also contains dummy case
                         break;
                     }
                 }
@@ -312,18 +312,8 @@ namespace alpaka::tune::strategy
             return result;
         }
 
-        /*
-         *TODO add genericOperator
-         */
-        bool acceptanceFunction(StorageKernelRun& metricNew, StorageKernelRun& metricOld, double const& temperature)
+        bool acceptWorseSolution(StorageKernelRun& metricNew, StorageKernelRun& metricOld, double const& temperature)
         {
-            if(metricNew.getMetric<median_t>().as<t_ns>() < metricOld.getMetric<median_t>().as<t_ns>())
-            {
-                auto& preferred = MetricAdjust::aLTb<T_Metric>{}(metricNew, metricOld);
-                if(&preferred == &metricNew)
-                    return true;
-            }
-
             double_t probability
                 = std::exp(-(MetricAdjust::costDifference<T_Metric>{}(metricNew, metricOld) / temperature));
             std::uniform_int_distribution<std::size_t> dis(0, 1000);
@@ -338,6 +328,35 @@ namespace alpaka::tune::strategy
         }
 
         /*
+         *TODO add genericOperator
+         */
+        bool acceptanceFunction(StorageKernelRun& metricNew, StorageKernelRun& metricOld, double const& temperature)
+        {
+            auto res = metricNew.compare(metricOld);
+            switch(res)
+            {
+            case ::detail::Comparison::Greater:
+                auto& preferred = MetricAdjust::aLTb<T_Metric>{}(metricNew, metricOld);
+                if(&preferred == &metricNew)
+                    return true;
+                return acceptWorseSolution(metricNew, metricOld, temperature);
+            case ::detail::Comparison::Less:
+                preferred = MetricAdjust::aGTb<T_Metric>{}(metricNew, metricOld);
+                if(&preferred == &metricNew)
+                    return true;
+                return acceptWorseSolution(metricNew, metricOld, temperature);
+            case ::detail::Comparison::Inconclusive:
+                return true; // encourage exploration
+            case ::detail::Comparison::Dummy:
+                return false;
+            default:;
+            }
+
+
+            return false;
+        }
+
+        /*
          * accept a already stored ParameterConfiguration with the likelyhood of the acceptance function
          */
         template<typename T_activeKernel>
@@ -349,7 +368,8 @@ namespace alpaka::tune::strategy
         {
             if(acceptanceFunction(newKernel, oldKernel, temperature))
             {
-                toActive(activeKernel, newKernel);
+                // toActive(activeKernel, newKernel); -> we dont have to do anything since ActiveKernel is already in
+                // the newKernel config
             }
             else
             {
@@ -403,7 +423,11 @@ namespace alpaka::tune::strategy
         {
             auto& history = kernel_data.runs;
             auto& state = kernelRun.m_strategyState;
-            if(state.runs >= std::max(getMaxRuns(), SimA_MaxCachedSteps))
+            if(state.runs >= std::max(
+                   std::min(getMaxRuns(), static_cast<std::size_t>(SimA_MaxCachedSteps * 20)),
+                   static_cast<std::size_t>(
+                       SimA_MaxCachedSteps))) // clamp steps between
+                                              // SimA_MaxCachedSteps<state.runs<SimA_MaxCachedSteps*20
             {
                 std::cout << " selecting best config due to SimA steps exceeded" << std::endl;
                 alpaka::tune::strategy::bestRecorded{}(kernelRun, kernel_data);

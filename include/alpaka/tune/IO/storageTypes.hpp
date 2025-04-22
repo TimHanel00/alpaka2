@@ -391,6 +391,7 @@ struct StorageKernelRun
         Uninitialized,
         WarmUp,
         Initialized,
+        Dummy
     };
     std::size_t stamp; // indicates this is the nth configuration found for a kernel.
     std::vector<alpaka::tune::StorageTuneable> tuneables;
@@ -442,24 +443,6 @@ struct StorageKernelRun
         return view;
     }
 
-    template<typename T>
-    std::vector<T> convertToValueArray(std::string const& s)
-    {
-        std::vector<T> result;
-        auto tokens = getTokens(s);
-        for(auto const& elem : tokens)
-        {
-            T resultElem;
-            std::istringstream iss(elem);
-            if(!(iss >> result))
-                throw std::runtime_error(
-                    "Conversion from: " + iss.str() + " to given type: " + alpaka::core::Demangled<T>(resultElem)
-                    + " failed!");
-            result.emplace_back(result);
-        }
-        return result;
-    }
-
     bool fullFlag = false;
 
     void pushMetric(double_t const& m)
@@ -485,41 +468,7 @@ struct StorageKernelRun
         return metricContainer.size();
     }
 
-    template<typename T>
-    std::vector<T> convertToCommonValueArray() const
-    {
-        std::vector<T> result;
-        result.reserve(tuneables.size()); // Reserve space to avoid reallocations
-
-        for(auto const& tune : tuneables)
-        {
-            auto valueArray = convertToValueArray<T>(tune);
-            result.insert(
-                result.end(),
-                std::make_move_iterator(valueArray.begin()),
-                std::make_move_iterator(valueArray.end()));
-        }
-        if(numBlocksTune.has_value())
-        {
-            auto valueArray = convertToValueArray<T>(numBlocksTune.value());
-            result.insert(
-                result.end(),
-                std::make_move_iterator(valueArray.begin()),
-                std::make_move_iterator(valueArray.end()));
-        }
-        if(threadBlockSize.has_value())
-        {
-            auto valueArray = convertToValueArray<T>(threadBlockSize.value());
-            result.insert(
-                result.end(),
-                std::make_move_iterator(valueArray.begin()),
-                std::make_move_iterator(valueArray.end()));
-        }
-
-        return result;
-    }
-
-    auto compare(StorageKernelRun& b)
+    auto compare(StorageKernelRun& b) const
     {
         return detail::kruskalCompare(*this, b, 0.05);
     }
@@ -532,11 +481,17 @@ namespace detail
     {
         Less,
         Greater,
-        Inconclusive
+        Inconclusive,
+        Dummy
     };
 
     Comparison kruskalCompare(StorageKernelRun const& lhs, StorageKernelRun const& rhs, double_t alpha = 0.05)
     {
+        using T_state = ALPAKA_TYPEOF(lhs.state);
+        if(rhs.state == T_state::Dummy)
+        {
+            return Comparison::Dummy;
+        }
         auto const& lhsVals = lhs.metricContainer.getAll();
         auto const& rhsVals = rhs.metricContainer.getAll();
 

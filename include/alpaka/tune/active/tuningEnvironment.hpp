@@ -11,6 +11,7 @@
 #include <alpaka/tune/IO/storageTypes.hpp>
 #include <alpaka/tune/utils/tupleHandle.hpp>
 
+#include <any>
 #include <utility>
 
 // #define DEBUG_Singleton
@@ -32,7 +33,7 @@ template<
     typename T_ActiveKernelRun,
     typename T_PtrToHistory,
     typename T_SharedParams>
-class KernelSingleton
+class tuningEnvironment
 {
 public:
     using FrameSpecType = alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent>;
@@ -44,12 +45,12 @@ public:
     T_PtrToHistory ptrToHistory;
     T_SharedParams sharedParams;
 
-    KernelSingleton(KernelSingleton const&) = delete;
-    KernelSingleton& operator=(KernelSingleton const&) = delete;
-    KernelSingleton(KernelSingleton&&) = delete;
-    KernelSingleton& operator=(KernelSingleton&&) = delete;
+    tuningEnvironment(tuningEnvironment const&) = delete;
+    tuningEnvironment& operator=(tuningEnvironment const&) = delete;
+    tuningEnvironment(tuningEnvironment&&) = delete;
+    tuningEnvironment& operator=(tuningEnvironment&&) = delete;
 
-    KernelSingleton(
+    tuningEnvironment(
         T_Device device_,
         T_Exec exec_,
         FrameSpecType const& frameSpec_,
@@ -190,47 +191,48 @@ auto makeConformToFrameSpec(T_frameSpec& spec, ActiveKernelRun<T_Args...>& kerne
         makeConformToTVec(spec.m_threadSpec.m_numThreads, kernelRun.getThreadBlockSizeTune()));
 }
 
-template<typename T_Device, typename T_Exec, typename T_NumFrames, typename T_FrameExtent, typename T_KernelBundle>
-auto createKernelSingleton(
+template<
+    typename T_Device,
+    typename T_Exec,
+    typename T_NumFrames,
+    typename T_FrameExtent,
+    typename T_KernelBundle,
+    typename T_Run,
+    typename T_SessionSpecifier,
+    typename T_History>
+auto createTuningEnvironment(
     T_Device device,
     T_Exec exec,
     alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent> const& spec,
     T_KernelBundle bundle,
-    auto& run,
-    auto& sessionSpecifier,
-    auto& history)
+    T_Run& run,
+    T_SessionSpecifier& sessionSpecifier,
+    T_History& history)
 {
     auto activeRun = makeConformToFrameSpec(spec, run);
     auto retPair = alpaka::tune::applyHwConstraints(device, exec, spec, activeRun);
     auto newFrameSpec = retPair.first;
     auto newRun = retPair.second;
 
-    /*
-     *newRun is a ActiveKernelRun -- check its function signature at compile time: trigger an compilation error where
-     *its signature is revealed
-     *
-     */
-// #define DEBUG_Singleton
 #ifdef DEBUG_Singleton
-    // std::cout << " gridSize Range: fromUser" << std::endl;
     printRange(newRun.getNumBlocksTune().idxRange);
-    // std::cout << " blockSize Range: fromUser" << std::endl;
-    // printRange(newRun.getThreadBlockSizeTune().idxRange);
 #endif
 
     auto activePtr = std::make_unique<ALPAKA_TYPEOF(newRun)>(newRun);
     auto sharedParams = makeSharedParameterInterface(*activePtr);
     auto ptrToHistory = history.getKernelFromHistory(device, exec, bundle, sessionSpecifier);
-    using kernelSingletonType = KernelSingleton<
+
+    using tuningEnvironmentType = tuningEnvironment<
         T_Device,
         T_Exec,
-        ALPAKA_TYPEOF(newFrameSpec.m_frameExtent),
-        ALPAKA_TYPEOF(newFrameSpec.m_numFrames),
+        T_FrameExtent,
+        T_NumFrames,
         T_KernelBundle,
         ALPAKA_TYPEOF(activePtr),
         ALPAKA_TYPEOF(ptrToHistory),
         ALPAKA_TYPEOF(sharedParams)>;
-    auto singleTon = std::make_unique<kernelSingletonType>(
+
+    auto singleTon = std::make_unique<tuningEnvironmentType>(
         device,
         exec,
         newFrameSpec,
@@ -240,6 +242,44 @@ auto createKernelSingleton(
         std::move(sharedParams),
         sessionSpecifier,
         history);
-    return singleTon;
+
+    return std::make_pair(sessionSpecifier, std::move(singleTon));
 }
+
+// Static wrapper version
+
+template<
+    typename T_Device,
+    typename T_Exec,
+    typename T_NumFrames,
+    typename T_FrameExtent,
+    typename T_KernelBundle,
+    typename T_Run,
+    typename T_SessionSpecifier,
+    typename T_History>
+auto getTuningEnvironment(
+    T_Device device,
+    T_Exec exec,
+    alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent> const& spec,
+    T_KernelBundle bundle,
+    T_Run& run,
+    T_SessionSpecifier& sessionSpecifier,
+    T_History& history)
+{
+    using tuningEnvironmentType
+        = decltype(*createTuningEnvironment(device, exec, spec, bundle, run, sessionSpecifier, history).second);
+
+    static std::unordered_map<std::string, std::unique_ptr<tuningEnvironmentType>> singletonMap;
+
+    if(auto it = singletonMap.find(sessionSpecifier); it != singletonMap.end())
+    {
+        return it->second.get();
+    }
+
+    auto [key, singleton] = createTuningEnvironment(device, exec, spec, bundle, run, sessionSpecifier, history);
+
+    singletonMap.emplace(key, std::move(singleton));
+    return singletonMap.at(key).get();
+}
+
 #endif // KERNELSINGLETON_H

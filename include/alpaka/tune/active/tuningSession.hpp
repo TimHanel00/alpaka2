@@ -10,6 +10,184 @@
 
 #    include <alpaka/tune/active/sessionBuilder.h>
 
+namespace alpaka::tune::detail::internal
+{
+    template<
+        typename T_Device,
+        typename T_Exec,
+        typename T_NumFrames,
+        typename T_FrameExtent,
+        typename T_KernelBundle,
+        typename T_Run,
+        typename T_SessionSpecifier,
+        typename T_History>
+    auto setup_enqueue(
+
+        T_Device device,
+        T_Exec exec,
+        alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent> const& frameSpec,
+        T_KernelBundle const& kernelBundle,
+        T_Run& run,
+        T_SessionSpecifier& sessionSpecifier,
+        T_History& history,
+        std::string const& config)
+    {
+        if(!history.initialized)
+        {
+            history.initialized = true;
+            if(!config.empty())
+            {
+                history.loadConfig(config);
+            }
+        }
+
+        auto* kernelptr = getTuningEnvironment(device, exec, frameSpec, kernelBundle, run, sessionSpecifier, history);
+
+        if(sessionSpecifier != kernelptr->ptrToHistory->specifiers)
+        {
+            kernelptr = getTuningEnvironment(device, exec, frameSpec, kernelBundle, run, sessionSpecifier, history);
+        }
+
+        return kernelptr;
+    }
+
+    // Strategy functor and Constraint functor must be passed externally now
+
+    // Check if a strategy should be applied and config should be skipped
+    template<typename Run, typename Data, typename SharedParams, typename Strategy>
+    bool shouldSkipDueToHistory(
+        std::string const& runHash,
+        Run& run,
+        Data& data,
+        SharedParams& sharedParams,
+        Strategy& strategy)
+    {
+        if(!data.runs.contains(runHash))
+            return false;
+
+        auto& stored = data.runs[runHash];
+        if(stored.nr_runs >= run.reRuns && stored.fullFlag)
+        {
+            if(data.nrOfConfigs == getMaxRuns(run.maxRuns) - 1)
+            {
+                ++data.nrOfConfigs;
+                return true;
+            }
+            std::string oldHash = run.toHash();
+            strategy(sharedParams, run, data);
+            if(run.toHash() != oldHash && !data.runs.contains(run.toHash()))
+            {
+                ++data.nrOfConfigs;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    // Validate constraint or mark as Dummy
+    template<typename Constraint, typename Run, typename Data>
+    bool violatesConstraint(Run& run, Data& data, std::string const& runHash, Constraint& constraint)
+    {
+        if(data.runs.contains(runHash))
+        {
+            auto const& stored = data.runs.at(runHash);
+            return stored.state != StorageKernelRun::State::Dummy;
+        }
+
+        if(!constraint(run))
+        {
+            data.runs[runHash] = toStore(run);
+            auto& stored = data.runs[runHash];
+            using T_state = ALPAKA_TYPEOF(stored.state);
+            stored.state = T_state::Dummy;
+            stored.fullFlag = true;
+            stored.nr_runs = 0;
+            return false;
+        }
+
+        return true;
+    }
+
+    inline void applyConfigAndExecuteKernel(
+        auto const& queue,
+        auto exec,
+        auto const& kernelBundle,
+        auto& spec,
+        auto const& run)
+    {
+        applyCustomThreadSpec(run, spec);
+        auto bundle = recreate(kernelBundle, run.userDefTuneables);
+        {
+            auto event = tune::createTimeEventFromActive(run);
+            onHost::enqueue(queue, exec, spec, bundle);
+            onHost::wait(queue);
+        }
+    }
+
+    // Extracts logic when max configs is reached and best config should be applied
+    // Should be called inside internal_enqueue()
+    template<typename T_KernelBundle, typename T_kernelRun, typename T_NumBlocks, typename T_NumThreads>
+    void applyBestAndExecute(
+        auto const& queue,
+        auto exec,
+        T_KernelBundle const& kernelBundle,
+        T_kernelRun& run,
+        KernelData& data,
+        onHost::FrameSpec<T_NumBlocks, T_NumThreads>& spec,
+        auto& history,
+        auto const& config)
+    {
+        static bool write = true;
+        if(write)
+        {
+            history.storeConfig(config);
+            write = false;
+        }
+
+        alpaka::tune::strategy::bestRecorded<alpaka::tune::Timing>{}(run, data);
+        applyConfigAndExecuteKernel(queue, exec, kernelBundle, spec, run);
+        onHost::wait(queue);
+    }
+
+    inline void storeOrUpdateMetrics(auto& run, KernelData& data, std::string const& runHash)
+    {
+        using T_state = ALPAKA_TYPEOF(data.runs[runHash].state);
+
+        if(!data.runs.contains(runHash))
+        {
+            data.runs[runHash] = toStore(run);
+            auto& stored = data.runs[runHash];
+            stored.stamp = run.m_strategyState.configStamp++;
+            stored.state = T_state::WarmUp;
+            stored.nr_runs = 0;
+            if(stored.state == T_state::Dummy)
+                stored.fullFlag = true;
+            return;
+        }
+
+        auto& stored = data.runs[runHash];
+        if(stored.state == T_state::Dummy || (stored.nr_runs > run.reRuns && stored.fullFlag))
+            return;
+
+        switch(stored.state)
+        {
+        case T_state::WarmUp:
+            stored.metricContainer.pop();
+            stored.pushMetric(run.metric);
+            stored.state = T_state::Initialized;
+            ++stored.nr_runs;
+            break;
+        case T_state::Initialized:
+            stored.pushMetric(run.metric);
+            ++stored.nr_runs;
+            break;
+        default:
+            break;
+        }
+    }
+
+} // namespace alpaka::tune::detail::internal
+
 namespace alpaka
 {
     template<typename T_FrameSpec, typename... T_Args>
@@ -121,117 +299,33 @@ namespace alpaka
             onHost::FrameSpec<T_NumFrames, T_FrameExtent> const& frameSpec,
             T_KernelBundle const& kernelBundle)
         {
-            if(!history.initialized)
-            {
-                history.initialized = true;
-                if(!config.empty())
-                {
-#    ifdef DEBUG
-                    std::cout << "[DEBUG] Loading history..." << std::endl;
-#    endif
-                    history.loadConfig(config);
-                }
-            }
-#    ifdef DEBUG
-            std::cout << "[DEBUG] After load history." << std::endl;
-#    endif
-            // that is not a true singleton as we switch it everytime we use the same kernel with different run
-            // specifier (which is not cool)
-            static auto kernelptr
-                = createKernelSingleton(device, exec, frameSpec, kernelBundle, this->run, sessionSpecifier, history);
+            auto* kernelptr
+                = setup_enqueue(device, exec, frameSpec, kernelBundle, this->run, sessionSpecifier, history, config);
 
             auto& activeRun = *kernelptr->activeRunPtr;
-            if(sessionSpecifier
-               != kernelptr->ptrToHistory
-                      ->specifiers) // super ugly but thats currently the solution to handle
-                                    // multiple tuning sessions with different sessionSpecifier but
-                                    // same template types
-                                    // @TODO: add a definition of a state in a seperate map for
-                                    // retrieving it this state is only runtime active and can
-                                    // be used for strategies,
-                                    // storing last configs etc. specifying interleaved nr of runs etc.
-                                    // mayby we should create a kernelsingleton for every "state" storing them in a
-                                    // seperate map mayby this should also contain a variable nr of evaluations.
-                                    // also I introduced a bug that is easily fixed with this kind of state,
-                                    // (we change a global variable with the current activeRun.maxRuns (so even two
-                                    // kernels brake this)
-                                    //
-            {
-                kernelptr = createKernelSingleton(
-                    device,
-                    exec,
-                    frameSpec,
-                    kernelBundle,
-                    this->run,
-                    sessionSpecifier,
-                    history);
-                activeRun = *kernelptr->activeRunPtr;
-                activeRun.resetSignal = true;
-            }
-#    ifdef DEBUG
-            std::cout << "[DEBUG] Kernel singleton created." << std::endl;
-#    endif
-
-
             KernelData& historyKernelData = (*kernelptr->ptrToHistory);
-#    ifdef DEBUG
-            std::cout << "[DEBUG] kernelBundle demangled: " << alpaka::core::demangledName(kernelBundle) << std::endl;
-#    endif
+            using T_Context = ALPAKA_TYPEOF(kernelptr);
+            internal_enqueue<T_Context>(
+                queue,
+                exec,
+                kernelBundle,
+                activeRun,
+                historyKernelData,
+                kernelptr->frameSpec,
+                kernelptr->sharedParams);
 
-            if(historyKernelData.nrOfConfigs >= getMaxRuns(activeRun.maxRuns))
-            {
-                std::cout << "[DEBUG] Selecting best config." << std::endl;
-                static bool write = true;
-                if(write)
-                {
-                    history.storeConfig(config); // write the config once to no loose all progress
-                    // if the user decides to terminate after that point
-                    write = false;
-                }
-
-                // auto event = tune::createTimeEventFromActive(activeRun);
-                alpaka::tune::strategy::bestRecorded<alpaka::tune::Timing>{}(activeRun, historyKernelData);
-                std::cout << activeRun.toHash() << std::endl;
-                applyCustomThreadSpec(activeRun, kernelptr->frameSpec);
-#    ifdef DEBUG
-                std::cout << "[DEBUG] Best config applied: Blocks = " << kernelptr->frameSpec.m_threadSpec.m_numBlocks
-                          << ", Threads = " << kernel.frameSpec.m_threadSpec.m_numThreads << std::endl;
-                std::cout << "[DEBUG] Enqueueing best config kernel..." << std::endl;
-#    endif
-                auto bundle = recreate(kernelBundle, activeRun.userDefTuneables);
-                onHost::enqueue(queue, exec, kernelptr->frameSpec, bundle);
-                onHost::wait(queue);
-#    ifdef DEBUG
-                std::cout << "[DEBUG] Kernel execution completed for best config." << std::endl;
-#    endif
-                return;
-            }
-            else
-            {
-#    ifdef DEBUG
-                std::cout << "[DEBUG] Re-runs threshold not yet reached, continuing tuning." << std::endl;
-#    endif
-#    ifdef DEBUG
-                std::cout << "[DEBUG] Calling internal_enqueue for activeRun." << std::endl;
-#    endif
-                internal_enqueue(
-                    queue,
-                    exec,
-                    kernelBundle,
-                    activeRun,
-                    historyKernelData,
-                    kernelptr->frameSpec,
-                    kernelptr->sharedParams);
-            }
-
-            // std::cout << " to hash: " << activeRun.toHash() << std::endl;
             std::cout << "[DEBUG] Max configs: " << getMaxRuns(activeRun.maxRuns)
                       << ", History size: " << historyKernelData.runs.size()
                       << ", Sum of runs: " << historyKernelData.nrOfConfigs << std::endl;
         }
 
         //---internal_enqueue---
-        template<typename T_KernelBundle, typename T_kernelRun, typename T_NumBlocks, typename T_NumThreads>
+        template<
+            typename T_Context,
+            typename T_KernelBundle,
+            typename T_kernelRun,
+            typename T_NumBlocks,
+            typename T_NumThreads>
         void internal_enqueue(
             auto const& queue,
             auto exec,
@@ -241,150 +335,25 @@ namespace alpaka
             onHost::FrameSpec<T_NumBlocks, T_NumThreads>& spec,
             auto& sharedParameters)
         {
-#    ifdef DEBUG
-            std::cout << "[DEBUG] Internal Enqueue started." << std::endl;
-#    endif
             auto runHash = run.toHash();
-#    ifdef DEBUG
-            std::cout << "[DEBUG] Run hash: " << runHash << std::endl;
-#    endif
-
-            if(data.runs.contains(runHash))
+            using namespace alpaka::tune::detail::internal;
+            while(data.nrOfConfigs < getMaxRuns(run.maxRuns))
             {
-#    ifdef DEBUG
-                std::cout << "[DEBUG] Existing run found in history. Number of runs: " << data.runs[runHash].nr_runs
-                          << std::endl;
-#    endif
-                StorageKernelRun& storeKernel = data.runs[runHash];
-                /*only skip to next config if our CI (confidence Intervall) goal (indicated by fullFlag) is reached
-                    and storeKernel.nr_runs is greater atleast env variable runsPerConfig*/
-                if(storeKernel.nr_runs >= this->reRuns && storeKernel.fullFlag)
-                {
-                    if(data.nrOfConfigs == getMaxRuns(run.maxRuns) - 1)
-                    {
-                        ++data.nrOfConfigs;
-                        return;
-                    }
+                if(shouldSkipDueToHistory(runHash, run, data, sharedParameters, strategy))
+                    continue;
+                if(violatesConstraint(run, data, runHash, constraint))
+                    continue;
 
-
-#    ifdef DEBUG
-                    std::cout << "[DEBUG] Stored run reached reRuns limit, applying strategy." << std::endl;
-#    endif
-                    std::string oldHash = run.toHash();
-                    strategy(sharedParameters, run, data);
-                    if(run.toHash() != oldHash && !data.runs.contains(run.toHash()))
-                    {
-                        ++data.nrOfConfigs;
-                    }
-#    ifdef DEBUG
-                    std::cout << "[DEBUG] Run hash updated after strategy: " << runHash << std::endl;
-#    endif
-                }
-                else
-                {
-#    ifdef DEBUG
-                    std::cout << "[DEBUG] Stored run has room for more runs, skipping strategy." << std::endl;
-#    endif
-                }
+                break;
             }
-            else
+            if(data.nrOfConfigs >= getMaxRuns(run.maxRuns))
             {
-#    ifdef DEBUG
-                std::cout << "[DEBUG] No existing run found. Proceeding with new parameters." << std::endl;
-                std::cout << "[DEBUG] Run hash: " << runHash << std::endl;
-                for(auto const& run : data.runs)
-                {
-                    std::cout << "[DEBUG] Run from history: " << run.second.toHash() << std::endl;
-                }
-#    endif
+                applyBestAndExecute(queue, exec, kernelBundle, run, data, spec, history, config);
+                return;
             }
 
-            applyCustomThreadSpec(run, spec);
-#    ifdef DEBUG
-            std::cout << "[DEBUG] Applied thread spec: Blocks = " << spec.m_threadSpec.m_numBlocks
-                      << ", Threads = " << spec.m_threadSpec.m_numThreads << std::endl;
-#    endif
-
-            auto bundle = recreate(kernelBundle, run.userDefTuneables);
-            bundle.m_kernelFn = StencilKernel{
-                static_cast<uint32_t>(spec.m_frameExtent.x() * spec.m_frameExtent.y() * sizeof(double))};
-
-#    ifdef DEBUG
-            std::cout << " num Threads: " << spec.m_threadSpec.m_numThreads << std::endl;
-            std::cout << "[DEBUG] Kernel bundle recreated with tuneables." << std::endl;
-#    endif
-            {
-                auto event = tune::createTimeEventFromActive(run);
-#    ifdef DEBUG
-                std::cout << "[DEBUG] Enqueueing kernel execution..." << std::endl;
-#    endif
-                onHost::enqueue(queue, exec, spec, bundle);
-                onHost::wait(queue);
-#    ifdef DEBUG
-                std::cout << "[DEBUG] Kernel execution completed. Metric: " << run.metric << std::endl;
-#    endif
-            }
-
-#    ifdef DEBUG
-            std::cout << "[DEBUG] Kernel execution time: " << run.metric << " {" << spec.m_threadSpec.m_numBlocks
-                      << "," << spec.m_threadSpec.m_numThreads << "}" << std::endl;
-#    endif
-
-            if(!data.runs.contains(runHash))
-            {
-#    ifdef DEBUG
-                std::cout << "[DEBUG] Adding new run to history." << std::endl;
-#    endif
-
-                data.runs[runHash] = toStore(run);
-                StorageKernelRun& storeKernel = data.runs[runHash];
-                using T_state = ALPAKA_TYPEOF(storeKernel.state);
-
-                storeKernel.stamp = run.m_strategyState.configStamp;
-                storeKernel.state = T_state::WarmUp;
-                // the first run of every config doesnt count towards the tuning objective
-                storeKernel.nr_runs = 0;
-                ++run.m_strategyState.configStamp;
-            }
-            else
-            {
-                StorageKernelRun& storeKernel = data.runs[runHash];
-                if(storeKernel.nr_runs <= this->reRuns || !storeKernel.fullFlag)
-                {
-#    ifdef DEBUG
-                    std::cout << "[DEBUG] Updating stored run. Previous best metric: " << storeKernel.metric.top()
-                              << ", Previous nr_runs: " << storeKernel.nr_runs << std::endl;
-#    endif
-                    using T_state = ALPAKA_TYPEOF(storeKernel.state);
-                    switch(storeKernel.state)
-                    {
-                    case T_state::WarmUp:
-                        storeKernel.metricContainer.pop(); // pop one or more initial runs
-                        storeKernel.pushMetric(run.metric); // we keep the same number of runs in this instance
-                        storeKernel.state = T_state::Initialized;
-                        ++storeKernel.nr_runs;
-                        break;
-
-                    case T_state::Initialized:
-                        storeKernel.pushMetric(run.metric);
-                        ++storeKernel.nr_runs;
-                        break;
-                    default:;
-                    }
-
-#    ifdef DEBUG
-                    std::cout << "[DEBUG] Updated metric: " << storeKernel.metric.top()
-                              << ", nr_runs: " << storeKernel.nr_runs << ", sumOfRuns: " << data.sumOfRuns
-                              << std::endl;
-#    endif
-                }
-                else
-                {
-#    ifdef DEBUG
-                    std::cout << "[DEBUG] Stored run reached reRuns limit, skipping update." << std::endl;
-#    endif
-                }
-            }
+            applyConfigAndExecuteKernel(queue, exec, kernelBundle, spec, run);
+            storeOrUpdateMetrics(run, data, runHash);
         }
 
         ~TuningSession()
@@ -407,5 +376,7 @@ namespace alpaka
      */
 
 } // namespace alpaka
+
+
 #endif // TUNER_H
 #endif

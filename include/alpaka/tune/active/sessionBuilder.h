@@ -2,7 +2,7 @@
 #ifndef SESSIONBUILDER_HPP
 #define SESSIONBUILDER_HPP
 #include "alpaka/onHost.hpp"
-#include "alpaka/tune/active/KernelSingleton.hpp"
+#include "alpaka/tune/active/tuningEnvironment.hpp"
 #include "alpaka/tune/utils/environmentVars.hpp"
 
 #include <alpaka/tune/IO/tuningHistory.hpp>
@@ -88,91 +88,77 @@ namespace alpaka::tune
 
         auto withNumBlocksTune() const
         {
-            std::cout << " in numblockstune" << std::endl;
-            NumBlocksTune tuningObject{};
-            tuningObject.userDef = false;
+            auto tuningObject = makeNumBlocksTune();
             return this->withTuning(tuningObject);
         }
 
         template<typename T>
-        auto withNumBlocksTune(NumBlocksTune<T> tune) const
+        auto withNumBlocksTune(Tuneable<gridSizeName, T> tune) const
         {
-            tune.userDef = true;
             return this->withTuning(tune);
         }
 
         template<typename T, auto dim>
         auto withNumBlocksTune(alpaka::Vec<T, dim> tune) const
         {
-            NumBlocksTune<decltype(tune)> tuningObject{tune};
-            tuningObject.userDef = false;
+            auto tuningObject = makeNumBlocksTune(tune);
             return this->withTuning(tuningObject);
         }
 
         auto withBlockSizeTune() const
         {
-            ThreadBlockSizeTune tuningObject{};
-            tuningObject.userDef = false;
+            auto tuningObject = makeThreadBlockSizeTune();
             return this->withTuning(tuningObject);
         }
 
         template<typename T>
-        auto withBlockSizeTune(ThreadBlockSizeTune<T> tune) const
+        auto withBlockSizeTune(Tuneable<threadBlockSizeName, T> tune) const
         {
-            std::cout << " in blockSIzeTune" << std::endl;
-            tune.userDef = true;
             return this->withTuning(tune);
         }
 
         template<typename T, auto dim>
         auto withBlockSizeTune(alpaka::Vec<T, dim> tune) const
         {
-            ThreadBlockSizeTune<decltype(tune)> tuningObject{tune};
-            tuningObject.userDef = false;
+            auto tuningObject = makeThreadBlockSizeTune(tune);
             return this->withTuning(tuningObject);
         }
 
         auto withNumFramesTune() const
         {
-            NumFramesTune tuningObject{};
-            tuningObject.userDef = false;
+            auto tuningObject = makeNumFramesTune();
             return this->withTuning(tuningObject);
         }
 
         template<typename T>
-        auto withNumFramesTune(NumFramesTune<T> tune) const
+        auto withNumFramesTune(Tuneable<numFramesName, T> tune) const
         {
-            tune.userDef = true;
             return this->withTuning(tune);
         }
 
         template<typename T, auto dim>
         auto withNumFramesTune(alpaka::Vec<T, dim> tune) const
         {
-            NumFramesTune<decltype(tune)> tuningObject{tune};
-            tuningObject.userDef = false;
+            auto tuningObject = makeNumFramesTune(tune);
             return this->withTuning(tuningObject);
         }
 
         auto withFrameExtentTune() const
         {
-            FrameExtentTune tuningObject{};
-            tuningObject.userDef = false;
+            auto tuningObject = makeFrameExtentTune();
             return this->withTuning(tuningObject);
         }
 
         template<typename T>
-        auto withFrameExtentTune(FrameExtentTune<T> tune) const
+        auto withFrameExtentTune(Tuneable<frameExtentName, T> tune) const
         {
-            tune.userDef = true;
             return this->withTuning(tune);
         }
 
         template<typename T, auto dim>
         auto withFrameExtentTune(alpaka::Vec<T, dim> tune) const
         {
-            FrameExtentTune<decltype(tune)> tuningObject{tune};
-            tuningObject.userDef = false;
+            auto tuningObject = makeFrameExtentTune(tune);
             return this->withTuning(tuningObject);
         }
 
