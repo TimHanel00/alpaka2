@@ -17,14 +17,6 @@
 
 // #define DEBUG_Singleton
 
-template<typename T_Range>
-void printRange(T_Range& range)
-{
-    std::cout << " begin: " << range.m_begin << std::endl;
-    std::cout << " end: " << range.m_end << std::endl;
-    std::cout << "stride: " << range.m_stride << std::endl;
-}
-
 template<
     typename T_Device,
     typename T_Exec,
@@ -33,7 +25,8 @@ template<
     typename T_KernelBundle,
     typename T_ActiveKernelRun,
     typename T_PtrToHistory,
-    typename T_SharedParams>
+    typename T_SharedParams,
+    typename... T_constraints>
 class tuningEnvironment
 {
 public:
@@ -45,7 +38,7 @@ public:
     T_ActiveKernelRun activeRunPtr;
     T_PtrToHistory ptrToHistory;
     T_SharedParams sharedParams;
-
+    std::tuple<T_constraints...> constraints;
     tuningEnvironment(tuningEnvironment const&) = delete;
     tuningEnvironment& operator=(tuningEnvironment const&) = delete;
     tuningEnvironment(tuningEnvironment&&) = delete;
@@ -200,7 +193,8 @@ auto createTuningEnvironment(
 
     auto newFrameSpec = retPair.first;
     auto newRun = retPair.second;
-
+    auto userTuple = extractTuneables(bundle);
+    auto completeRun = ActiveKernelRun{userTuple, newRun.frameTuneables};
 #ifdef DEBUG_Singleton
     printRange(newRun.getNumBlocksTune().idxRange);
 #endif

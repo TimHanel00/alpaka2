@@ -137,8 +137,6 @@ auto recreate(alpaka::KernelBundle<TKernelFn, TArgs...> const& kb, TTuneableNew&
 template<typename TKernelFn, typename... TArgs, std::size_t... Is>
 auto extractTuneables_impl(alpaka::KernelBundle<TKernelFn, TArgs...> const& kb, std::index_sequence<Is...>)
 {
-    std::size_t tuneableIdx = 0;
-
     return std::tuple_cat((
         [&]<std::size_t I>(std::integral_constant<std::size_t, I>)
         {
@@ -147,19 +145,7 @@ auto extractTuneables_impl(alpaka::KernelBundle<TKernelFn, TArgs...> const& kb, 
 
             if constexpr(is_tuneable_v<ElemType>)
             {
-                auto tune = std::get<I>(kb.m_args);
-                constexpr std::string_view defaultName = "Tuneable: ";
-
-                std::ostringstream oss;
-                oss << tune.name;
-
-                if(tune.name == defaultName)
-                    oss << tuneableIdx;
-
-                tune.name = oss.str();
-
-                tuneableIdx++; // increment runtime counter
-                return std::make_tuple(tune);
+                return std::make_tuple(std::get<I>(kb.m_args));
             }
             else
             {

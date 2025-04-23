@@ -24,6 +24,67 @@ void for_each(Tuple&& tup, F&& f)
     for_each_impl(std::forward<Tuple>(tup), std::forward<F>(f), std::make_index_sequence<N>{});
 }
 
+template<size_t N>
+struct StaticString
+{
+    char value[N];
+
+    consteval StaticString(char const (&str)[N])
+    {
+        for(size_t i = 0; i < N; ++i)
+            value[i] = str[i];
+    }
+
+    constexpr operator std::string_view() const
+    {
+        return std::string_view(value, N - 1); // drop '\0'
+    }
+
+    constexpr char const* c_str() const
+    {
+        return value;
+    }
+};
+
+template<size_t N1, size_t N2>
+constexpr bool operator==(StaticString<N1> const& a, StaticString<N2> const& b)
+{
+    if constexpr(N1 != N2)
+        return false;
+    for(size_t i = 0; i < N1; ++i)
+    {
+        if(a.value[i] != b.value[i])
+            return false;
+    }
+    return true;
+}
+
+template<typename CharT, CharT... Cs>
+consteval StaticString<sizeof...(Cs) + 1> operator"" _ss()
+{
+    return StaticString<sizeof...(Cs) + 1>{{Cs..., '\0'}};
+}
+
+#define DEFINE_TUNE_NAME(name)                                                                                        \
+    inline constexpr ::alpaka::tune::StaticString<sizeof(#name)> name##_ss()                                          \
+    {                                                                                                                 \
+        #name                                                                                                         \
+    }
+
+#define cStr(literal)                                                                                                 \
+    StaticString<sizeof(literal)>                                                                                     \
+    {                                                                                                                 \
+        literal                                                                                                       \
+    }
+//--------------------------------------
+// 2. Compile-time unique name generator via macro
+//--------------------------------------
+#define UNIQUE_TUNEABLE_NAME(ID)                                                                                      \
+    StaticString<sizeof("Tuneable_" #ID)>                                                                             \
+    {                                                                                                                 \
+        "Tuneable_" #ID                                                                                               \
+    }
+
 namespace alpaka::tune
 {
     template<typename T_Tune, typename T_ActiveKernel>
@@ -212,31 +273,7 @@ namespace alpaka::tune
 
     template<typename T>
     constexpr bool is_NoTune_v = std::is_same_v<T, NoTune>;
-
-    template<size_t N>
-    struct StaticString
-    {
-        char value[N];
-
-        constexpr StaticString(char const (&str)[N])
-        {
-            std::copy_n(str, N, value);
-        }
-
-        constexpr operator std::string_view() const
-        {
-            return std::string_view(value, N - 1); // exclude null terminator
-        }
-    };
-
-//--------------------------------------
-// 2. Compile-time unique name generator via macro
-//--------------------------------------
-#define UNIQUE_TUNEABLE_NAME(ID)                                                                                      \
-    StaticString<sizeof("Tuneable_" #ID)>                                                                             \
-    {                                                                                                                 \
-        "Tuneable_" #ID                                                                                               \
-    }
+    inline constexpr StaticString<1> empty_name{""};
 
     //--------------------------------------
     // 3. Tuneable with compile-time-only name
@@ -341,30 +378,6 @@ namespace alpaka::tune
     constexpr auto makeTuneable(T val, IdxRange<T, T, T> ir)
     {
         return Tuneable<Name, T>{val, ir};
-    }
-
-    template<size_t N, typename T>
-    constexpr auto makeTuneable(char const (&name)[N])
-    {
-        return Tuneable<StaticString<N>(name), T>{};
-    }
-
-    template<size_t N, typename T>
-    constexpr auto makeTuneable(char const (&name)[N], T val)
-    {
-        return Tuneable<StaticString<N>(name), T>{val};
-    }
-
-    template<size_t N, typename T>
-    constexpr auto makeTuneable(char const (&name)[N], IdxRange<T, T, T> ir)
-    {
-        return Tuneable<StaticString<N>(name), T>{ir};
-    }
-
-    template<size_t N, typename T>
-    constexpr auto makeTuneable(char const (&name)[N], T val, IdxRange<T, T, T> ir)
-    {
-        return Tuneable<StaticString<N>(name), T>{val, ir};
     }
 
     // no name supplied: fallback to macro for unique names
@@ -481,4 +494,7 @@ namespace alpaka::tune
 
 } // namespace alpaka::tune
 
+#define MAKE_TUNEABLE_VAL(NAME, VAL) alpaka::tune::makeTuneable<NAME##_ss>(VAL)
+#define MAKE_TUNEABLE_IR(NAME, IR) alpaka::tune::makeTuneable<NAME##_ss>(IR)
+#define MAKE_TUNEABLE_VAL_IR(NAME, VAL, IR) alpaka::tune::makeTuneable<NAME##_ss>(VAL, IR)
 #endif // TUNEABLE_H

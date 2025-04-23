@@ -6,6 +6,7 @@
 #define ENABLE_AUTOTUNE
 #include "../../../../example/heatEquation2D/src/StencilKernel.hpp"
 
+#include <alpaka/tune/active/constraint.hpp>
 #ifdef ENABLE_AUTOTUNE
 
 #    include <alpaka/tune/active/sessionBuilder.h>
@@ -67,12 +68,11 @@ namespace alpaka::tune::detail::internal
         }
 
         auto& stored = data.runs[runHash];
-
-        if(stored.nr_runs >= getRunsPerConfig() && stored.fullFlag)
+        if((stored.nr_runs >= getRunsPerConfig() && stored.fullFlag))
         {
             if(data.nrOfConfigs == getMaxRuns(run.maxRuns) - 1)
             {
-                ++data.nrOfConfigs;
+                ++data.nrOfConfigs; // last finished config
                 return true;
             }
 
@@ -84,7 +84,7 @@ namespace alpaka::tune::detail::internal
 
             if(newHash != oldHash && !data.runs.contains(newHash))
             {
-                ++data.nrOfConfigs;
+                ++data.nrOfConfigs; // basically indicate that the last config was finished.
             }
 
             return true;
@@ -93,27 +93,32 @@ namespace alpaka::tune::detail::internal
     }
 
     // Validate constraint or mark as Dummy
-    template<typename Constraint, typename Run, typename Data>
-    bool violatesConstraint(Run& run, Data& data, std::string const& runHash, Constraint& constraint)
+    template<typename T_Context, typename T_Constraints, typename Run, typename Data>
+    bool violatesConstraint(Run& run, Data& data, T_Constraints& constraint)
     {
+        auto runHash = run.toHash();
         if(data.runs.contains(runHash))
         {
             auto const& stored = data.runs.at(runHash);
-            return stored.state != StorageKernelRun::State::Dummy;
+            return stored.state == StorageKernelRun::State::Dummy;
         }
-
-        if(!constraint(run))
+        bool valid = true;
+        for_each(
+            constraint,
+            [&run, &valid](auto& constraint) { valid = valid && constraint.template operator()<T_Context>(run); });
+        if(!valid)
         {
+            std::cout << " detected constraint violation for " << runHash << std::endl;
             data.runs[runHash] = toStore(run);
             auto& stored = data.runs[runHash];
             using T_state = ALPAKA_TYPEOF(stored.state);
             stored.state = T_state::Dummy;
             stored.fullFlag = true;
-            stored.nr_runs = 0;
-            return false;
+            stored.nr_runs = std::numeric_limits<decltype(stored.nr_runs)>::max();
+            return true;
         }
 
-        return true;
+        return false;
     }
 
     inline void applyConfigAndExecuteKernel(
@@ -231,12 +236,16 @@ namespace alpaka
 
 #    define MetricUndefined std::numeric_limits<float>::quiet_NaN()
 
-    template<typename T_Strategy = tune::strategy::randomSearch<tune::Timing>, typename... T_KernelRunArgs>
+    template<
+        typename T_Strategy = tune::strategy::randomSearch<tune::Timing>,
+        typename T_Constraint = std::tuple<>,
+        typename... T_KernelRunArgs>
     struct TuningSession
     {
         using T_floating = double_t;
         using T_Integer = std::size_t;
         ActiveKernelRun<T_KernelRunArgs...> run;
+        T_Constraint m_constraint;
         tune::TuningHistory& history = tune::TuningHistory::get();
         T_Strategy strategy;
         T_Integer dynamicRuns_Nr{0};
@@ -248,12 +257,14 @@ namespace alpaka
 
         explicit TuningSession(
             T_Strategy strategy,
+            T_Constraint constraint,
             std::string config,
             std::size_t reRuns,
             std::size_t dynamicRuns,
             std::vector<std::string> sessionSpecifiers,
             ActiveKernelRun<T_KernelRunArgs...> const& kernel_run)
             : strategy(std::move(strategy))
+            , m_constraint(std::move(constraint))
             , config(std::move(config))
             , dynamicRuns_Nr(dynamicRuns)
             , sessionSpecifier(std::move(sessionSpecifiers))
@@ -315,6 +326,7 @@ namespace alpaka
             onHost::FrameSpec<T_NumFrames, T_FrameExtent> const& frameSpec,
             T_KernelBundle const& kernelBundle)
         {
+            std::cout << " daoiwdoiajwd d " << std::endl;
             auto* kernelptr = tune::detail::internal::setup_enqueue(
                 device,
                 exec,
@@ -329,7 +341,7 @@ namespace alpaka
             KernelData& historyKernelData = (*kernelptr->ptrToHistory);
             using T_Context = ALPAKA_TYPEOF(kernelptr);
 
-
+            std::cout << " daoiwdoiajwd d " << std::endl;
             internal_enqueue<T_Context>(
                 queue,
                 exec,
@@ -357,13 +369,21 @@ namespace alpaka
             auto& sharedParameters)
         {
             using namespace alpaka::tune::detail::internal;
-            while(data.nrOfConfigs < getMaxRuns(run.maxRuns) && !run.m_strategyState.done)
+            while(data.nrOfConfigs < getMaxRuns(run.maxRuns)
+                  && !run.m_strategyState.done /* add another breaking criteria to prevent busy looping*/)
             {
                 if(shouldSkipDueToHistory(run, data, sharedParameters, strategy))
+                {
+                    std::cout << " we skip here " << std::endl;
                     continue;
-                // if(violatesConstraint(run, data, runHash, constraint))
-                // continue;
-
+                }
+                std::cout << " bef check constaint " << run.toHash() << std::endl;
+                if(violatesConstraint<T_Context>(run, data, m_constraint))
+                {
+                    std::cout << " we continue" << std::endl;
+                    continue;
+                }
+                std::cout << " we execute this " << std::endl;
                 break;
             }
             if(data.nrOfConfigs >= getMaxRuns(run.maxRuns))

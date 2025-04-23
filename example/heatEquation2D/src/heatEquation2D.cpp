@@ -26,6 +26,12 @@
 #include <iostream>
 #include <utility>
 
+template<size_t N>
+constexpr char getFirstChar(char const (&str)[N])
+{
+    return str[0]; // ✅ OK, compile-time access
+}
+
 //! Each kernel computes the next step for one point.
 //! Therefore the number of threads should be equal to numNodesX.
 //! Every time step the kernel will be executed numNodesX-times
@@ -137,9 +143,8 @@ auto example(T_Cfg const& cfg) -> int
     auto sharedMemExtents = CVec<uint32_t, ySize + halo, xSize + halo>{};
     StencilKernel stencilKernel;
     BoundaryKernel boundaryKernel;
-
+    // acceptLiteral("daw");
     auto dataBlockingStencil = FrameSpec{numChunks, chunkSize};
-
     constexpr auto longestSide = std::max(numNodesWithHalo.y(), numNodesWithHalo.x());
     auto dataBlockingBorder = FrameSpec{Vec{longestSide / chunkSize.x()}, Vec{std::max(chunkSize.y(), chunkSize.x())}};
     auto toRTime = FrameSpec{
@@ -150,6 +155,8 @@ auto example(T_Cfg const& cfg) -> int
     // static_assert(std::is_same_v<uVec, void>);
     // static_assert(std::is_same_v<fVec, void>);
     auto vec = fVec{4, 8};
+    constexpr char first = getFirstChar("hello"); // works
+    constexpr auto tune = MAKE_TUNEABLE_VAL("hal", alpaka::Vec{1}); // does not work.
     auto tuningSession
         = tune::TuningBuilder{}
               .withStrategy(alpaka::tune::strategy::randomSearch{})
@@ -157,8 +164,16 @@ auto example(T_Cfg const& cfg) -> int
                   tune::makeThreadBlockSizeTune(fVec{4, 8}, IdxRange{fVec{4, 8}, toRTime.m_frameExtent, fVec{4, 8}}))
               .withNumBlocksTune()
               .withRunSpecifiers(std::to_string(numNodes.x()))
+              //.withConstraint(cStr("a"), cStr("b"), [](auto a, auto b) { return a > b; })
+              .template withConstraint<tune::makeNumBlocksTune().tag, tune::makeThreadBlockSizeTune().tag>(
+                  [](auto a, auto b)
+                  {
+                      std::cout << "Vec a: value " << a.toString() << std::endl;
+                      return a[0] < b[0];
+                  })
               .withConfig("./config/babelstream.toml")
               .build();
+    std::cout << " after build " << std::endl;
     auto startTime = std::chrono::high_resolution_clock::now();
 
     // Simulate

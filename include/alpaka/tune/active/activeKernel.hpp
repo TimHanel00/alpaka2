@@ -19,19 +19,6 @@ struct strategyState
     std::string oldKernelHash;
 };
 
-template<size_t N1, size_t N2>
-constexpr bool operator==(alpaka::tune::StaticString<N1> const& a, alpaka::tune::StaticString<N2> const& b)
-{
-    if constexpr(N1 != N2)
-        return false;
-    for(size_t i = 0; i < N1; ++i)
-    {
-        if(a.value[i] != b.value[i])
-            return false;
-    }
-    return true;
-}
-
 template<typename T>
 inline constexpr bool is_empty_tuple_v = std::is_same_v<std::remove_cv_t<std::remove_reference_t<T>>, std::tuple<>>;
 
@@ -224,6 +211,34 @@ struct ActiveKernelRun
         {
             return &alpaka::tune::noTune; // or nullptr if appropriate
         }
+    }
+
+    template<StaticString Tag, typename Tuple, std::size_t I = 0>
+    static constexpr auto getNameFromTuple()
+    {
+        if constexpr(I < std::tuple_size_v<Tuple>)
+        {
+            using Elem = std::tuple_element_t<I, Tuple>;
+            if constexpr(Elem::tag == Tag)
+            {
+                return Elem::tag;
+            }
+            else
+            {
+                return getNameFromTuple<Tag, Tuple, I + 1>();
+            }
+        }
+        else
+        {
+            return alpaka::tune::empty_name;
+        }
+    }
+
+    template<StaticString Tag>
+    static constexpr auto getName()
+    {
+        using All = decltype(std::tuple_cat(std::declval<T_FrameTuneables>(), std::declval<T_UserTuple>()));
+        return getNameFromTuple<Tag, All>();
     }
 
     template<std::size_t I = 0, typename Tuple, auto Name>
