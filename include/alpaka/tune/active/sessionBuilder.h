@@ -36,11 +36,12 @@ namespace alpaka::tune
         TuningBuilder() = default;
         explicit TuningBuilder(ActiveKernelRun<T_KernelRunArgs...> const& newRun) : m_run(newRun) {};
 
-        template<typename T_Tune>
-        auto withTuning(T_Tune tuningObject) const
+        template<auto N, typename T>
+        auto withTuning(Tuneable<N, T> tuningObject) const
         {
+            std::cout << " before with Tuning, " << m_run.toHash() << std::endl;
             auto newRun = appendTuning(m_run, tuningObject);
-
+            std::cout << " after with Tuning, " << newRun.toHash() << std::endl;
             auto ret = helperCreateNewBuilder<T_Strategy>(newRun);
             ret.m_config = m_config;
             ret.m_reRuns = m_reRuns;

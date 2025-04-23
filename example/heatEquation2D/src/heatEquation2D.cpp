@@ -83,7 +83,7 @@ auto example(T_Cfg const& cfg) -> int
     constexpr IdxVec extent = numNodes + haloSize;
 
     constexpr uint32_t numTimeSteps = 4000 * 32;
-    constexpr double tMax = 0.0000001;
+    constexpr double tMax = 0.000001;
 
     // x, y in [0, 1], t in [0, tMax]
     constexpr double dx = 1.0 / static_cast<double>(extent[1] - 1);
@@ -125,7 +125,7 @@ auto example(T_Cfg const& cfg) -> int
     constexpr auto chunkSize = CVec<Idx, ySize, xSize>{};
     constexpr auto numNodesWithHalo = numNodes + halo;
 
-    constexpr IdxVec numChunks{
+    IdxVec numChunks{
         alpaka::divCeil(numNodes[0], chunkSize[0]),
         alpaka::divCeil(numNodes[1], chunkSize[1]),
     };
@@ -143,35 +143,33 @@ auto example(T_Cfg const& cfg) -> int
     constexpr auto longestSide = std::max(numNodesWithHalo.y(), numNodesWithHalo.x());
     auto dataBlockingBorder = FrameSpec{Vec{longestSide / chunkSize.x()}, Vec{std::max(chunkSize.y(), chunkSize.x())}};
     auto toRTime = FrameSpec{
-        dataBlockingStencil.m_numFrames.x(),
-        dataBlockingStencil.m_numFrames.y(),
-        dataBlockingStencil.m_frameExtent.x(),
-        dataBlockingStencil.m_frameExtent.y()};
+        Vec{dataBlockingStencil.m_numFrames.x(), dataBlockingStencil.m_numFrames.y()},
+        Vec{dataBlockingStencil.m_frameExtent.x(), dataBlockingStencil.m_frameExtent.y()}};
     using uVec = ALPAKA_TYPEOF(toRTime.m_numFrames);
-    using fVec = ALPAKA_TYPEOF(dataBlockingBorder.m_frameExtent);
-    auto tuningSession = tune::TuningBuilder{}
-                             .withStrategy(alpaka::tune::strategy::randomSearch{})
-                             .withBlockSizeTune(
-                                 alpaka::tune::ThreadBlockSizeTune{
-                                     fVec{4, 8},
-                                     IdxRange{fVec{64}, dataBlocking.m_frameExtent, fVec{4, 8}}})
-                             .withRunSpecifiers(std::to_string(arraySize))
-                             .withNumBlocksTune(
-                                 alpaka::tune::NumBlocksTune{
-                                     uVec{56 * 2},
-                                     IdxRange{uVec{56 * 2}, uVec{dataBlocking.m_numFrames}, uVec{56 * 2}}})
-                             .withConfig("./config/babelstream.toml")
-                             .build();
+    using fVec = ALPAKA_TYPEOF(toRTime.m_frameExtent);
+    // static_assert(std::is_same_v<uVec, void>);
+    // static_assert(std::is_same_v<fVec, void>);
+    auto vec = fVec{4, 8};
+    auto tuningSession
+        = tune::TuningBuilder{}
+              .withStrategy(alpaka::tune::strategy::randomSearch{})
+              .withBlockSizeTune(
+                  tune::makeThreadBlockSizeTune(fVec{4, 8}, IdxRange{fVec{4, 8}, toRTime.m_frameExtent, fVec{4, 8}}))
+              .withNumBlocksTune()
+              .withRunSpecifiers(std::to_string(numNodes.x()))
+              .withConfig("./config/babelstream.toml")
+              .build();
     auto startTime = std::chrono::high_resolution_clock::now();
 
     // Simulate
     for(uint32_t step = 1; step <= numTimeSteps; ++step)
     {
         // Compute next values
-        alpaka::onHost::enqueue(
+        tuningSession.enqueue(
+            devAcc,
             computeQueue,
             exec,
-            dataBlockingStencil,
+            toRTime,
             KernelBundle{
                 stencilKernel,
                 uCurrBufAcc.getMdSpan(),

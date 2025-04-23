@@ -122,6 +122,12 @@ namespace alpaka::tune
         return max;
     }
 
+    template<typename T_NumBlocks, typename T_NumThreads, typename T_KernelRun>
+    static auto adjustThreadSpec(
+        auto& deviceHandle,
+        auto const& executor,
+        alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
+        T_KernelRun const& run);
 #define NrOfNumFrameConfigs 20
 #define NrOfFrameExtentConfigs 20
 
@@ -138,7 +144,7 @@ namespace alpaka::tune
         T_KernelRun const& run)
     { // always apply current frameTuning
         auto newRun = makeActiveKernel(
-            run.userDefTuneables,
+            run.userTuneables,
             run.getNumFramesTune(),
             run.getFrameExtentTune(),
             run.getNumBlocksTune(),
@@ -217,7 +223,7 @@ namespace alpaka::tune
             T_KernelRun const& kernelRun)
         {
             auto newRun = makeActiveKernel(
-                kernelRun.userDefTuneables,
+                kernelRun.userTuneables,
                 kernelRun.getNumFramesTune(),
                 kernelRun.getFrameExtentTune());
             auto numThreads = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
@@ -248,7 +254,7 @@ namespace alpaka::tune
         {
             //@TODO add specialization
             auto newRun = makeActiveKernel(
-                kernelRun.userDefTuneables,
+                kernelRun.userTuneables,
                 kernelRun.getNumFramesTune(),
                 kernelRun.getFrameExtentTune(),
                 kernelRun.getNumBlocksTune());
@@ -259,7 +265,7 @@ namespace alpaka::tune
                 {
                     newRun.getNumBlocksTune().idxRange.m_begin
                         = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
-                    newRun.getNumBlocksTune().idxRange.m_end = ceilRootOverDimPartitioning(
+                    newRun.getNumBlocksTune().idxRange.m_end = primeFactorPartitioning(
                         alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
                         T_NumThreads{});
                     newRun.getNumBlocksTune().idxRange.m_stride
@@ -297,7 +303,7 @@ namespace alpaka::tune
                 {
                     newRun.getThreadBlockSizeTune().idxRange.m_begin
                         = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
-                    newRun.getThreadBlockSizeTune().idxRange.m_end = ceilRootOverDimPartitioning(
+                    newRun.getThreadBlockSizeTune().idxRange.m_end = primeFactorPartitioning(
                         alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
                         T_NumThreads{});
                     newRun.getThreadBlockSizeTune().idxRange.m_stride
@@ -336,7 +342,6 @@ namespace alpaka::tune
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads>,
             T_KernelRun>{}(deviceHandle, executor, dataBlocking, run);
     }
-
 
 }; // namespace alpaka::tune
 #endif // TUNERCPU_HPP

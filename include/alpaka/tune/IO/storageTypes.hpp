@@ -56,14 +56,15 @@ inline std::vector<std::string> getTokens(std::string const& f)
 template<typename T>
 auto vectorFromString(std::string const& s)
 {
-    if constexpr(alpaka::isVector_v<T>)
+    using T_vec = std::remove_cvref_t<T>;
+    if constexpr(alpaka::isVector_v<T_vec>)
     {
-        constexpr auto dim = alpaka::getDim(T{});
-        using ElementType = typename T::type;
+        constexpr auto dim = alpaka::getDim(T_vec{});
+        using ElementType = typename T_vec::type;
         auto tokens = getTokens(s);
 
         if(tokens.size() != dim)
-            throw std::runtime_error("Mismatch between vector dimension and number of values");
+            throw std::runtime_error("FMismatch between vector dimension and number of values");
         auto parse = [](std::string const& tok)
         {
             std::istringstream iss(tok);
@@ -74,7 +75,7 @@ auto vectorFromString(std::string const& s)
         };
 
         return [&]<std::size_t... I>(std::index_sequence<I...>)
-        { return T{parse(tokens[I])...}; }(std::make_index_sequence<dim>{});
+        { return T_vec{parse(tokens[I])...}; }(std::make_index_sequence<dim>{});
     }
     throw std::runtime_error("tuneable string does not match any known type");
 }
@@ -89,7 +90,6 @@ inline void tuneableFromString(alpaka::tune::StorageTuneable const& s, T_Tune& k
     else
     {
         k.value = vectorFromString<ALPAKA_TYPEOF(k.value)>(s.value);
-        k.name = s.name;
     }
 }
 
@@ -316,6 +316,7 @@ public:
         double_t ciWidth = ciHigh - ciLow;
         double_t allowedRange = tolerance * median;
         // Check if 99% CI width is within 5% of the median
+        std::cout << " boundary " << (ciWidth / median) << " tolerance: " << tolerance << std::endl;
         return (ciWidth / median) <= tolerance;
     }
 
@@ -590,29 +591,30 @@ static KernelData createKernelData(
  */
 
 
-template<typename Tuple, std::size_t... I>
-void updateTuneablesImpl(
-    Tuple& tup,
-    std::vector<alpaka::tune::StorageTuneable> const& storage,
-    std::index_sequence<I...>)
+template<typename Tuple>
+void updateTuneables(Tuple& tup, std::vector<alpaka::tune::StorageTuneable> const& storage)
 {
-    // iterate over tuple elements cast stored string values to corresponding tuple type
-    ((std::get<I>(tup).name = storage[I].name,
-      std::get<I>(tup).value = convertFromString<decltype(std::get<I>(tup).value)>(storage[I].value)),
-     ...);
+    std::apply(
+        [&](auto&... elems)
+        {
+            std::size_t i = 0;
+            (void) std::initializer_list<int>{(
+                [&]
+                {
+                    if(std::string(elems.name()) == storage[i].name)
+                    {
+                        elems.value = vectorFromString<decltype(elems.value)>(storage[i].value);
+                    }
+                    ++i;
+                }(),
+                0)...};
+        },
+        tup);
 }
 
 // A free function that updates an the configuration found in a storageKernel
-template<
-    typename T_numFramesTune,
-    typename T_frameExtentTune,
-    typename T_numBlocksTune,
-    typename T_numThreadsTune,
-    typename T_UserDefTuneablesTune>
-void toActive(
-    ActiveKernelRun<T_numFramesTune, T_frameExtentTune, T_numBlocksTune, T_numThreadsTune, T_UserDefTuneablesTune>&
-        active,
-    StorageKernelRun const& storeKernel)
+template<typename T_userTuple, typename T_frameTuple>
+void toActive(ActiveKernelRun<T_userTuple, T_frameTuple>& active, StorageKernelRun const& storeKernel)
 {
     // Update gridSize if available.
     if(storeKernel.numFramesTune.has_value())
@@ -631,8 +633,7 @@ void toActive(
     {
         tuneableFromString(storeKernel.threadBlockSize.value(), active.getThreadBlockSizeTune());
     }
-    constexpr std::size_t tupleSize = std::tuple_size_v<T_UserDefTuneablesTune>;
-    updateTuneablesImpl(active.userDefTuneables, storeKernel.tuneables, std::make_index_sequence<tupleSize>{});
+    updateTuneables(active.userTuneables, storeKernel.tuneables);
 
     // Update metric by converting the storage string metric to the active kernel's floating type.
     active.metric = storeKernel.getMetric<median_t>().as<t_ns>();
@@ -646,25 +647,25 @@ StorageKernelRun toStore(ActiveKernelRun<T_KernelRunArgs...>& active)
     if constexpr(ActiveKernelRun<T_KernelRunArgs...>::hasNumFramesTune())
     {
         result.numFramesTune = alpaka::tune::StorageTuneable{
-            active.getNumFramesTune().name,
+            std::string(active.getNumFramesTune().name()),
             convertToString(active.getNumFramesTune().value)};
     }
     if constexpr(ActiveKernelRun<T_KernelRunArgs...>::hasFrameExtentTune())
     {
         result.frameExtentTune = alpaka::tune::StorageTuneable{
-            active.getFrameExtentTune().name,
+            std::string(active.getFrameExtentTune().name()),
             convertToString(active.getFrameExtentTune().value)};
     }
     if constexpr(ActiveKernelRun<T_KernelRunArgs...>::hasNumBlocksTune())
     {
         result.numBlocksTune = alpaka::tune::StorageTuneable{
-            active.getNumBlocksTune().name,
+            std::string(active.getNumBlocksTune().name()),
             convertToString(active.getNumBlocksTune().value)};
     }
     if constexpr(ActiveKernelRun<T_KernelRunArgs...>::hasThreadBlockSizeTune())
     {
         result.threadBlockSize = alpaka::tune::StorageTuneable{
-            active.getThreadBlockSizeTune().name,
+            std::string(active.getThreadBlockSizeTune().name()),
             convertToString(active.getThreadBlockSizeTune().value)};
     }
 
@@ -682,10 +683,10 @@ StorageKernelRun toStore(ActiveKernelRun<T_KernelRunArgs...>& active)
         [&result](auto const&... tuneable)
         {
             ((result.tuneables.emplace_back(
-                 alpaka::tune::StorageTuneable{tuneable.name, convertToString(tuneable.value)})),
+                 alpaka::tune::StorageTuneable{std::string(tuneable.name()), convertToString(tuneable.value)})),
              ...);
         },
-        active.userDefTuneables);
+        active.userTuneables);
     return result;
 }
 

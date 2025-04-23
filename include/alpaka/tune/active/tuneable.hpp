@@ -229,33 +229,6 @@ namespace alpaka::tune
         }
     };
 
-    template<size_t N, typename T>
-    constexpr auto makeTuneable(char const (&name)[N], T val)
-    {
-        return Tuneable<StaticString<N>(name), T>(std::move(val));
-    }
-
-    template<size_t N>
-    struct StaticString
-    {
-        char value[N];
-
-        constexpr StaticString(char const (&str)[N])
-        {
-            std::copy_n(str, N, value);
-        }
-
-        constexpr operator std::string_view() const
-        {
-            return std::string_view(value, N - 1); // exclude null terminator
-        }
-
-        constexpr std::string_view name() const
-        {
-            return std::string_view(value, N - 1);
-        }
-    };
-
 //--------------------------------------
 // 2. Compile-time unique name generator via macro
 //--------------------------------------
@@ -274,10 +247,11 @@ namespace alpaka::tune
         T value;
         bool userDef;
         IdxRange<T, T, T> idxRange;
+        static constexpr auto tag = Name;
 
         static constexpr std::string_view name()
         {
-            return Name.name();
+            return Name;
         }
 
         constexpr Tuneable() : value{}, userDef(false), idxRange(defaultIdxRange(T{}))
@@ -331,7 +305,7 @@ namespace alpaka::tune
 
         [[nodiscard]] std::string toHash() const
         {
-            return std::string(Name.name()) + "*" + value.toString();
+            return std::string(Name) + "*" + value.toString();
         }
 
         bool operator==(Tuneable const& other) const
@@ -344,6 +318,30 @@ namespace alpaka::tune
             return Tuneable(value, idxRange);
         }
     };
+
+    template<StaticString Name, typename T>
+    constexpr auto makeTuneable()
+    {
+        return Tuneable<Name, T>{};
+    }
+
+    template<StaticString Name, typename T>
+    constexpr auto makeTuneable(T val)
+    {
+        return Tuneable<Name, T>{val};
+    }
+
+    template<StaticString Name, typename T>
+    constexpr auto makeTuneable(IdxRange<T, T, T> ir)
+    {
+        return Tuneable<Name, T>{ir};
+    }
+
+    template<StaticString Name, typename T>
+    constexpr auto makeTuneable(T val, IdxRange<T, T, T> ir)
+    {
+        return Tuneable<Name, T>{val, ir};
+    }
 
     template<size_t N, typename T>
     constexpr auto makeTuneable(char const (&name)[N])
@@ -378,10 +376,11 @@ namespace alpaka::tune
     // Specialized tunables
 
 
-    inline constexpr StaticString gridSizeName{"gridSize"};
-    inline constexpr StaticString threadBlockSizeName{"threadBlockSize"};
-    inline constexpr StaticString numFramesName{"numFrames"};
-    inline constexpr StaticString frameExtentName{"frameExtent"};
+    inline constexpr StaticString<9> gridSizeName{"gridSize"};
+    inline constexpr StaticString<16> threadBlockSizeName{"threadBlockSize"};
+    inline constexpr StaticString<10> numFramesName{"numFrames"};
+    inline constexpr StaticString<12> frameExtentName{"frameExtent"};
+    inline constexpr alpaka::tune::NoTune noTune{};
 
     template<typename T = alpaka::Vec<std::size_t, 1>>
     constexpr auto makeNumBlocksTune()

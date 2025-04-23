@@ -140,22 +140,22 @@ namespace alpaka::tune
                                         {
                                             auto tkey = tuneablesID[i].as_string();
                                             auto value_tuneAble = tuneablesV[i].as_string();
-                                            if(tkey == alpaka::tune::NumBlocksTune<>{}.name)
+                                            if(std::string_view(tkey) == makeNumBlocksTune().name())
                                             {
                                                 run.numBlocksTune
                                                     = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
                                             }
-                                            else if(tkey == alpaka::tune::ThreadBlockSizeTune<>{}.name)
+                                            else if(std::string_view(tkey) == makeThreadBlockSizeTune().name())
                                             {
                                                 run.threadBlockSize
                                                     = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
                                             }
-                                            else if(tkey == alpaka::tune::NumFramesTune<>{}.name)
+                                            else if(std::string_view(tkey) == makeNumFramesTune().name())
                                             {
                                                 run.numFramesTune
                                                     = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
                                             }
-                                            else if(tkey == alpaka::tune::FrameExtentTune<>{}.name)
+                                            else if(std::string_view(tkey) == makeFrameExtentTune().name())
                                             {
                                                 run.threadBlockSize
                                                     = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
@@ -175,7 +175,7 @@ namespace alpaka::tune
                                 }
 
                                 std::string kernelKey = run.toHash();
-                                kernelData.nrOfConfigs += run.nr_runs;
+                                kernelData.nrOfConfigs++;
                                 kernelData.runs[kernelKey] = std::move(run);
                             }
                         }

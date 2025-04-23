@@ -37,8 +37,8 @@ struct is_tuneable : std::false_type
 {
 };
 
-template<typename T>
-struct is_tuneable<alpaka::tune::Tuneable<T>> : std::true_type
+template<auto N, typename T>
+struct is_tuneable<alpaka::tune::Tuneable<N, T>> : std::true_type
 {
 };
 
@@ -50,8 +50,8 @@ struct tuneable_underlying
 {
 };
 
-template<typename T>
-struct tuneable_underlying<alpaka::tune::Tuneable<T>>
+template<auto N, typename T>
+struct tuneable_underlying<alpaka::tune::Tuneable<N, T>>
 {
     using type = T;
 };
@@ -87,15 +87,15 @@ auto flattenImpl(TuneableType& tune, std::index_sequence<I...>)
     return std::make_tuple(
         alpaka::tune::FlatTuneableHandle<ElementType>(
             tune.value[I],
-            tune.name + "_" + std::to_string(I),
+            std::string(tune.name()) + "_" + std::to_string(I),
             tune.userDef,
             tune.idxRange.m_begin[I],
             tune.idxRange.m_end[I],
             tune.idxRange.m_stride[I])...);
 }
 
-template<typename T>
-auto flatten(alpaka::tune::Tuneable<T>& tune)
+template<auto N, typename T>
+auto flatten(alpaka::tune::Tuneable<N, T>& tune)
 {
     constexpr auto dim = alpaka::getDim(T{});
     return flattenImpl(tune, std::make_index_sequence<dim>{});
@@ -215,8 +215,8 @@ auto makeSharedParameterInterface(T_KernelRun& run)
 {
     auto userDef_tuneableTupleInterface = std::apply(
         [](auto&... elems) { return std::tuple_cat(makeNonOwningTuneableTuple(elems)...); },
-        run.userDefTuneables);
+        run.userTuneables);
 
-    return std::tuple_cat(userDef_tuneableTupleInterface, makeNonOwningframeSpecTuple(run.frameSpecTuple));
+    return std::tuple_cat(userDef_tuneableTupleInterface, makeNonOwningframeSpecTuple(run.frameTuneables));
 }
 #endif // TUPLEHANDLE_H

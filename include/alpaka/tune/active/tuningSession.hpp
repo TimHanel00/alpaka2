@@ -41,11 +41,13 @@ namespace alpaka::tune::detail::internal
             }
         }
 
-        auto* kernelptr = getTuningEnvironment(device, exec, frameSpec, kernelBundle, run, sessionSpecifier, history);
+        static auto* kernelptr
+            = getTuningEnvironment(device, exec, frameSpec, kernelBundle, run, sessionSpecifier, history).get();
 
         if(sessionSpecifier != kernelptr->ptrToHistory->specifiers)
         {
-            kernelptr = getTuningEnvironment(device, exec, frameSpec, kernelBundle, run, sessionSpecifier, history);
+            kernelptr
+                = getTuningEnvironment(device, exec, frameSpec, kernelBundle, run, sessionSpecifier, history).get();
         }
 
         return kernelptr;
@@ -55,30 +57,36 @@ namespace alpaka::tune::detail::internal
 
     // Check if a strategy should be applied and config should be skipped
     template<typename Run, typename Data, typename SharedParams, typename Strategy>
-    bool shouldSkipDueToHistory(
-        std::string const& runHash,
-        Run& run,
-        Data& data,
-        SharedParams& sharedParams,
-        Strategy& strategy)
+    bool shouldSkipDueToHistory(Run& run, Data& data, SharedParams& sharedParams, Strategy& strategy)
     {
+        auto runHash = run.toHash();
+
         if(!data.runs.contains(runHash))
+        {
             return false;
+        }
 
         auto& stored = data.runs[runHash];
-        if(stored.nr_runs >= run.reRuns && stored.fullFlag)
+
+        if(stored.nr_runs >= getRunsPerConfig() && stored.fullFlag)
         {
             if(data.nrOfConfigs == getMaxRuns(run.maxRuns) - 1)
             {
                 ++data.nrOfConfigs;
                 return true;
             }
+
             std::string oldHash = run.toHash();
+
             strategy(sharedParams, run, data);
-            if(run.toHash() != oldHash && !data.runs.contains(run.toHash()))
+
+            std::string newHash = run.toHash();
+
+            if(newHash != oldHash && !data.runs.contains(newHash))
             {
                 ++data.nrOfConfigs;
             }
+
             return true;
         }
         return false;
@@ -113,10 +121,10 @@ namespace alpaka::tune::detail::internal
         auto exec,
         auto const& kernelBundle,
         auto& spec,
-        auto const& run)
+        auto& run)
     {
         applyCustomThreadSpec(run, spec);
-        auto bundle = recreate(kernelBundle, run.userDefTuneables);
+        auto bundle = recreate(kernelBundle, run.userTuneables);
         {
             auto event = tune::createTimeEventFromActive(run);
             onHost::enqueue(queue, exec, spec, bundle);
@@ -149,8 +157,9 @@ namespace alpaka::tune::detail::internal
         onHost::wait(queue);
     }
 
-    inline void storeOrUpdateMetrics(auto& run, KernelData& data, std::string const& runHash)
+    inline void storeOrUpdateMetrics(auto& run, KernelData& data)
     {
+        auto runHash = run.toHash();
         using T_state = ALPAKA_TYPEOF(data.runs[runHash].state);
 
         if(!data.runs.contains(runHash))
@@ -160,14 +169,20 @@ namespace alpaka::tune::detail::internal
             stored.stamp = run.m_strategyState.configStamp++;
             stored.state = T_state::WarmUp;
             stored.nr_runs = 0;
+
             if(stored.state == T_state::Dummy)
+            {
                 stored.fullFlag = true;
+            }
+
             return;
         }
 
         auto& stored = data.runs[runHash];
-        if(stored.state == T_state::Dummy || (stored.nr_runs > run.reRuns && stored.fullFlag))
+        if(stored.state == T_state::Dummy || (stored.nr_runs > getRunsPerConfig() && stored.fullFlag))
+        {
             return;
+        }
 
         switch(stored.state)
         {
@@ -177,15 +192,16 @@ namespace alpaka::tune::detail::internal
             stored.state = T_state::Initialized;
             ++stored.nr_runs;
             break;
+
         case T_state::Initialized:
             stored.pushMetric(run.metric);
             ++stored.nr_runs;
             break;
+
         default:
             break;
         }
     }
-
 } // namespace alpaka::tune::detail::internal
 
 namespace alpaka
@@ -215,7 +231,7 @@ namespace alpaka
 
 #    define MetricUndefined std::numeric_limits<float>::quiet_NaN()
 
-    template<typename T_Strategy = alpaka::tune::strategy::randomSearch<tune::Timing>, typename... T_KernelRunArgs>
+    template<typename T_Strategy = tune::strategy::randomSearch<tune::Timing>, typename... T_KernelRunArgs>
     struct TuningSession
     {
         using T_floating = double_t;
@@ -299,12 +315,21 @@ namespace alpaka
             onHost::FrameSpec<T_NumFrames, T_FrameExtent> const& frameSpec,
             T_KernelBundle const& kernelBundle)
         {
-            auto* kernelptr
-                = setup_enqueue(device, exec, frameSpec, kernelBundle, this->run, sessionSpecifier, history, config);
+            auto* kernelptr = tune::detail::internal::setup_enqueue(
+                device,
+                exec,
+                frameSpec,
+                kernelBundle,
+                this->run,
+                sessionSpecifier,
+                history,
+                config);
 
             auto& activeRun = *kernelptr->activeRunPtr;
             KernelData& historyKernelData = (*kernelptr->ptrToHistory);
             using T_Context = ALPAKA_TYPEOF(kernelptr);
+
+
             internal_enqueue<T_Context>(
                 queue,
                 exec,
@@ -313,10 +338,6 @@ namespace alpaka
                 historyKernelData,
                 kernelptr->frameSpec,
                 kernelptr->sharedParams);
-
-            std::cout << "[DEBUG] Max configs: " << getMaxRuns(activeRun.maxRuns)
-                      << ", History size: " << historyKernelData.runs.size()
-                      << ", Sum of runs: " << historyKernelData.nrOfConfigs << std::endl;
         }
 
         //---internal_enqueue---
@@ -335,25 +356,27 @@ namespace alpaka
             onHost::FrameSpec<T_NumBlocks, T_NumThreads>& spec,
             auto& sharedParameters)
         {
-            auto runHash = run.toHash();
             using namespace alpaka::tune::detail::internal;
-            while(data.nrOfConfigs < getMaxRuns(run.maxRuns))
+            while(data.nrOfConfigs < getMaxRuns(run.maxRuns) && !run.m_strategyState.done)
             {
-                if(shouldSkipDueToHistory(runHash, run, data, sharedParameters, strategy))
+                if(shouldSkipDueToHistory(run, data, sharedParameters, strategy))
                     continue;
-                if(violatesConstraint(run, data, runHash, constraint))
-                    continue;
+                // if(violatesConstraint(run, data, runHash, constraint))
+                // continue;
 
                 break;
             }
             if(data.nrOfConfigs >= getMaxRuns(run.maxRuns))
             {
                 applyBestAndExecute(queue, exec, kernelBundle, run, data, spec, history, config);
+                std::cout << "[TUNE] with best config " << run.toHash() << " time: " << run.metric << std::endl;
                 return;
             }
 
             applyConfigAndExecuteKernel(queue, exec, kernelBundle, spec, run);
-            storeOrUpdateMetrics(run, data, runHash);
+            std::cout << "[TUNE] " << data.nrOfConfigs << " out of " << getMaxRuns(run.maxRuns) << " checked. "
+                      << "Current config: " << run.toHash() << " time: " << run.metric << std::endl;
+            storeOrUpdateMetrics(run, data);
         }
 
         ~TuningSession()

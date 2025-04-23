@@ -6,6 +6,7 @@
 #define KERNELSINGLETON_H
 #include "alpaka/core/decay.hpp"
 #include "alpaka/tune/adjust/adjust.hpp"
+#include "tuneable.hpp"
 
 #include <alpaka/onHost/FrameSpec.hpp>
 #include <alpaka/tune/IO/storageTypes.hpp>
@@ -82,29 +83,11 @@ public:
         KernelData& h = *ptrToHistory;
         activeRunPtr->m_strategyState.configStamp = h.highestStamp;
         // acts like a guard only valid configs are used for the device
-#ifdef DEBUG_Singleton
-        std::cout << " gridSize Range: after adjust" << std::endl;
-        printRange(activeRunPtr->getNumBlocksTune().idxRange);
-        // std::cout << " blockSize Range: after adjust" << std::endl;
-        // printRange(activeRunPtr->getThreadBlockSizeTune().idxRange);
-#endif
-        clampToSpec(frameSpec, *activeRunPtr);
-#ifdef DEBUG_Singleton
-        std::cout << " gridSize Range: after adjust" << std::endl;
-        printRange(activeRunPtr->getNumBlocksTune().idxRange);
-        // std::cout << " blockSize Range: after adjust" << std::endl;
-        // printRange(activeRunPtr->getThreadBlockSizeTune().idxRange);
 
-#endif
+        alpaka::tune::clampToSpec(frameSpec, *activeRunPtr);
 
-        recalculateMaxRuns(*activeRunPtr);
-#ifdef DEBUG_Singleton
-        std::cout << " gridSize Range: after adjust" << std::endl;
-        printRange(activeRunPtr->getNumBlocksTune().idxRange);
-        // std::cout << " blockSize Range: after adjust" << std::endl;
-        // printRange(activeRunPtr->getThreadBlockSizeTune().idxRange);
+        alpaka::tune::recalculateMaxRuns(*activeRunPtr);
 
-#endif
         applyCustomThreadSpec(*activeRunPtr, frameSpec);
     }
 
@@ -112,7 +95,7 @@ public:
 };
 
 template<typename T_Vec>
-auto makeConformToTVec(T_Vec const&, alpaka::tune::NoTune)
+auto makeConformToTVec(T_Vec const&, alpaka::tune::NoTune const&)
 {
     return alpaka::tune::NoTune{};
 }
@@ -121,10 +104,8 @@ auto makeConformToTVec(T_Vec const&, alpaka::tune::NoTune)
  * ensures that a a user defined tuning conforms to the framespec types and I know its ugly
  *
  */
-template<typename T_Vec, template<typename> class T_Tunable, typename T>
-T_Tunable<alpaka::Vec<typename T_Vec::type, T_Vec::dim()>> makeConformToTVec(
-    T_Vec const& vec,
-    T_Tunable<T> const& tuneable)
+template<auto N, typename T_Vec, typename T>
+auto makeConformToTVec(T_Vec const& vec, alpaka::tune::Tuneable<N, T> const& tuneable)
 {
     constexpr std::size_t targetDim = T_Vec::dim();
     constexpr std::size_t sourceDim = ALPAKA_TYPEOF(tuneable.value)::dim();
@@ -144,11 +125,13 @@ T_Tunable<alpaka::Vec<typename T_Vec::type, T_Vec::dim()>> makeConformToTVec(
         if(!tuneable.userDef)
         {
             T_Vec ones = T_Vec::all(1);
-            auto ret = T_Tunable{vec, alpaka::IdxRange{ones, vec, ones}};
+            auto ret
+                = alpaka::tune::makeTuneable<tuneable.tag, ALPAKA_TYPEOF(vec)>(vec, alpaka::IdxRange{ones, vec, ones});
             ret.userDef = false;
+            std::cout << " created vector for conformity " << ret.toHash() << std::endl;
             return ret;
         }
-        std::string s = tuneable.name;
+        std::string s = std::string(tuneable.name());
         throw std::runtime_error("The dimension of " + s + " must match the dimension of the threadSpec.");
     }
     else
@@ -166,12 +149,15 @@ T_Tunable<alpaka::Vec<typename T_Vec::type, T_Vec::dim()>> makeConformToTVec(
                 stride[i] = tuneable.idxRange.m_stride[i];
             }
 
-            T_Tunable ret{value, alpaka::IdxRange{begin, end, stride}};
+            auto ret = alpaka::tune::makeTuneable<tuneable.tag, ALPAKA_TYPEOF(value)>(
+                value,
+                alpaka::IdxRange{begin, end, stride});
             return ret;
         }
 
         T_Vec ones = T_Vec::all(1);
-        auto ret = T_Tunable{vec, alpaka::IdxRange{ones, vec, ones}};
+        auto ret
+            = alpaka::tune::makeTuneable<tuneable.tag, ALPAKA_TYPEOF(vec)>(vec, alpaka::IdxRange{ones, vec, ones});
         ret.userDef = false;
         return ret;
     }
@@ -180,10 +166,10 @@ T_Tunable<alpaka::Vec<typename T_Vec::type, T_Vec::dim()>> makeConformToTVec(
 template<typename T_frameSpec, typename... T_Args>
 auto makeConformToFrameSpec(T_frameSpec& spec, ActiveKernelRun<T_Args...>& kernelRun)
 {
+    // ActiveKernelRun run;
     // auto h = makeConformToTVec(spec.m_numFrames, kernelRun.getNumFramesTune());
-
     return makeActiveKernel(
-        kernelRun.userDefTuneables,
+        kernelRun.userTuneables,
         makeConformToTVec(spec.m_numFrames, kernelRun.getNumFramesTune()),
 
         makeConformToTVec(spec.m_frameExtent, kernelRun.getFrameExtentTune()),
@@ -211,6 +197,7 @@ auto createTuningEnvironment(
 {
     auto activeRun = makeConformToFrameSpec(spec, run);
     auto retPair = alpaka::tune::applyHwConstraints(device, exec, spec, activeRun);
+
     auto newFrameSpec = retPair.first;
     auto newRun = retPair.second;
 
@@ -232,7 +219,7 @@ auto createTuningEnvironment(
         ALPAKA_TYPEOF(ptrToHistory),
         ALPAKA_TYPEOF(sharedParams)>;
 
-    auto singleTon = std::make_unique<tuningEnvironmentType>(
+    return std::make_unique<tuningEnvironmentType>(
         device,
         exec,
         newFrameSpec,
@@ -242,11 +229,18 @@ auto createTuningEnvironment(
         std::move(sharedParams),
         sessionSpecifier,
         history);
-
-    return std::make_pair(sessionSpecifier, std::move(singleTon));
 }
 
 // Static wrapper version
+inline std::string flattenSessionSpecifier(std::vector<std::string> const& vec)
+{
+    std::string result;
+    for(auto const& s : vec)
+    {
+        result += s;
+    }
+    return result;
+}
 
 template<
     typename T_Device,
@@ -257,7 +251,7 @@ template<
     typename T_Run,
     typename T_SessionSpecifier,
     typename T_History>
-auto getTuningEnvironment(
+auto& getTuningEnvironment(
     T_Device device,
     T_Exec exec,
     alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent> const& spec,
@@ -267,19 +261,18 @@ auto getTuningEnvironment(
     T_History& history)
 {
     using tuningEnvironmentType
-        = decltype(*createTuningEnvironment(device, exec, spec, bundle, run, sessionSpecifier, history).second);
+        = decltype(createTuningEnvironment(device, exec, spec, bundle, run, sessionSpecifier, history));
 
-    static std::unordered_map<std::string, std::unique_ptr<tuningEnvironmentType>> singletonMap;
-
-    if(auto it = singletonMap.find(sessionSpecifier); it != singletonMap.end())
+    static std::unordered_map<std::string, tuningEnvironmentType> singletonMap;
+    if(auto it = singletonMap.find(flattenSessionSpecifier(sessionSpecifier)); it != singletonMap.end())
     {
-        return it->second.get();
+        return it->second;
     }
 
-    auto [key, singleton] = createTuningEnvironment(device, exec, spec, bundle, run, sessionSpecifier, history);
-
-    singletonMap.emplace(key, std::move(singleton));
-    return singletonMap.at(key).get();
+    singletonMap.emplace(
+        flattenSessionSpecifier(sessionSpecifier),
+        createTuningEnvironment(device, exec, spec, bundle, run, sessionSpecifier, history));
+    return singletonMap.at(flattenSessionSpecifier(sessionSpecifier));
 }
 
 #endif // KERNELSINGLETON_H

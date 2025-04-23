@@ -261,7 +261,7 @@ namespace alpaka::tune::strategy
                             best = run; // use mean as a tie-breaker in case statistical characteristics of the
                                         // distribution are similar
                         break;
-                    default: //also contains dummy case
+                    default: // also contains dummy case
                         break;
                     }
                 }
@@ -430,7 +430,7 @@ namespace alpaka::tune::strategy
                                               // SimA_MaxCachedSteps<state.runs<SimA_MaxCachedSteps*20
             {
                 std::cout << " selecting best config due to SimA steps exceeded" << std::endl;
-                alpaka::tune::strategy::bestRecorded{}(kernelRun, kernel_data);
+                kernelRun.m_strategyState.done = true;
                 return;
             }
             state.runs = 0; // reset
