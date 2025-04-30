@@ -49,9 +49,30 @@ namespace alpaka::onHost
 
             uint32_t operator()(auto const executor, auto const&... args) const
             {
+                // std::cout << " unfortnatenly picked wrong specialization!" << std::endl;
                 return 0;
             }
         };
+
+        /*
+        template<typename T_Kernel, typename T_numFrames, typename T_numThreads>
+        struct BlockDynSharedMemBytes<T_Kernel, FrameSpec<T_numFrames, T_numThreads>>
+        {
+            BlockDynSharedMemBytes(T_Kernel const&, alpaka::onHost::FrameSpec<T_numFrames, T_numThreads> spec)
+                : spec_(spec)
+            {
+            }
+
+            template<typename TExec, typename... Floats>
+            uint32_t operator()(TExec const&, Floats const&...) const
+            {
+                std::cout << " executed Kernel with sMEM " << spec_.m_frameExtent.x() << " " << spec_.m_frameExtent.y()
+                          << std::endl;
+                return static_cast<uint32_t>(spec_.m_frameExtent.x() * spec_.m_frameExtent.y() * sizeof(double) + 2);
+            }
+
+            alpaka::onHost::FrameSpec<T_numFrames, T_numThreads> spec_;
+        };*/
 
         template<typename T_Executor, typename T_Spec, typename T_KernelBundle>
         struct GetDynSharedMemBytes
@@ -96,7 +117,9 @@ namespace alpaka::onHost
                         kernelBundle.m_args);
                 }
                 else
+                {
                     return kernelBundle.m_kernelFn.dynSharedMemBytes;
+                }
             }
         };
 

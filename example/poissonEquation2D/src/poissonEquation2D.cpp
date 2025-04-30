@@ -12,6 +12,8 @@
 #    include "../example/heatEquation2D/src/writeImage.hpp"
 #endif
 
+#include "compareSerialImplementation.hpp"
+
 #include <alpaka/alpaka.hpp>
 #include <alpaka/example/executeForEach.hpp>
 #include <alpaka/example/executors.hpp>
@@ -82,7 +84,7 @@ auto example(T_Cfg const& cfg) -> int
 
     // simulation defines
     // {Y, X}
-    constexpr IdxVec numNodes{4 * 1024, 4 * 1024};
+    constexpr IdxVec numNodes{256, 256};
     constexpr IdxVec haloSize{2, 2};
     constexpr IdxVec extent = numNodes + haloSize;
 
@@ -92,17 +94,6 @@ auto example(T_Cfg const& cfg) -> int
     // x, y in [0, 1], t in [0, tMax]
     constexpr double dx = 1.0 / static_cast<double>(extent[1] - 1);
     constexpr double dy = 1.0 / static_cast<double>(extent[0] - 1);
-    constexpr double dt = tMax / static_cast<double>(numTimeSteps);
-
-    // Check the stability condition
-    double r = 2 * dt / ((dx * dx * dy * dy) / (dx * dx + dy * dy));
-    if(r > 1.)
-    {
-        std::cerr << "Stability condition check failed: dt/min(dx^2,dy^2) = " << r
-                  << ", it is required to be <= 0.5\n";
-        return EXIT_FAILURE;
-    }
-
     // Initialize host-buffer
     // This buffer will hold the current values (used for the next step)
     auto uBufHost = alpaka::onHost::alloc<double>(devHost, extent);
@@ -113,16 +104,14 @@ auto example(T_Cfg const& cfg) -> int
     auto uNextBufAcc = alpaka::onHost::allocMirror(devAcc, uBufHost);
     auto residual = alpaka::onHost::allocMirror(devAcc, uBufHost);
     auto rhs = alpaka::onHost::allocMirror(devAcc, uBufHost); // right hand side of the equation --> f(x,y)
-    auto reducedResidual_AccBuf = alpaka::onHost::allocMirror(devAcc, uBufHost);
+    auto reducedResidual_AccBuf = alpaka::onHost::allocMirror(devAcc, reducedResidual_HostBuf);
     // Set buffer to initial conditions
     initalizeBuffer(uBufHost.getMdSpan(), dx, dy);
-
-    // Select queue
-    Queue dumpQueue = devAcc.makeQueue();
     Queue computeQueue = devAcc.makeQueue();
-
+    Queue dumpQueue = devAcc.makeQueue();
     // Copy host -> device
     alpaka::onHost::memcpy(computeQueue, rhs, uBufHost);
+    alpaka::onHost::memcpy(computeQueue, reducedResidual_AccBuf, reducedResidual_HostBuf);
     alpaka::onHost::memcpy(computeQueue, uCurrBufAcc, uBufHost);
     alpaka::onHost::memcpy(
         computeQueue,
@@ -147,8 +136,6 @@ auto example(T_Cfg const& cfg) -> int
         && "Domain must be divisible by chunk size");
 
     auto sharedMemExtents = CVec<uint32_t, ySize + halo, xSize + halo>{};
-    PoissonStencilKernel stencilKernel;
-    PoissonBoundaryKernel boundaryKernel;
     // acceptLiteral("daw");
     auto dataBlockingStencil = FrameSpec{numChunks, chunkSize};
     constexpr auto longestSide = std::max(numNodesWithHalo.y(), numNodesWithHalo.x());
@@ -170,43 +157,48 @@ auto example(T_Cfg const& cfg) -> int
     std::cout << " after build " << std::endl;
     auto startTime = std::chrono::high_resolution_clock::now();
     Queue hostQueue = devHost.makeQueue();
-    HostSideKernel host_side_kernel;
+    HostSideKernel host_side_kernel{
+        toRTime,
+        dataBlockingBorder,
+        uCurrBufAcc,
+        uNextBufAcc,
+        rhs,
+        reducedResidual_HostBuf,
+        reducedResidual_AccBuf,
+        computeQueue,
+        dumpQueue};
     using Vec1_float = alpaka::Vec<std::double_t, 1>;
-    constexpr double tolerance = 0.9;
+    constexpr double tolerance = 1e-4;
     constexpr double p0 = 1.0;
     constexpr double alpha = 1.0;
-    constexpr double omega = 1.0;
-    tuningSession.enqueue(
-        devHost,
+    constexpr double omega = 1.95;
+    // solvePoissonSerialGeneric(uBufHost, uNextBufAcc, rhs, numNodes, halo, dx, dy, p0, alpha, omega); // serial
+    //  IMplementation
+
+    alpaka::onHost::enqueue(
+        // devHost,
         hostQueue,
         alpaka::exec::CpuSerial{},
         FrameSpec{alpaka::Vec{1}, alpaka::Vec{1}},
+        // KernelBundle{host_side_kernel, exec});
         KernelBundle{
             host_side_kernel,
-            devAcc,
-            computeQueue,
             exec,
-            toRTime,
-            dataBlockingBorder,
-            uCurrBufAcc,
-            uNextBufAcc,
-            rhs.getMdSpan(),
-            residual.getMdSpan(),
-            reducedResidual_HostBuf,
-            reducedResidual_AccBuf,
             chunkSize,
             sharedMemExtents,
-            numNodesWithHalo,
             numNodes,
+            halo,
             dx,
             dy,
+            p0,
+            alpha,
             /*
             alpaka::tune::Tuneable{
                 Vec1_float{1.0},
                 IdxRange{Vec1_float{1.0}, Vec1_float{2.0}, Vec1_float{0.05}},
                 "Omega"},*/
-            omega,
-            tolerance});
+
+            omega});
 
     alpaka::onHost::wait(hostQueue);
     auto endTime = std::chrono::high_resolution_clock::now();

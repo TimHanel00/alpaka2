@@ -6,6 +6,8 @@
 #define TUNEABLE_H
 #include "alpaka/mem/IdxRange.hpp"
 
+#include <alpaka/tune/utils/partitioning.hpp>
+
 #include <functional>
 #include <memory>
 #include <string>
@@ -22,47 +24,6 @@ void for_each(Tuple&& tup, F&& f)
 {
     constexpr std::size_t N = std::tuple_size_v<std::remove_reference_t<Tuple>>;
     for_each_impl(std::forward<Tuple>(tup), std::forward<F>(f), std::make_index_sequence<N>{});
-}
-
-template<size_t N>
-struct StaticString
-{
-    char value[N];
-
-    consteval StaticString(char const (&str)[N])
-    {
-        for(size_t i = 0; i < N; ++i)
-            value[i] = str[i];
-    }
-
-    constexpr operator std::string_view() const
-    {
-        return std::string_view(value, N - 1); // drop '\0'
-    }
-
-    constexpr char const* c_str() const
-    {
-        return value;
-    }
-};
-
-template<size_t N1, size_t N2>
-constexpr bool operator==(StaticString<N1> const& a, StaticString<N2> const& b)
-{
-    if constexpr(N1 != N2)
-        return false;
-    for(size_t i = 0; i < N1; ++i)
-    {
-        if(a.value[i] != b.value[i])
-            return false;
-    }
-    return true;
-}
-
-template<typename CharT, CharT... Cs>
-consteval StaticString<sizeof...(Cs) + 1> operator"" _ss()
-{
-    return StaticString<sizeof...(Cs) + 1>{{Cs..., '\0'}};
 }
 
 #define DEFINE_TUNE_NAME(name)                                                                                        \
@@ -237,17 +198,15 @@ namespace alpaka::tune
      *
      */
     template<typename T>
-    requires IsIntegral<T>
     struct FlatTuneableHandle
     {
-        ;
         std::string name;
         bool userDef;
         IdxRangeHandle<T> idxRange;
 
-        FlatTuneableHandle(T& val, std::string const& n, bool u, T& b, T& e, T& s)
+        FlatTuneableHandle(T& val, std::string n, bool u, T& b, T& e, T& s)
             : value(val)
-            , name(n)
+            , name(std::move(n))
             , userDef(u)
             , idxRange(b, e, s)
         {
@@ -273,50 +232,190 @@ namespace alpaka::tune
 
     template<typename T>
     constexpr bool is_NoTune_v = std::is_same_v<T, NoTune>;
-    inline constexpr StaticString<1> empty_name{""};
+
+    enum class SpecialTuneableID : std::size_t
+    {
+        userDef = 0,
+        NumBlocks = 1,
+        ThreadBlock = 2,
+        NumFrames = 3,
+        FrameExtent = 4,
+        NoTune = 5,
+        Count
+    };
+
+    namespace frameTune
+    {
+        static constexpr std::size_t numBlocks(static_cast<std::size_t>(SpecialTuneableID::NumBlocks));
+        static constexpr std::size_t ThreadBlock(static_cast<std::size_t>(SpecialTuneableID::ThreadBlock));
+        static constexpr std::size_t NumFrames(static_cast<std::size_t>(SpecialTuneableID::NumFrames));
+        static constexpr std::size_t FrameExtent(static_cast<std::size_t>(SpecialTuneableID::FrameExtent));
+    } // namespace frameTune
+
+    template<SpecialTuneableID T>
+    constexpr std::size_t toI()
+    {
+        return static_cast<std::size_t>(T);
+    }
+
+    template<std::size_t N>
+    constexpr std::size_t getId()
+    {
+        if constexpr(N == 0)
+        {
+            constexpr std::size_t tag = __COUNTER__;
+            return tag;
+        }
+        else
+        {
+            return N;
+        }
+    }
+
+    inline bool operator==(std::size_t lhs, SpecialTuneableID rhs)
+    {
+        return lhs == static_cast<std::size_t>(rhs);
+    }
+
+    // this is runtime
+    template<std::size_t N>
+    std::string getNameFromTag()
+    {
+        static int numTuneables = 0;
+        switch(N)
+        {
+        case static_cast<std::size_t>(SpecialTuneableID::NumBlocks):
+            return "NumBlocksTune";
+        case static_cast<std::size_t>(SpecialTuneableID::ThreadBlock):
+            return "ThreadBlockTune";
+        case static_cast<std::size_t>(SpecialTuneableID::NumFrames):
+            return "NumFramesTune";
+        case static_cast<std::size_t>(SpecialTuneableID::FrameExtent):
+            return "FrameExtentTune";
+        default:
+            break;
+        }
+        return "Tunable " + std::to_string(numTuneables++);
+    }
+
+    struct DimensionTraversePolicy
+    {
+    };
+
+    struct DimensionsIndependent : public DimensionTraversePolicy
+    {
+        static constexpr bool dimensionIndependent = false;
+    };
+
+    struct DimensionsDependent : public DimensionTraversePolicy
+    {
+        static constexpr bool dimensionIndependent = true;
+    };
+
+    template<typename TuneableA, typename TuneableB>
+    constexpr bool isSameTuneable(TuneableA const& a, TuneableB const& b)
+    {
+        return TuneableA::tag == TuneableB::tag;
+    }
 
     //--------------------------------------
     // 3. Tuneable with compile-time-only name
     //--------------------------------------
-    template<StaticString Name, typename T>
+    template<
+        typename T = alpaka::Vec<std::size_t, 1>,
+        std::size_t ID = static_cast<std::size_t>(SpecialTuneableID::userDef),
+        typename dimensionTraversePolicy = DimensionsIndependent>
     struct Tuneable
     {
+        using ValueType = T;
+        using dimensionTraversePolicy_type = dimensionTraversePolicy;
         T value;
         bool userDef;
+        static constexpr std::size_t tag = getId<ID>();
         IdxRange<T, T, T> idxRange;
-        static constexpr auto tag = Name;
+        std::string m_name = getNameFromTag<ID>();
+        DimensionTraversePolicy policy;
+        template<typename TuneableA, typename TuneableB>
+        friend constexpr bool isSameTuneable(TuneableA const& a, TuneableB const& b);
 
-        static constexpr std::string_view name()
+        std::string name()
         {
-            return Name;
-        }
-
-        constexpr Tuneable() : value{}, userDef(false), idxRange(defaultIdxRange(T{}))
-        {
-        }
-
-        constexpr Tuneable(T val) : value(val), userDef(false), idxRange(defaultIdxRange(val))
-        {
-        }
-
-        constexpr Tuneable(IdxRange<T, T, T> ir) : userDef(true), idxRange(ir)
-        {
-            T half;
-            for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
-                half[i] = (idxRange.m_end()[i] - idxRange.m_begin()[i]) / 2;
-            value = half;
-            toRange();
-        }
-
-        constexpr Tuneable(T val, IdxRange<T, T, T> ir) : value(val), userDef(true), idxRange(ir)
-        {
-            toRange();
+            return m_name;
         }
 
         void toRange()
         {
             for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
                 adjustToRange(value[i], idxRange.m_begin[i], idxRange.m_end[i], idxRange.m_stride[i]);
+        }
+
+        constexpr Tuneable() : value{}, userDef(false), idxRange(defaultIdxRange(T{}))
+        {
+        }
+
+        // Value + optional range + optional name
+        constexpr Tuneable(T init, IdxRange<T, T, T> ir = defaultIdxRange(T{}), std::string const& name = "")
+            : value(init)
+            , userDef(false)
+            , idxRange(ir)
+        {
+            if(!name.empty())
+                m_name = name;
+            toRange();
+        }
+
+        // Only range + optional name
+        constexpr Tuneable(IdxRange<T, T, T> ir, std::string const& name = "")
+            : value(ir.m_end)
+            , userDef(true)
+            , idxRange(ir)
+        {
+            if(!name.empty())
+                m_name = name;
+            toRange();
+        }
+
+        // From integral steps (delegating to the "steps" constructor)
+        constexpr Tuneable(std::size_t integralSteps, T start, T end, T init, std::string const& name = "")
+            : Tuneable(primeFactorPartitioning(integralSteps, T{}), start, end, init, name)
+        {
+        }
+
+        constexpr Tuneable(std::size_t integralSteps, T start, T end, std::string const& name = "")
+            : Tuneable(primeFactorPartitioning(integralSteps, T{}), start, end, end, name)
+        {
+        }
+
+        // provide steps in a vector
+        constexpr Tuneable(T numSteps, T start, T end, std::string const& name = "") : value(end), userDef(true)
+        {
+            if(!name.empty())
+                m_name = name;
+
+            IdxRange<T, T, T> stepsRange(start, end, T{});
+            for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
+            {
+                stepsRange[i].m_stride = (end[i] - start[i]) / numSteps[i];
+            }
+            idxRange = stepsRange;
+            toRange();
+        }
+
+        // numSteps -> explicit init
+        constexpr Tuneable(T numSteps, T start, T end, T init, std::string const& name = "")
+            : value(init)
+            , userDef(true)
+        {
+            if(!name.empty())
+                m_name = name;
+
+            IdxRange<T, T, T> stepsRange(start, end, T{});
+            for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
+            {
+                stepsRange[i].m_stride = (end[i] - start[i]) / numSteps[i];
+            }
+            idxRange = stepsRange;
+            toRange();
         }
 
         static constexpr IdxRange<T, T, T> defaultIdxRange(T const& val)
@@ -342,159 +441,25 @@ namespace alpaka::tune
 
         [[nodiscard]] std::string toHash() const
         {
-            return std::string(Name) + "*" + value.toString();
+            return m_name + "*" + value.toString();
         }
 
-        bool operator==(Tuneable const& other) const
+        template<typename T_Tuneable>
+        bool operator==(T_Tuneable const& other) const
         {
-            return value == other.value;
+            return (tag == T_Tuneable::tag) && (value == other.value);
         }
 
         auto copy() const
         {
-            return Tuneable(value, idxRange);
+            return Tuneable<ValueType, tag, dimensionTraversePolicy_type>(value, idxRange);
         }
     };
 
-    template<StaticString Name, typename T>
-    constexpr auto makeTuneable()
-    {
-        return Tuneable<Name, T>{};
-    }
-
-    template<StaticString Name, typename T>
-    constexpr auto makeTuneable(T val)
-    {
-        return Tuneable<Name, T>{val};
-    }
-
-    template<StaticString Name, typename T>
-    constexpr auto makeTuneable(IdxRange<T, T, T> ir)
-    {
-        return Tuneable<Name, T>{ir};
-    }
-
-    template<StaticString Name, typename T>
-    constexpr auto makeTuneable(T val, IdxRange<T, T, T> ir)
-    {
-        return Tuneable<Name, T>{val, ir};
-    }
-
     // no name supplied: fallback to macro for unique names
-#define makeUnnamedTuneable(Tval) makeTuneable<UNIQUE_TUNEABLE_NAME(__COUNTER__), decltype(Tval)>(Tval)
-
-#define makeUnnamedTuneableRange(Tval, Trange)                                                                        \
-    makeTuneable<UNIQUE_TUNEABLE_NAME(__COUNTER__), decltype(Tval)>(Tval, Trange)
-
     // Specialized tunables
-
-
-    inline constexpr StaticString<9> gridSizeName{"gridSize"};
-    inline constexpr StaticString<16> threadBlockSizeName{"threadBlockSize"};
-    inline constexpr StaticString<10> numFramesName{"numFrames"};
-    inline constexpr StaticString<12> frameExtentName{"frameExtent"};
     inline constexpr alpaka::tune::NoTune noTune{};
-
-    template<typename T = alpaka::Vec<std::size_t, 1>>
-    constexpr auto makeNumBlocksTune()
-    {
-        return makeTuneable<gridSizeName, T>();
-    }
-
-    template<typename T = alpaka::Vec<std::size_t, 1>>
-    constexpr auto makeNumBlocksTune(T val)
-    {
-        return makeTuneable<gridSizeName>(val);
-    }
-
-    template<typename T = alpaka::Vec<std::size_t, 1>>
-    constexpr auto makeNumBlocksTune(IdxRange<T, T, T> ir)
-    {
-        return makeTuneable<gridSizeName>(ir);
-    }
-
-    template<typename T = alpaka::Vec<std::size_t, 1>>
-    constexpr auto makeNumBlocksTune(T val, IdxRange<T, T, T> ir)
-    {
-        return makeTuneable<gridSizeName>(val, ir);
-    }
-
-    template<typename T = alpaka::Vec<std::size_t, 1>>
-    constexpr auto makeThreadBlockSizeTune()
-    {
-        return makeTuneable<threadBlockSizeName, T>();
-    }
-
-    template<typename T = alpaka::Vec<std::size_t, 1>>
-    constexpr auto makeThreadBlockSizeTune(T val)
-    {
-        return makeTuneable<threadBlockSizeName>(val);
-    }
-
-    template<typename T = alpaka::Vec<std::size_t, 1>>
-    constexpr auto makeThreadBlockSizeTune(IdxRange<T, T, T> ir)
-    {
-        return makeTuneable<threadBlockSizeName>(ir);
-    }
-
-    template<typename T = alpaka::Vec<std::size_t, 1>>
-    constexpr auto makeThreadBlockSizeTune(T val, IdxRange<T, T, T> ir)
-    {
-        return makeTuneable<threadBlockSizeName>(val, ir);
-    }
-
-    template<typename T = alpaka::Vec<std::size_t, 1>>
-    constexpr auto makeNumFramesTune()
-    {
-        return makeTuneable<numFramesName, T>();
-    }
-
-    template<typename T = alpaka::Vec<std::size_t, 1>>
-    constexpr auto makeNumFramesTune(T val)
-    {
-        return makeTuneable<numFramesName>(val);
-    }
-
-    template<typename T = alpaka::Vec<std::size_t, 1>>
-    constexpr auto makeNumFramesTune(IdxRange<T, T, T> ir)
-    {
-        return makeTuneable<numFramesName>(ir);
-    }
-
-    template<typename T = alpaka::Vec<std::size_t, 1>>
-    constexpr auto makeNumFramesTune(T val, IdxRange<T, T, T> ir)
-    {
-        return makeTuneable<numFramesName>(val, ir);
-    }
-
-    template<typename T = alpaka::Vec<std::size_t, 1>>
-    constexpr auto makeFrameExtentTune()
-    {
-        return makeTuneable<frameExtentName, T>();
-    }
-
-    template<typename T = alpaka::Vec<std::size_t, 1>>
-    constexpr auto makeFrameExtentTune(T val)
-    {
-        return makeTuneable<frameExtentName>(val);
-    }
-
-    template<typename T = alpaka::Vec<std::size_t, 1>>
-    constexpr auto makeFrameExtentTune(IdxRange<T, T, T> ir)
-    {
-        return makeTuneable<frameExtentName>(ir);
-    }
-
-    template<typename T = alpaka::Vec<std::size_t, 1>>
-    constexpr auto makeFrameExtentTune(T val, IdxRange<T, T, T> ir)
-    {
-        return makeTuneable<frameExtentName>(val, ir);
-    }
 
 
 } // namespace alpaka::tune
-
-#define MAKE_TUNEABLE_VAL(NAME, VAL) alpaka::tune::makeTuneable<NAME##_ss>(VAL)
-#define MAKE_TUNEABLE_IR(NAME, IR) alpaka::tune::makeTuneable<NAME##_ss>(IR)
-#define MAKE_TUNEABLE_VAL_IR(NAME, VAL, IR) alpaka::tune::makeTuneable<NAME##_ss>(VAL, IR)
 #endif // TUNEABLE_H

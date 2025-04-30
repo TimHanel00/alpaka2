@@ -23,6 +23,7 @@
 //! \param dx step in x
 //! \param dy step in y
 //! \param dt step in t
+template<typename Vec2>
 struct PoissonStencilKernel
 {
     template<typename TAcc>
@@ -58,6 +59,8 @@ struct PoissonStencilKernel
 
             onAcc::syncBlockThreads(acc);
 
+            // Vec2 xDir{0u, 1u};
+            // Vec2 yDir{1u, 0u};
             constexpr auto xDir = CVec<uint32_t, 0u, 1u>{};
             constexpr auto yDir = CVec<uint32_t, 1u, 0u>{};
 
@@ -70,11 +73,10 @@ struct PoissonStencilKernel
                     onAcc::traverse::tiled))
             {
                 auto bufIdx = idx2D + blockStartIdx;
-                nextPressureField[idx2D]
-                    = (1. - omega) * pressureField[idx2D]
-                      + pref
-                            * ((pressureField[idx2D + xDir] + pressureField[idx2D - xDir]) / (dx * dx)
-                               + (pressureField[idx2D + yDir] + pressureField[idx2D - yDir]) / (dy * dy) - rhs[idx2D]);
+                double update = (sdata[idx2D + xDir] + sdata[idx2D - xDir]) / (dx * dx)
+                                + (sdata[idx2D + yDir] + sdata[idx2D - yDir]) / (dy * dy) - rhs[bufIdx];
+
+                nextPressureField[bufIdx] = (1.0 - omega) * sdata[idx2D] + pref * update;
             }
         }
     }

@@ -6,11 +6,10 @@
 #define KERNELSINGLETON_H
 #include "alpaka/core/decay.hpp"
 #include "alpaka/tune/adjust/adjust.hpp"
-#include "tuneable.hpp"
 
 #include <alpaka/onHost/FrameSpec.hpp>
 #include <alpaka/tune/IO/storageTypes.hpp>
-#include <alpaka/tune/utils/tupleHandle.hpp>
+#include <alpaka/tune/active/activeKernel.hpp>
 
 #include <any>
 #include <utility>
@@ -97,9 +96,18 @@ auto makeConformToTVec(T_Vec const&, alpaka::tune::NoTune const&)
  * ensures that a a user defined tuning conforms to the framespec types and I know its ugly
  *
  */
-template<auto N, typename T_Vec, typename T>
-auto makeConformToTVec(T_Vec const& vec, alpaka::tune::Tuneable<N, T> const& tuneable)
+template<typename T_Vec, typename T_Tuneable>
+auto makeConformToTVec(T_Vec const& vec, T_Tuneable const& tuneable)
 {
+    /*
+    using Valuetype = T;
+    using dimensionTraversePolicy_type = dimensionTraversePolicy;
+    static constexpr std::size_t tag = getId<ID>();
+    */
+
+    using T_TuneableVec = typename T_Tuneable::ValueType;
+    using T_traversePolicy = typename T_Tuneable::dimensionTraversePolicy_type;
+    constexpr auto tuneable_ID = T_Tuneable::tag;
     constexpr std::size_t targetDim = T_Vec::dim();
     constexpr std::size_t sourceDim = ALPAKA_TYPEOF(tuneable.value)::dim();
 
@@ -119,7 +127,7 @@ auto makeConformToTVec(T_Vec const& vec, alpaka::tune::Tuneable<N, T> const& tun
         {
             T_Vec ones = T_Vec::all(1);
             auto ret
-                = alpaka::tune::makeTuneable<tuneable.tag, ALPAKA_TYPEOF(vec)>(vec, alpaka::IdxRange{ones, vec, ones});
+                = alpaka::tune::Tuneable<T_Vec, tuneable_ID, T_traversePolicy>(vec, alpaka::IdxRange{ones, vec, ones});
             ret.userDef = false;
             std::cout << " created vector for conformity " << ret.toHash() << std::endl;
             return ret;
@@ -142,15 +150,16 @@ auto makeConformToTVec(T_Vec const& vec, alpaka::tune::Tuneable<N, T> const& tun
                 stride[i] = tuneable.idxRange.m_stride[i];
             }
 
-            auto ret = alpaka::tune::makeTuneable<tuneable.tag, ALPAKA_TYPEOF(value)>(
+            auto ret = alpaka::tune::Tuneable<ALPAKA_TYPEOF(value), tuneable_ID, T_traversePolicy>(
                 value,
                 alpaka::IdxRange{begin, end, stride});
             return ret;
         }
 
         T_Vec ones = T_Vec::all(1);
-        auto ret
-            = alpaka::tune::makeTuneable<tuneable.tag, ALPAKA_TYPEOF(vec)>(vec, alpaka::IdxRange{ones, vec, ones});
+        auto ret = alpaka::tune::Tuneable<ALPAKA_TYPEOF(vec), tuneable_ID, T_traversePolicy>(
+            vec,
+            alpaka::IdxRange{ones, vec, ones});
         ret.userDef = false;
         return ret;
     }

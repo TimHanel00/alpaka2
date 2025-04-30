@@ -86,7 +86,12 @@ include(CheckLanguage)
 add_library(alpaka INTERFACE
         include/alpaka/tune/active/activeKernel.hpp
         include/alpaka/tune/active/MetricInterface.hpp
-        include/alpaka/tune/active/constraint.hpp)
+        include/alpaka/tune/active/constraint.hpp
+        include/alpaka/tune/utils/partitioning.hpp
+        example/poissonEquation2D/src/poissonBoundaryKernel.hpp
+        example/poissonEquation2D/src/hostSideKernel.hpp
+        example/poissonEquation2D/src/residualKernel.hpp
+        example/poissonEquation2D/src/compareSerialImplementation.hpp)
 target_include_directories(${PROJECT_NAME} INTERFACE $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_20)
 

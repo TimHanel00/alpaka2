@@ -112,7 +112,6 @@ auto example(T_Cfg const& cfg) -> int
     // Accelerator buffer
     auto uCurrBufAcc = alpaka::onHost::allocMirror(devAcc, uBufHost);
     auto uNextBufAcc = alpaka::onHost::allocMirror(devAcc, uBufHost);
-
     // Set buffer to initial conditions
     initalizeBuffer(uBufHost.getMdSpan(), dx, dy);
 
@@ -154,28 +153,17 @@ auto example(T_Cfg const& cfg) -> int
     using fVec = ALPAKA_TYPEOF(toRTime.m_frameExtent);
     // static_assert(std::is_same_v<uVec, void>);
     // static_assert(std::is_same_v<fVec, void>);
-    auto vec = fVec{4, 8};
-    constexpr char first = getFirstChar("hello"); // works
-    constexpr auto tune = MAKE_TUNEABLE_VAL("hal", alpaka::Vec{1}); // does not work.
+    auto vec = fVec{4, 8}; // does not work.
     auto tuningSession
         = tune::TuningBuilder{}
               .withStrategy(alpaka::tune::strategy::randomSearch{})
-              .withBlockSizeTune(
-                  tune::makeThreadBlockSizeTune(fVec{4, 8}, IdxRange{fVec{4, 8}, toRTime.m_frameExtent, fVec{4, 8}}))
+              .withBlockSizeTune(tune::Tuneable(fVec{4, 8}, IdxRange{fVec{4, 8}, toRTime.m_frameExtent, fVec{4, 8}}))
               .withNumBlocksTune()
               .withRunSpecifiers(std::to_string(numNodes.x()))
-              //.withConstraint(cStr("a"), cStr("b"), [](auto a, auto b) { return a > b; })
-              .template withConstraint<tune::makeNumBlocksTune().tag, tune::makeThreadBlockSizeTune().tag>(
-                  [](auto a, auto b)
-                  {
-                      std::cout << "Vec a: value " << a.toString() << std::endl;
-                      return a[0] < b[0];
-                  })
               .withConfig("./config/babelstream.toml")
               .build();
     std::cout << " after build " << std::endl;
     auto startTime = std::chrono::high_resolution_clock::now();
-
     // Simulate
     for(uint32_t step = 1; step <= numTimeSteps; ++step)
     {

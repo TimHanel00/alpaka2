@@ -140,24 +140,24 @@ namespace alpaka::tune
                                         {
                                             auto tkey = tuneablesID[i].as_string();
                                             auto value_tuneAble = tuneablesV[i].as_string();
-                                            if(std::string_view(tkey) == makeNumBlocksTune().name())
+                                            if(std::string_view(tkey) == getNameFromTag<frameTune::numBlocks>())
                                             {
                                                 run.numBlocksTune
                                                     = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
                                             }
-                                            else if(std::string_view(tkey) == makeThreadBlockSizeTune().name())
+                                            else if(std::string_view(tkey) == getNameFromTag<frameTune::ThreadBlock>())
                                             {
                                                 run.threadBlockSize
                                                     = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
                                             }
-                                            else if(std::string_view(tkey) == makeNumFramesTune().name())
+                                            else if(std::string_view(tkey) == getNameFromTag<frameTune::NumFrames>())
                                             {
                                                 run.numFramesTune
                                                     = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
                                             }
-                                            else if(std::string_view(tkey) == makeFrameExtentTune().name())
+                                            else if(std::string_view(tkey) == getNameFromTag<frameTune::FrameExtent>())
                                             {
-                                                run.threadBlockSize
+                                                run.frameExtentTune
                                                     = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
                                             }
                                             else

@@ -4,6 +4,8 @@
 
 #ifndef TIMEEVENT_H
 #define TIMEEVENT_H
+#include <alpaka/tune/active/activeKernel.hpp>
+
 #include <chrono>
 
 namespace alpaka::tune
@@ -23,7 +25,7 @@ namespace alpaka::tune
         {
             auto const endTime = std::chrono::high_resolution_clock::now();
             auto const timeDuration = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime - startTime);
-            kernelRun.metric = convertToT<ALPAKA_TYPEOF(kernelRun.metric)>(timeDuration.count());
+            kernelRun.metric = static_cast<decltype(kernelRun.metric)>(timeDuration.count());
         }
     };
 

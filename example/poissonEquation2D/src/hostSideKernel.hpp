@@ -5,6 +5,7 @@
 #ifndef HOSTSIDEKERNEL_H
 #define HOSTSIDEKERNEL_H
 #include "alpaka/core/common.hpp"
+#include "compareSerialImplementation.hpp"
 #include "poissonBoundaryKernel.hpp"
 #include "poissonStencil.hpp"
 #include "residualKernel.hpp"
@@ -14,73 +15,127 @@
 #include <cstdint>
 using namespace alpaka;
 
+template<
+    typename T_FrameSpec,
+    typename T_BorderFrameSpec,
+    typename T_PressureBuf,
+    typename T_NextPressureBuf,
+    typename T_ResHost,
+    typename T_ResAcc,
+    typename T_rhs,
+    typename T_computeQueue,
+    typename T_dumpQueue>
 struct HostSideKernel
 {
+    T_FrameSpec& frameSpec;
+    T_BorderFrameSpec& borderBlockingSpec;
+    T_PressureBuf& pressureFieldBuffer;
+    T_NextPressureBuf& nextPressureFieldBuffer;
+    T_ResHost& residualHostBufElement;
+    T_ResAcc& residualAccElement;
+    T_rhs& rhs;
+
+    T_computeQueue& computeQueue;
+    T_dumpQueue& dumpQueue;
+    HostSideKernel(
+        T_FrameSpec& _spec,
+        T_BorderFrameSpec& _borderBlockingSpec,
+        T_PressureBuf& _bufAcc,
+        T_NextPressureBuf& _nextBufAcc,
+        T_rhs& _rhs,
+        T_ResHost& _resHost,
+        T_ResAcc& _resAcc,
+        T_computeQueue& _computeQueue,
+        T_dumpQueue& _dumpQueue)
+        : frameSpec(_spec)
+        , borderBlockingSpec(_borderBlockingSpec)
+        , pressureFieldBuffer(_bufAcc)
+        , nextPressureFieldBuffer(_nextBufAcc)
+        , rhs(_rhs)
+        , residualHostBufElement(_resHost)
+        , residualAccElement(_resAcc)
+        , computeQueue(_computeQueue)
+        , dumpQueue(_dumpQueue) {};
+
     template<typename TAcc>
     ALPAKA_FN_HOST auto operator()(
         TAcc const& acc,
-        auto devAcc,
-        auto& computeQueue,
         auto exec,
-        auto frameSpec,
-        auto borderKernelSpec,
-        auto pressureFieldBuffer,
-        auto nextPressureFieldBuffer,
-        alpaka::concepts::MdSpan auto rhs,
-        alpaka::concepts::MdSpan auto residual,
-        auto residualHostBuf,
-        auto residualAccBuf,
         alpaka::concepts::Vector auto const chunkSize,
         alpaka::concepts::CVector auto const sharedMemExtents,
-        alpaka::concepts::Vector auto const numNodesWithHalo,
-        alpaka::concepts::Vector auto numNodes,
-        double const dx,
-        double const dy,
+        auto numNodes,
+        auto halo,
+        double dx,
+        double dy,
+        double const p0,
+        double const alpha,
         double_t omega,
-        double tolerance) const -> void
+        double tolerance = 1e-3,
+        std::size_t cutoff = 100000) const -> void
     {
-        PoissonStencilKernel stencil_kernel;
-        PoissonBoundaryKernel boundary_kernel;
-        computeResidualReduceKernel residualReduceKernel;
-        double pref = omega / (2 * (1. / (dx * dx) + 1. / (dy * dy))); // constant prefactor in the sor formula
-        double n; // norm of initial residuum
-        //    double r[nx*ny]; // residuum
-        bool converged = false; // boolean indicating the abortion criterion
-        int counter = 0; // counter to abort if it gets stuck
-        int cutoff = 1000; // maximum step number before abortion
+        using Vec2 = alpaka::Vec<uint32_t, 2u>;
+        auto extent = numNodes + halo;
+        double pref = omega / (2.0 * (1.0 / (dx * dx) + 1.0 / (dy * dy)));
+        // alpaka::onHost::wait(computeQueue);
 
-        onHost::Queue dumpQueue = devAcc.makeQueue();
+        // applyBoundaryConditions<Vec2>(pressureFieldBuffer.getMdSpan(), extent, numNodes, p0, alpha, dx);
+        alpaka::onHost::enqueue(
+            computeQueue,
+            exec,
+            borderBlockingSpec,
+            KernelBundle{
+                PoissonBoundaryKernel<Vec2>{},
+                pressureFieldBuffer.getMdSpan(),
+                extent,
+                numNodes,
+                p0,
+                alpha,
+                dx});
+        alpaka::onHost::wait(computeQueue);
         alpaka::onHost::enqueue(
             computeQueue,
             exec,
             frameSpec,
             alpaka::KernelBundle{
-                residualReduceKernel,
-                residual,
+                computeResidualReduceKernel<Vec2>{},
                 pressureFieldBuffer.getMdSpan(),
-                rhs,
+                rhs.getMdSpan(),
+                residualAccElement.getMdSpan(),
                 sharedMemExtents,
                 chunkSize,
                 numNodes,
-                residualAccBuf.getMdSpan(),
                 dx,
                 dy});
-        alpaka::onHost::memcpy(dumpQueue, residualHostBuf, residualAccBuf);
-        alpaka::onHost::wait(dumpQueue);
-        double reducedResidual = residualHostBuf.getMdSpan()[0];
-        double initialNorm = std::sqrt(reducedResidual);
+        alpaka::onHost::memcpy(computeQueue, residualHostBufElement, residualAccElement);
+        alpaka::onHost::wait(computeQueue);
+        double initialNorm = sqrt(residualHostBufElement.getMdSpan()[0]);
+        std::cout << "Initial norm: " << initialNorm << std::endl;
+
+        std::size_t counter = 0;
+        bool converged = false;
+
         while(!converged && counter < cutoff)
         {
-            // Compute next values
+            /*
+            applyStencilUpdate<Vec2>(
+                pressureFieldBuffer.getMdSpan(),
+                nextPressureFieldBuffer.getMdSpan(),
+                rhs.getMdSpan(),
+                extent,
+                dx,
+                dy,
+                omega,
+                pref);*/
+
             alpaka::onHost::enqueue(
                 computeQueue,
                 exec,
                 frameSpec,
-                alpaka::KernelBundle{
-                    stencil_kernel,
+                KernelBundle{
+                    PoissonStencilKernel<Vec2>{},
                     pressureFieldBuffer.getMdSpan(),
                     nextPressureFieldBuffer.getMdSpan(),
-                    rhs,
+                    rhs.getMdSpan(),
                     chunkSize,
                     sharedMemExtents,
                     numNodes,
@@ -89,40 +144,58 @@ struct HostSideKernel
                     omega,
                     pref});
 
-            // Apply boundaries
             alpaka::onHost::enqueue(
                 computeQueue,
                 exec,
-                borderKernelSpec,
-                alpaka::KernelBundle{boundary_kernel, nextPressureFieldBuffer.getMdSpan(), numNodesWithHalo});
-
-            // So we just swap next and curr (shallow copy)
+                borderBlockingSpec,
+                KernelBundle{
+                    PoissonBoundaryKernel<Vec2>{},
+                    nextPressureFieldBuffer.getMdSpan(),
+                    extent,
+                    numNodes,
+                    p0,
+                    alpha,
+                    dx});
+            alpaka::onHost::wait(computeQueue);
+            // applyBoundaryConditions<Vec2>(nextPressureFieldBuffer.getMdSpan(), extent, numNodes, p0, alpha, dx);
             std::swap(pressureFieldBuffer, nextPressureFieldBuffer);
-            // recalculate residualNorm
+            alpaka::onHost::memset(computeQueue, residualAccElement, 0x0);
             alpaka::onHost::enqueue(
                 computeQueue,
                 exec,
                 frameSpec,
                 alpaka::KernelBundle{
-                    residualReduceKernel,
-                    residual,
+                    computeResidualReduceKernel<Vec2>{},
                     pressureFieldBuffer.getMdSpan(),
-                    rhs,
+                    rhs.getMdSpan(),
+                    residualAccElement.getMdSpan(),
                     sharedMemExtents,
                     chunkSize,
                     numNodes,
-                    residualAccBuf.getMdSpan(),
                     dx,
                     dy});
-            alpaka::onHost::memcpy(dumpQueue, residualHostBuf, residualAccBuf);
-            alpaka::onHost::wait(dumpQueue);
-            reducedResidual = residualHostBuf.getMdSpan()[0];
-            double norm = std::sqrt(reducedResidual);
+            alpaka::onHost::memcpy(computeQueue, residualHostBufElement, residualAccElement);
+            alpaka::onHost::wait(computeQueue);
+            double reducedResidual = residualHostBufElement.getMdSpan()[0];
+            double norm = sqrt(reducedResidual);
+            // double norm = computeResidual(pressureFieldBuffer.getMdSpan(), rhs.getMdSpan(), extent, dx, dy);
+            //  double norm = computeResidual(pressureFieldBuffer.getMdSpan(), rhs.getMdSpan(), extent, dx, dy);
+            std::cout << " Norm " << norm << " initialNorm " << initialNorm << std::endl;
+
             if(norm < tolerance * initialNorm)
             {
+                std::cout << " poisson equation converged after " << counter << " steps " << std::endl;
+                std::cout << " Norm " << norm << " initialNorm " << initialNorm << std::endl;
                 converged = true;
             }
+
             ++counter;
+        }
+
+        if(counter >= cutoff)
+        {
+            std::cout << "unfortunately after " << counter << " runs no convergence in sight for Omega: " << omega
+                      << std::endl;
         }
     }
 };

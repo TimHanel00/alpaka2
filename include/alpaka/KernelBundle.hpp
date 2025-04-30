@@ -13,6 +13,9 @@
 
 namespace alpaka
 {
+    struct FromTupleTag
+    {
+    };
 
     //! \brief The class used to bind kernel function object and arguments together. Once an instance of this class is
     //! created, arguments are not needed to be separately given to functions who need kernel function and arguments.
@@ -35,6 +38,12 @@ namespace alpaka
         {
         }
 
+        constexpr KernelBundle(FromTupleTag, KernelFn kernelFn, ArgTuple args)
+            : m_kernelFn(std::move(kernelFn))
+            , m_args(std::move(args))
+        {
+        }
+
         constexpr KernelBundle(KernelBundle const& b) = default;
 
         constexpr KernelBundle(KernelBundle&& b) = default;
@@ -45,7 +54,7 @@ namespace alpaka
         }
 
         KernelFn m_kernelFn;
-        ArgTuple const m_args; // Store the argument types without const and reference
+        ArgTuple m_args; // Store the argument types without const and reference
     };
 
     //! \brief User defined deduction guide with trailing return type. For CTAD during the construction.

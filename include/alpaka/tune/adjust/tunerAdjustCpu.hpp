@@ -11,123 +11,17 @@
 #include <alpaka/onHost/FrameSpec.hpp>
 #include <alpaka/tune/IO/storageTypes.hpp>
 #include <alpaka/tune/adjust/adjust.hpp>
+#include <alpaka/tune/utils/partitioning.hpp>
 
 namespace alpaka::tune
 {
-    inline auto primeFactorize(std::size_t max)
-    {
-        std::size_t start = 2;
-        std::vector<std::size_t> factors;
-        while(start * start <= max)
-        {
-            if(max % start == 0)
-            {
-                factors.push_back(start);
-                max /= start;
-            }
-            else
-            {
-                start++;
-            }
-        }
-        if(max > 1)
-        {
-            factors.push_back(max);
-        }
-        std::sort(factors.rbegin(), factors.rend()); // sort descending
-        return factors;
-    }
-
-    /*
-     * this implements a partition method equally distributing prime factors across dims.
-     * this guarentees that for vec.product() is exactly equal to max
-     */
-    template<typename T_vec, typename = std::enable_if_t<!std::is_integral_v<T_vec>>>
-    T_vec primeFactorPartitioning(std::size_t max, T_vec const&)
-    {
-        using ValType = typename T_vec::type;
-        auto vecFactors = primeFactorize(max);
-        std::vector<ValType> distribute(T_vec::dim(), ValType(1));
-        for(auto factor : vecFactors)
-        {
-            auto min_elem = std::min_element(distribute.begin(), distribute.end());
-            *min_elem *= ValType(factor);
-        }
-        std::sort(distribute.begin(), distribute.end()); // sort ascending (since vec[0] is the slowest index)
-        auto resultVec = Vec<ValType, T_vec::dim()>::all(1);
-        for(std::size_t i = 0; i < T_vec::dim(); ++i)
-        {
-            resultVec[i] = distribute[i];
-        }
-        return resultVec;
-    }
-
-    /*
-     * this implements a partition method where we take the ceiling of the nth root of the max for each dimension
-     * this is a good strategy to distribute work equally does a lot of times more workers are used then necessary
-     * very bad for distribution of the threadBlockSize, there primeFactorPartition should be used
-     * T
-     */
-    template<typename T_vec, typename = std::enable_if_t<!std::is_integral_v<T_vec>>>
-    T_vec ceilRootOverDimPartitioning(std::size_t max, T_vec const&)
-    {
-        using ValType = typename T_vec::type;
-        // start with the 1s Vector
-        auto resultVec = Vec<ValType, T_vec::dim()>::all(1);
-        auto remainder = max;
-        for(std::size_t i = 0; i < T_vec::dim(); ++i)
-        {
-            // using ceil-root heuristic to distribute mps across dimensions
-            ValType split = std::max(ValType(1), static_cast<ValType>(std::pow(remainder, 1.0 / (T_vec::dim() - i))));
-            resultVec = split;
-            remainder /= split;
-        }
-        return resultVec;
-    }
-
-    /*
-     * given a smaller ndim vector returns the the largest multiple of that ndim such that vec.product()<=max
-     */
-    template<typename T_vec, typename = std::enable_if_t<!std::is_integral_v<T_vec>>>
-    T_vec multipleOfPartitioning(std::size_t max, T_vec vec)
-    {
-        using ValType = typename T_vec::type;
-        // start with the 1s Vector
-        auto resultVec = vec.toRT();
-        auto initVec = resultVec;
-        while(resultVec.product() <= max - initVec.product())
-        {
-            // round robin approach of incrementing dims since all of those combinations can be used in the backend
-
-            resultVec += initVec;
-        }
-        return resultVec;
-    }
-
-    // overload incase idxRange contains integer types instead of vec (only 1Dim case)
-    inline std::size_t ceilRootOverDimPartitioning(std::size_t max, std::size_t vec)
-    {
-        return max;
-    }
-
-    // overload incase idxRange contains integer types instead of vec (only 1Dim case)
-    inline std::size_t primeFactorPartitioning(std::size_t max, std::size_t vec)
-    {
-        return max;
-    }
-
-    // overload incase idxRange contains integer types instead of vec (only 1Dim case)
-    inline std::size_t multipleOfPartitioning(std::size_t max, std::size_t vec)
-    {
-        return max;
-    }
 
     template<typename T_NumBlocks, typename T_NumThreads, typename T_KernelRun>
     static auto adjustThreadSpec(
         auto& deviceHandle,
         auto const& executor,
         alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
-        T_KernelRun const& run);
+        T_KernelRun& run);
 #define NrOfNumFrameConfigs 20
 #define NrOfFrameExtentConfigs 20
 
@@ -141,7 +35,7 @@ namespace alpaka::tune
         T_DeviceHandle device,
         T_Exec exec,
         onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& frameSpec,
-        T_KernelRun const& run)
+        T_KernelRun& run)
     { // always apply current frameTuning
         auto newRun = makeActiveKernel(
             run.userTuneables,
@@ -196,7 +90,7 @@ namespace alpaka::tune
                 T_Device& device,
                 T_Exec const& exec,
                 T_FrameSpec const& dataBlocking,
-                T_KernelRun const& kernelRun)
+                T_KernelRun& kernelRun)
             {
                 std::cout << " Device: " << typeid(T_Device).name() << std::endl;
                 std::cout << " Device: " << alpaka::core::demangledName<T_Device>(device) << std::endl;
@@ -220,7 +114,7 @@ namespace alpaka::tune
                 device, //@TODO fix this its a bug with that extra wrapped layer
             alpaka::exec::CpuSerial const& executor,
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
-            T_KernelRun const& kernelRun)
+            T_KernelRun& kernelRun)
         {
             auto newRun = makeActiveKernel(
                 kernelRun.userTuneables,
@@ -250,7 +144,7 @@ namespace alpaka::tune
                 device, //@TODO fix this its a bug with that extra wrapped layer
             T_Mapping const& executor,
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
-            T_KernelRun const& kernelRun)
+            T_KernelRun& kernelRun)
         {
             //@TODO add specialization
             auto newRun = makeActiveKernel(
@@ -263,8 +157,9 @@ namespace alpaka::tune
             {
                 if(!newRun.getNumBlocksTune().userDef)
                 {
-                    newRun.getNumBlocksTune().idxRange.m_begin
-                        = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
+                    newRun.getNumBlocksTune().idxRange.m_begin = primeFactorPartitioning(
+                        alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
+                        T_NumThreads{});
                     newRun.getNumBlocksTune().idxRange.m_end = primeFactorPartitioning(
                         alpaka::onHost::getDeviceProperties(device).m_multiProcessorCount,
                         T_NumThreads{});
@@ -292,7 +187,7 @@ namespace alpaka::tune
             alpaka::onHost::Device<alpaka::onHost::cpu::Device<T_Platform>>& device,
             exec::CpuOmpBlocksAndThreads const& executor,
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
-            T_KernelRun const& kernelRun)
+            T_KernelRun& kernelRun)
         {
             auto newRun = kernelRun;
             //@TODO add specialization
@@ -334,7 +229,7 @@ namespace alpaka::tune
         auto& deviceHandle,
         auto const& executor,
         alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
-        T_KernelRun const& run)
+        T_KernelRun& run)
     {
         return tunerAdjust::Op<
             ALPAKA_TYPEOF(deviceHandle),

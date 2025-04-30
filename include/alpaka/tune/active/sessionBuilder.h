@@ -6,11 +6,8 @@
 #include "alpaka/tune/utils/environmentVars.hpp"
 
 #include <alpaka/tune/IO/tuningHistory.hpp>
-#include <alpaka/tune/active/activeKernel.hpp>
 #include <alpaka/tune/active/constraint.hpp>
 #include <alpaka/tune/active/strategy.hpp>
-#include <alpaka/tune/utils/TimeEvent.hpp>
-#include <alpaka/tune/utils/tupleHandle.hpp>
 
 #include <cmath>
 #include <iostream>
@@ -46,8 +43,8 @@ namespace alpaka::tune
         {
         }
 
-        template<auto N, typename T>
-        auto withTuning(Tuneable<N, T> tuningObject) const
+        template<typename T_objct>
+        auto withTuning(T_objct tuningObject) const
         {
             std::cout << " before with Tuning, " << m_run.toHash() << std::endl;
             auto newRun = appendTuning(m_run, tuningObject);
@@ -60,42 +57,15 @@ namespace alpaka::tune
             return ret;
         }
 
-        template<auto... Names, typename T_Predicate>
+        template<auto... TuneableIDs, typename T_Predicate>
         auto withConstraint(T_Predicate pred)
         {
-            auto constraint = Constraint<T_Predicate, Names...>{pred};
+            auto constraint = Constraint<T_Predicate, TuneableIDs...>{pred};
             auto newTuple = std::tuple_cat(m_constraintTuple, std::make_tuple(constraint));
 
             using T_ConstraintTupleNew = decltype(newTuple);
             auto ret = helperCreateNewBuilder<T_Strategy, T_ConstraintTupleNew>(newTuple, m_run);
             return ret;
-        }
-
-        // -- 2. Split the tuple into strings and lambda
-        template<typename Tuple>
-        auto withConstraintDispatch(Tuple&& tuple) const
-        {
-            constexpr std::size_t N = std::tuple_size<std::decay_t<Tuple>>::value;
-            static_assert(
-                N >= 2,
-                "withConstraint requires at least one name and a predicate lambda. Example: .withConstraint(\" "
-                "tuneableName A \",\" "
-                "tuneableName B\",[](alpaka::concepts::Vector auto a,alpaka::concepts::Vector auto b){return "
-                "a[0]<b[0];}");
-
-            constexpr std::size_t Last = N - 1;
-            return withConstraintDispatchImpl(
-                std::forward<Tuple>(tuple),
-                std::get<Last>(std::forward<Tuple>(tuple)),
-                std::make_index_sequence<Last>{});
-        }
-
-        // -- 3. Use std::apply to correctly pack args
-        template<typename Tuple, typename Predicate, std::size_t... Is>
-        auto withConstraintDispatchImpl(Tuple&& tuple, Predicate&& lambda, std::index_sequence<Is...>) const
-        {
-            auto namesTuple = std::make_tuple(StaticString<sizeof(std::get<Is>(tuple))>{std::get<Is>(tuple)}...);
-            return withConstraintImpl(namesTuple, std::forward<Predicate>(lambda));
         }
 
         TuningBuilder& withReRuns(std::size_t reruns)
@@ -135,80 +105,128 @@ namespace alpaka::tune
             return *this;
         }
 
-        auto withNumBlocksTune() const
+        template<typename DimTraversePolicy = DimensionsIndependent>
+        auto withNumBlocksTune(DimTraversePolicy = {}) const
         {
-            auto tuningObject = makeNumBlocksTune();
+            auto tuningObject = Tuneable<
+                alpaka::Vec<std::size_t, 1>,
+                static_cast<std::size_t>(SpecialTuneableID::NumBlocks),
+                DimTraversePolicy>{};
             return this->withTuning(tuningObject);
         }
 
-        template<typename T>
-        auto withNumBlocksTune(Tuneable<gridSizeName, T> tune) const
+        template<typename T, auto ID, typename Policy>
+        auto withNumBlocksTune(Tuneable<T, ID, Policy> tune) const
         {
-            return this->withTuning(tune);
+            auto newTune = Tuneable<T, static_cast<std::size_t>(SpecialTuneableID::NumBlocks), Policy>(
+                tune.value,
+                tune.idxRange,
+                tune.m_name);
+            return this->withTuning(newTune);
         }
 
-        template<typename T, auto dim>
-        auto withNumBlocksTune(alpaka::Vec<T, dim> tune) const
+        template<typename T, auto dim, typename DimTraversePolicy = DimensionsIndependent>
+        auto withNumBlocksTune(alpaka::Vec<T, dim> tune, DimTraversePolicy = {}) const
         {
-            auto tuningObject = makeNumBlocksTune(tune);
+            auto newTune
+                = Tuneable<T, static_cast<std::size_t>(SpecialTuneableID::NumBlocks), DimTraversePolicy>(tune);
+            return this->withTuning(newTune);
+        }
+
+        //=============================
+        // BlockSize
+        //=============================
+
+        template<typename DimTraversePolicy = DimensionsIndependent>
+        auto withBlockSizeTune(DimTraversePolicy = {}) const
+        {
+            auto tuningObject = Tuneable<
+                alpaka::Vec<std::size_t, 1>,
+                static_cast<std::size_t>(SpecialTuneableID::ThreadBlock),
+                DimTraversePolicy>{};
             return this->withTuning(tuningObject);
         }
 
-        auto withBlockSizeTune() const
+        template<typename T, auto ID, typename Policy>
+        auto withBlockSizeTune(Tuneable<T, ID, Policy> tune) const
         {
-            auto tuningObject = makeThreadBlockSizeTune();
+            auto newTune = Tuneable<T, static_cast<std::size_t>(SpecialTuneableID::ThreadBlock), Policy>(
+                tune.value,
+                tune.idxRange,
+                tune.m_name);
+            return this->withTuning(newTune);
+        }
+
+        template<typename T, auto dim, typename DimTraversePolicy = DimensionsIndependent>
+        auto withBlockSizeTune(alpaka::Vec<T, dim> tune, DimTraversePolicy = {}) const
+        {
+            auto newTune
+                = Tuneable<T, static_cast<std::size_t>(SpecialTuneableID::ThreadBlock), DimTraversePolicy>(tune);
+            return this->withTuning(newTune);
+        }
+
+        //=============================
+        // NumFrames
+        //=============================
+
+        template<typename DimTraversePolicy = DimensionsIndependent>
+        auto withNumFramesTune(DimTraversePolicy = {}) const
+        {
+            auto tuningObject = Tuneable<
+                alpaka::Vec<std::size_t, 1>,
+                static_cast<std::size_t>(SpecialTuneableID::NumFrames),
+                DimTraversePolicy>{};
             return this->withTuning(tuningObject);
         }
 
-        template<typename T>
-        auto withBlockSizeTune(Tuneable<threadBlockSizeName, T> tune) const
+        template<typename T, auto ID, typename Policy>
+        auto withNumFramesTune(Tuneable<T, ID, Policy> tune) const
         {
-            return this->withTuning(tune);
+            auto newTune = Tuneable<T, static_cast<std::size_t>(SpecialTuneableID::NumFrames), Policy>(
+                tune.value,
+                tune.idxRange,
+                tune.m_name);
+            return this->withTuning(newTune);
         }
 
-        template<typename T, auto dim>
-        auto withBlockSizeTune(alpaka::Vec<T, dim> tune) const
+        template<typename T, auto dim, typename DimTraversePolicy = DimensionsIndependent>
+        auto withNumFramesTune(alpaka::Vec<T, dim> tune, DimTraversePolicy = {}) const
         {
-            auto tuningObject = makeThreadBlockSizeTune(tune);
+            auto newTune
+                = Tuneable<T, static_cast<std::size_t>(SpecialTuneableID::NumFrames), DimTraversePolicy>(tune);
+            return this->withTuning(newTune);
+        }
+
+        //=============================
+        // FrameExtent
+        //=============================
+
+        template<typename DimTraversePolicy = DimensionsIndependent>
+        auto withFrameExtentTune(DimTraversePolicy = {}) const
+        {
+            auto tuningObject = Tuneable<
+                alpaka::Vec<std::size_t, 1>,
+                static_cast<std::size_t>(SpecialTuneableID::FrameExtent),
+                DimTraversePolicy>{};
             return this->withTuning(tuningObject);
         }
 
-        auto withNumFramesTune() const
+        template<typename T, auto ID, typename Policy>
+        auto withFrameExtentTune(Tuneable<T, ID, Policy> tune) const
         {
-            auto tuningObject = makeNumFramesTune();
-            return this->withTuning(tuningObject);
+            auto newTune = Tuneable<T, static_cast<std::size_t>(SpecialTuneableID::FrameExtent), Policy>(
+                tune.value,
+                tune.idxRange,
+                tune.m_name);
+            return this->withTuning(newTune);
         }
 
-        template<typename T>
-        auto withNumFramesTune(Tuneable<numFramesName, T> tune) const
+        template<typename T, auto dim, typename DimTraversePolicy = DimensionsIndependent>
+        auto withFrameExtentTune(alpaka::Vec<T, dim> tune, DimTraversePolicy = {}) const
         {
-            return this->withTuning(tune);
-        }
-
-        template<typename T, auto dim>
-        auto withNumFramesTune(alpaka::Vec<T, dim> tune) const
-        {
-            auto tuningObject = makeNumFramesTune(tune);
-            return this->withTuning(tuningObject);
-        }
-
-        auto withFrameExtentTune() const
-        {
-            auto tuningObject = makeFrameExtentTune();
-            return this->withTuning(tuningObject);
-        }
-
-        template<typename T>
-        auto withFrameExtentTune(Tuneable<frameExtentName, T> tune) const
-        {
-            return this->withTuning(tune);
-        }
-
-        template<typename T, auto dim>
-        auto withFrameExtentTune(alpaka::Vec<T, dim> tune) const
-        {
-            auto tuningObject = makeFrameExtentTune(tune);
-            return this->withTuning(tuningObject);
+            auto newTune
+                = Tuneable<T, static_cast<std::size_t>(SpecialTuneableID::FrameExtent), DimTraversePolicy>(tune);
+            return this->withTuning(newTune);
         }
 
         // Output a fully constructed TuningSession

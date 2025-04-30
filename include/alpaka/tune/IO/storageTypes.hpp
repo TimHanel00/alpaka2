@@ -10,7 +10,6 @@
 #include "alpaka/core/RemoveRestrict.hpp"
 #include "alpaka/meta/IntegerSequence.hpp"
 #include "alpaka/tune/active/activeKernel.hpp"
-#include "alpaka/tune/active/tuneable.hpp"
 
 #include <cmath>
 #include <numeric>

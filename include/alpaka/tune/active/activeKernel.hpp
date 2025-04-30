@@ -5,10 +5,10 @@
 #ifndef ACTIVEKERNEL_H
 #define ACTIVEKERNEL_H
 #include "alpaka/tune/active/tuneable.hpp"
-#include "tuningSession.hpp"
+
+#include <alpaka/tune/utils/tupleHandle.hpp>
 
 #include <cmath>
-#include <optional>
 
 struct strategyState
 {
@@ -96,115 +96,98 @@ struct ActiveKernelRun
             frameTuneables);
     }
 
-    template<typename Tuple, auto Name>
+    template<typename Tuple, auto ID>
     static constexpr bool hasTuneableTag()
     {
-        return hasTagInTuple<Tuple, Name>();
+        return hasTagInTuple<Tuple, ID>();
     }
 
-    template<auto Name>
+    template<auto ID>
     static constexpr bool hasFrameTuneable()
     {
-        return hasTuneableTag<T_FrameTuneables, Name>();
+        constexpr auto ID_v = static_cast<std::size_t>(ID);
+        return hasTuneableTag<T_FrameTuneables, ID_v>();
     }
 
-    template<auto Name>
+    template<auto ID>
     static constexpr bool hasUserTuneable()
     {
-        return hasTuneableTag<T_UserTuple, Name>();
+        constexpr auto ID_v = static_cast<std::size_t>(ID);
+        return hasTuneableTag<T_UserTuple, ID_v>();
     }
 
-    template<auto Name>
+    template<auto ID>
     static constexpr bool hasTuneable()
     {
-        return hasTuneableTag<T_FrameTuneables, Name>() || hasTuneableTag<T_UserTuple, Name>();
+        return hasTuneableTag<T_FrameTuneables, ID>() || hasTuneableTag<T_UserTuple, ID>();
     }
 
     static constexpr bool hasNumBlocksTune()
     {
-        return hasFrameTuneable<alpaka::tune::gridSizeName>();
+        return hasFrameTuneable<alpaka::tune::SpecialTuneableID::NumBlocks>();
     }
 
     static constexpr bool hasThreadBlockSizeTune()
     {
-        return hasFrameTuneable<alpaka::tune::threadBlockSizeName>();
+        return hasFrameTuneable<alpaka::tune::SpecialTuneableID::ThreadBlock>();
     }
 
     static constexpr bool hasNumFramesTune()
     {
-        return hasFrameTuneable<alpaka::tune::numFramesName>();
+        return hasFrameTuneable<alpaka::tune::SpecialTuneableID::NumFrames>();
     }
 
     static constexpr bool hasFrameExtentTune()
     {
-        return hasFrameTuneable<alpaka::tune::frameExtentName>();
+        return hasFrameTuneable<alpaka::tune::SpecialTuneableID::FrameExtent>();
     }
 
     constexpr auto& getNumBlocksTune()
     {
-        return *getByName<alpaka::tune::gridSizeName>();
+        return *getByID<alpaka::tune::SpecialTuneableID::NumBlocks>();
     }
 
     constexpr auto& getThreadBlockSizeTune()
     {
-        return *getByName<alpaka::tune::threadBlockSizeName>();
+        return *getByID<alpaka::tune::SpecialTuneableID::ThreadBlock>();
     }
 
     constexpr auto& getNumFramesTune()
     {
-        return *getByName<alpaka::tune::numFramesName>();
+        return *getByID<alpaka::tune::SpecialTuneableID::NumFrames>();
     }
 
     constexpr auto& getFrameExtentTune()
     {
-        return *getByName<alpaka::tune::frameExtentName>();
-    }
-
-    constexpr auto const& getNumBlocksTune() const
-    {
-        return *getByName<alpaka::tune::gridSizeName>();
-    }
-
-    constexpr auto const& getThreadBlockSizeTune() const
-    {
-        return *getByName<alpaka::tune::threadBlockSizeName>();
-    }
-
-    constexpr auto const& getNumFramesTune() const
-    {
-        return *getByName<alpaka::tune::numFramesName>();
-    }
-
-    constexpr auto const& getFrameExtentTune() const
-    {
-        return *getByName<alpaka::tune::frameExtentName>();
+        return *getByID<alpaka::tune::SpecialTuneableID::FrameExtent>();
     }
 
     template<auto Name>
     constexpr auto& getValue()
     {
-        return getByName<Name>()->value;
+        return getByID<Name>()->value;
     }
 
     template<auto Name>
     constexpr auto const& getValue() const
     {
-        return getByName<Name>()->value;
+        return getByID<Name>()->value;
     }
 
-    template<std::size_t I = 0, typename Tuple, auto Name>
-    constexpr auto* getByNameImpl(Tuple& tuple)
+    template<std::size_t I = 0, typename Tuple, auto ID>
+    constexpr auto* getByIDImpl(Tuple& tuple) const
     {
         if constexpr(I < std::tuple_size_v<Tuple>)
         {
             auto& elem = std::get<I>(tuple);
-            if constexpr(elem.tag == Name)
+            using elemType = std::decay_t<decltype(elem)>;
+            if constexpr(elemType::tag == ID)
             {
                 return &elem;
             }
             else
             {
-                return getByNameImpl<I + 1, Tuple, Name>(tuple);
+                return getByIDImpl<I + 1, Tuple, ID>(tuple);
             }
         }
         else
@@ -213,67 +196,12 @@ struct ActiveKernelRun
         }
     }
 
-    template<StaticString Tag, typename Tuple, std::size_t I = 0>
-    static constexpr auto getNameFromTuple()
+    template<auto ID>
+    constexpr auto* getByID()
     {
-        if constexpr(I < std::tuple_size_v<Tuple>)
-        {
-            using Elem = std::tuple_element_t<I, Tuple>;
-            if constexpr(Elem::tag == Tag)
-            {
-                return Elem::tag;
-            }
-            else
-            {
-                return getNameFromTuple<Tag, Tuple, I + 1>();
-            }
-        }
-        else
-        {
-            return alpaka::tune::empty_name;
-        }
-    }
-
-    template<StaticString Tag>
-    static constexpr auto getName()
-    {
-        using All = decltype(std::tuple_cat(std::declval<T_FrameTuneables>(), std::declval<T_UserTuple>()));
-        return getNameFromTuple<Tag, All>();
-    }
-
-    template<std::size_t I = 0, typename Tuple, auto Name>
-    constexpr auto* getByNameImpl(Tuple& tuple) const
-    {
-        if constexpr(I < std::tuple_size_v<Tuple>)
-        {
-            auto& elem = std::get<I>(tuple);
-            if constexpr(elem.tag == Name)
-            {
-                return &elem;
-            }
-            else
-            {
-                return getByNameImpl<I + 1, Tuple, Name>(tuple);
-            }
-        }
-        else
-        {
-            return &alpaka::tune::noTune; // or nullptr if appropriate
-        }
-    }
-
-    template<auto Name>
-    constexpr auto* getByName()
-    {
+        constexpr auto ID_v = static_cast<std::size_t>(ID);
         auto all = allTuneables();
-        return getByNameImpl<0, decltype(all), Name>(all);
-    }
-
-    template<auto Name>
-    constexpr auto const* getByName() const
-    {
-        auto all = allTuneables();
-        return getByNameImpl<0, decltype(all), Name>(all);
+        return getByIDImpl<0, decltype(all), ID_v>(all);
     }
 
     std::string toHash() const

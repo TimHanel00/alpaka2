@@ -30,7 +30,7 @@ namespace alpaka::tune
             alpaka::onHost::Device<alpaka::onHost::unifiedCudaHip::Device<T_Platform>>& device,
             T_Mapping const& executor,
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
-            T_KernelRun const& kernelRun)
+            T_KernelRun& kernelRun)
         {
             auto newRun = kernelRun;
             using T_newActiveRunType = ALPAKA_TYPEOF(newRun);

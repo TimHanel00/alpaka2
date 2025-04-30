@@ -19,10 +19,9 @@
 //! \param dx step in x
 //! \param dy step in y
 //! \param dt step in t
+#include <alpaka/tune/active/tuneable.hpp>
 
 #include <iostream>
-inline int writeLoopAccs = 0;
-inline int computeLoopAccs = 0;
 
 void verifyCorrectness(auto& numNodes, auto& frameExtent)
 {
@@ -67,8 +66,8 @@ void verifyCorrectness(auto& numNodes, auto& frameExtent)
             + " vs: " + std::to_string(computeLoopAccs) + "\n");*/
         std::terminate();
     }
-    writeLoopAccs = 0;
-    computeLoopAccs = 0;
+    resetWriteLoopAccs();
+    resetComputeLoopAccs();
 }
 
 struct StencilKernel2
@@ -78,8 +77,6 @@ struct StencilKernel2
         TAcc const& acc,
         auto const uCurrBuf,
         auto uNextBuf,
-        alpaka::concepts::Vector auto const chunkSize,
-        alpaka::concepts::CVector auto sharedMemExtents,
         alpaka::concepts::Vector auto numNodes,
         double const dx,
         double const dy,
@@ -89,27 +86,27 @@ struct StencilKernel2
         auto numFrames = acc[frame::count];
         auto frameExtent = acc[frame::extent];
         auto frameDomain = numFrames * frameExtent;
+
+        setNumNodes(numNodes);
         auto traverseOverFrames = onAcc::makeIdxMap(acc, onAcc::worker::blocksInGrid, IdxRange{numFrames});
         using _2Vec = alpaka::Vec<u_int32_t, 2u>;
-        auto const sMem = _2Vec{sharedMemExtents.x(), sharedMemExtents.y()};
         auto _0Vec = ALPAKA_TYPEOF(frameExtent){0u, 0u};
         auto const blockCount = acc[layer::thread].count();
         auto traverseOverExtentsWithHalo = onAcc::makeIdxMap(
             acc,
             onAcc::worker::threadsInBlock,
-            IdxRange{
-                Vec{0u, 0u},
-                alpaka::Vec{std::min(frameExtent.x() + 2, sMem.x()), std::min(frameExtent.y() + 2, sMem.y())},
-                Vec{1u, 1u}});
+            IdxRange{Vec{0u, 0u}, alpaka::Vec{frameExtent.x() + 2, frameExtent.y() + 2}, Vec{1u, 1u}});
         auto traverseOverExtentsWithOutHalo = onAcc::makeIdxMap(
             acc,
             onAcc::worker::threadsInBlock,
-            IdxRange{
-                Vec{0u, 0u},
-                alpaka::Vec{std::min(frameExtent.x(), sMem.x() - 2), std::min(frameExtent.y(), sMem.y() - 2)},
-                Vec{1u, 1u}});
+            IdxRange{Vec{0u, 0u}, alpaka::Vec{frameExtent.x(), frameExtent.y()}, Vec{1u, 1u}});
 
-
+        auto sdata = onAcc::getDynSharedMem<double>(acc);
+        auto span = alpaka::makeMdSpan(
+            sdata,
+            frameExtent,
+            alpaka::onHost::mem::calculatePitchesFromExtents<double>(frameExtent),
+            Alignment<sizeof(double)>{});
         for(auto frameIdx : traverseOverFrames)
         {
             for(auto bufStartIdx : onAcc::makeIdxMap(
@@ -118,13 +115,13 @@ struct StencilKernel2
                     IdxRange{_0Vec, numNodes, frameExtent}))
             {
                 onAcc::syncBlockThreads(acc);
-                auto sdata = onAcc::declareSharedMdArray<double, uniqueId()>(acc, sharedMemExtents);
+
 
                 for(auto elemIdxInFrame : traverseOverExtentsWithHalo)
                 {
                     auto bufIdx = bufStartIdx + elemIdxInFrame;
-                    sdata[elemIdxInFrame] = uCurrBuf[bufIdx];
-                    writeLoopAccs++;
+                    span[elemIdxInFrame] = uCurrBuf[bufIdx];
+                    // writeLoopAccs_Add();
                 }
 
                 onAcc::syncBlockThreads(acc);
@@ -138,15 +135,12 @@ struct StencilKernel2
                 {
                     auto idx2D = elemIdxInFrame + Vec{1u, 1u};
                     auto bufIdx = bufStartIdx + idx2D;
-                    computeLoopAccs++;
-                    uNextBuf[bufIdx] = sdata[idx2D] * (1.0 - 2.0 * rX - 2.0 * rY) + sdata[idx2D - xDir] * rX
-                                       + sdata[idx2D + xDir] * rX + sdata[idx2D - yDir] * rY
-                                       + sdata[idx2D + yDir] * rY;
+                    // computeLoopAccs_Add();
+                    uNextBuf[bufIdx] = span[idx2D] * (1.0 - 2.0 * rX - 2.0 * rY) + span[idx2D - xDir] * rX
+                                       + span[idx2D + xDir] * rX + span[idx2D - yDir] * rY + span[idx2D + yDir] * rY;
                 }
             }
         }
-
-        verifyCorrectness(numNodes, frameExtent);
     }
 };
 

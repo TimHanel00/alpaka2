@@ -5,6 +5,7 @@
 #ifndef TUPLEHANDLE_H
 #define TUPLEHANDLE_H
 #include "alpaka/KernelBundle.hpp"
+#include "alpaka/tune/active/tuneable.hpp"
 
 #include <string>
 #include <vector>
@@ -37,8 +38,8 @@ struct is_tuneable : std::false_type
 {
 };
 
-template<auto N, typename T>
-struct is_tuneable<alpaka::tune::Tuneable<N, T>> : std::true_type
+template<typename T, auto N>
+struct is_tuneable<alpaka::tune::Tuneable<T, N>> : std::true_type
 {
 };
 
@@ -51,7 +52,7 @@ struct tuneable_underlying
 };
 
 template<auto N, typename T>
-struct tuneable_underlying<alpaka::tune::Tuneable<N, T>>
+struct tuneable_underlying<alpaka::tune::Tuneable<T, N>>
 {
     using type = T;
 };
@@ -94,10 +95,14 @@ auto flattenImpl(TuneableType& tune, std::index_sequence<I...>)
             tune.idxRange.m_stride[I])...);
 }
 
-template<auto N, typename T>
-auto flatten(alpaka::tune::Tuneable<N, T>& tune)
+template<typename Tuneable_type>
+auto flatten(Tuneable_type& tune)
 {
-    constexpr auto dim = alpaka::getDim(T{});
+    constexpr auto dim = alpaka::getDim(typename Tuneable_type::ValueType{});
+
+    // if constexpr(std::is_same_v(Tuneable_type::dimensionTraversePolicy_type, alpaka::tune::DimensionsIndependent))
+    //{
+    // }
     return flattenImpl(tune, std::make_index_sequence<dim>{});
 }
 

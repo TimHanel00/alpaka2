@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: ISC
  */
 #include "BoundaryKernel2.hpp"
-#include "StencilKernel2.hpp"
 #include "analyticalSolution2.hpp"
 
 #include <alpaka/example/executeForEach.hpp>
@@ -13,6 +12,7 @@
 #    include "writeImage.hpp"
 #endif
 
+
 #include <algorithm>
 #include <cassert>
 #include <chrono>
@@ -20,6 +20,56 @@
 #include <cstdint>
 #include <iostream>
 #include <utility>
+
+/*
+template<typename T_Kernel, typename T_Spec>
+struct BlockDynSharedMemBytes;
+
+template<typename T_numFrames, typename T_numThreads>
+struct BlockDynSharedMemBytes<StencilKernel2, alpaka::onHost::FrameSpec<T_numFrames, T_numThreads>>
+{
+    BlockDynSharedMemBytes(StencilKernel2 const&, alpaka::onHost::FrameSpec<T_numFrames, T_numThreads> spec)
+        : spec_(spec)
+    {
+    }
+
+    template<typename TExec, typename... Floats>
+    uint32_t operator()(TExec const&, Floats const&...) const
+    {
+        std::cout << " executed Kernel with sMEM " << spec_.m_frameExtent.x() << " " << spec_.m_frameExtent.y()
+                  << std::endl;
+        return static_cast<uint32_t>(spec_.m_frameExtent.x() * spec_.m_frameExtent.y() * sizeof(double)+2);
+    }
+
+    alpaka::onHost::FrameSpec<T_numFrames, T_numThreads> spec_;
+};
+*/
+
+
+template<typename T_numFrames, typename T_frameSpec>
+auto getSpec(alpaka::onHost::ThreadSpec<T_numFrames, T_frameSpec> const& spec)
+{
+    return getFrameSpec<T_numFrames, T_frameSpec>();
+}
+
+#include "StencilKernel2.hpp"
+
+template<typename T_Spec>
+struct alpaka::onHost::trait::BlockDynSharedMemBytes<StencilKernel2, T_Spec>
+{
+    BlockDynSharedMemBytes(StencilKernel2, T_Spec spec) : spec_(spec)
+    {
+    }
+
+    uint32_t operator()(auto const executor, auto const&... args) const
+    {
+        auto frameSpec = getSpec(spec_);
+        // std::cout << " Specialized for StencilKernel2" << std::endl;
+        return static_cast<uint32_t>(frameSpec.m_frameExtent.x() * frameSpec.m_frameExtent.y() * sizeof(double) + 4);
+    }
+
+    T_Spec spec_;
+}; // namespace alpaka::onHost::trait
 
 //! Each kernel computes the next step for one point.
 //! Therefore the number of threads should be equal to numNodesX.
@@ -60,21 +110,22 @@ auto example(T_Cfg const& cfg) -> int
     // withGridSizeTune(tune::GridSizeTune{fVec{108}, IdxRange{fVec{108}, dataBlocking.m_numFrames,
     // fVec{108}}}). withGridSizeTune(tune::GridSizeTune{fVec{22}, IdxRange{fVec{22}, fVec{32},
     // fVec{1}}}).//#cpu
-    /*
-    constexpr IdxVec numNodes{8 * 1024, 8 * 1024};
+
+    constexpr IdxVec numNodes{4 * 1024, 4 * 1024};
     constexpr IdxVec haloSize{2, 2};
     constexpr IdxVec extent = numNodes + haloSize;
 
     constexpr uint32_t numTimeSteps = 4000 * 32;
     constexpr double tMax = 0.0000001;
-    */ //GPU settings
+    // GPU settings
+    /*
     constexpr IdxVec numNodes{128, 128};
     constexpr IdxVec haloSize{2, 2};
     constexpr IdxVec extent = numNodes + haloSize;
 
     constexpr uint32_t numTimeSteps = 4000 * 2;
     constexpr double tMax = 0.001;
-
+    */
     // x, y in [0, 1], t in [0, tMax]
     constexpr double dx = 1.0 / static_cast<double>(extent[1] - 1);
     constexpr double dy = 1.0 / static_cast<double>(extent[0] - 1);
@@ -119,8 +170,7 @@ auto example(T_Cfg const& cfg) -> int
     constexpr auto numNodesWithHalo = numNodes + halo;
 
     constexpr IdxVec numChunks{
-        1,
-        1,
+        divCeil(numNodes, IdxVec{xSize, ySize}),
     };
 
     assert(
@@ -163,17 +213,21 @@ auto example(T_Cfg const& cfg) -> int
     uVec{56, 56}}}) .withConfig("./config/babelstream.toml") .build(); // #gpu*/
 
     using VecType = ALPAKA_TYPEOF(dataBlockingBorder.m_numFrames);
+
+    auto setFixedNumBlocks = uVec{3, 4};
+    auto setFixedNumBlocks_ = alpaka::tune::primeFactorPartitioning(
+        alpaka::onHost::getDeviceProperties(devAcc).m_multiProcessorCount,
+        uVec{});
+    auto frameSpec = FrameSpec{toRTime.m_numFrames, toRTime.m_frameExtent, setFixedNumBlocks_, toRTime.m_frameExtent};
+    std::cout << " original numFrames " << frameSpec.m_numFrames.toString() << std::endl;
     auto tuningSession
         = tune::TuningBuilder{}
               .withStrategy(alpaka::tune::strategy::randomSearch{})
-              .withNumFramesTune(tune::makeNumFramesTune(fVec{3, 4}, IdxRange{fVec{1, 1}, fVec{3, 4}, fVec{1, 1}}))
+              .withNumFramesTune(
+                  tune::Tuneable(frameSpec.m_numFrames, IdxRange{uVec{64, 64}, frameSpec.m_numFrames, uVec{64, 64}}))
               .withFrameExtentTune(
-                  tune::makeFrameExtentTune(
-                      toRTime.m_frameExtent,
-                      IdxRange{fVec{4, 4}, toRTime.m_frameExtent, fVec{4, 4}}))
-              .withNumBlocksTune()
-              .withBlockSizeTune()
-              .template withConstraint<tune::frameExtentName>(
+                  tune::Tuneable(frameSpec.m_frameExtent, IdxRange{fVec{4, 4}, frameSpec.m_frameExtent, fVec{4, 4}}))
+              .template withConstraint<tune::frameTune::FrameExtent>(
                   [numNodes](auto a)
                   {
                       using type = std::remove_cvref_t<decltype(a.x())>;
@@ -181,14 +235,11 @@ auto example(T_Cfg const& cfg) -> int
                       auto condY = (numNodes.y() % a.y()) == type{0};
                       return condX && condY;
                   })
-              .template withConstraint<tune::numFramesName, tune::gridSizeName>(
-                  [](auto a, auto b) { return (a.x() >= b.x() && a.y() >= b.y()); })
-              .template withConstraint<tune::frameExtentName, tune::threadBlockSizeName>(
-                  [](auto a, auto b) { return (a.x() >= b.x() && a.y() >= b.y()); })
+              .template withConstraint<tune::frameTune::NumFrames>(
+                  [setFixedNumBlocks](auto a)
+                  { return (a.x() > setFixedNumBlocks.x() && a.y() > setFixedNumBlocks.y()); })
               .withConfig("./config/babelstream.toml")
               .build();
-    std::cout << " max thread spec: " << toRTime.m_frameExtent.toString()
-              << " max numFrames: " << toRTime.m_numFrames.toString() << std::endl;
     auto startTime = std::chrono::high_resolution_clock::now();
 
     // Simulate
@@ -209,23 +260,13 @@ auto example(T_Cfg const& cfg) -> int
                 numNodes,
                 dx,
                 dy,
-                dt});
         */
         tuningSession.enqueue(
             devAcc,
             computeQueue,
             exec,
-            toRTime,
-            KernelBundle{
-                stencilKernel,
-                uCurrBufAcc.getMdSpan(),
-                uNextBufAcc.getMdSpan(),
-                chunkSize,
-                sharedMemExtents,
-                numNodes,
-                dx,
-                dy,
-                dt});
+            frameSpec,
+            KernelBundle{stencilKernel, uCurrBufAcc.getMdSpan(), uNextBufAcc.getMdSpan(), numNodes, dx, dy, dt});
         // Apply boundaries
         alpaka::onHost::enqueue(
             computeQueue,

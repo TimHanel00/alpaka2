@@ -24,50 +24,52 @@
 //! \param dx step in x
 //! \param dy step in y
 //! \param dt step in t
+template<typename Vec2>
 struct PoissonBoundaryKernel
 {
     template<typename TAcc>
     ALPAKA_FN_ACC auto operator()(
         TAcc const& acc,
-
-        alpaka::concepts::MdSpan auto uBuf,
-        alpaka::concepts::Vector auto numNodesWithHalo) const -> void
+        auto p,
+        auto extent,
+        auto numNodes,
+        double p0,
+        double alpha,
+        double dx) const -> void
     {
         using Idx = uint32_t;
-
-        using namespace alpaka;
-
-        using Idx = uint32_t;
-        using Vec = alpaka::Vec<Idx, 2>;
-        constexpr auto xDir = CVec<uint32_t, 0u, 1u>{};
-        constexpr auto yDir = CVec<uint32_t, 1u, 0u>{};
         // Lower and upper edges: j = 0 and j = ny-1
-        Idx const nx = numNodesWithHalo[0];
-        Idx const ny = numNodesWithHalo[1];
-
-        // Bottom and top edges
-        for(auto idx :
-            onAcc::makeIdxMap(acc, onAcc::worker::threadsInGrid, IdxRange{Vec{0u, 0u}, Vec{0u, nx - 2u}} >> 1u))
+        Idx extent_y = extent[0];
+        Idx extent_x = extent[1];
+        Idx nx = numNodes[1];
+        for(Idx y = 0; y < extent_y; ++y)
         {
-            Vec bottom = idx - yDir;
-            Vec top = idx + Vec{ny - 2u, 0u};
-            Vec topEdge = top + yDir;
-
-            uBuf[bottom] = uBuf[idx];
-            uBuf[topEdge] = uBuf[top];
+            p[Vec2{y, 0u}] = p0;
+            p[Vec2{y, extent_x - 1u}] = p0 - alpha * (nx - 1.0) * dx;
         }
-
-        // Left and right edges
-        for(auto idx :
-            onAcc::makeIdxMap(acc, onAcc::worker::threadsInGrid, IdxRange{Vec{0u, 0u}, Vec{nx - 2u, 0u}} >> 1u))
+        for(Idx x = 1; x < extent_x - 1; ++x)
         {
-            Vec leftEdge = idx - xDir;
-            Vec right = Vec{0u, nx - 2u} + idx;
-            Vec rightEdge = right + xDir;
-
-            uBuf[leftEdge] = uBuf[idx];
-            uBuf[rightEdge] = uBuf[right];
+            p[Vec2{0, x}] = p[Vec2{1, x}];
+            p[Vec2{extent_y - 1u, x}] = p[Vec2{extent_y - 2u, x}];
         }
+        /*
+        // dirichlet boundary condition to make laminar flow work
+        for(auto [y] : onAcc::makeIdxMap(acc, onAcc::worker::linearThreadsInGrid, IdxRange{Vec1{0u}, Vec1{extent_y}}))
+        {
+            p[Vec2{y, 0}] = p0;
+            p[Vec2{y, extent_x - 1u}] = p0 - alpha * (nx - 1.0) * dx;
+        }
+        // Bottom and top edges Neumann boundary condition
+        for(auto [x] :
+            onAcc::makeIdxMap(acc, onAcc::worker::linearThreadsInGrid, IdxRange{Vec1{0u}, Vec1{extent_x - 2u}} >> 1u))
+        {
+            p[Vec2{0, x}] = p[Vec2{1, x}];
+            p[Vec2{extent_y - 1u, x}] = p[Vec2{extent_y - 2u, x}];
+        }          */
+
+        // Left and right edges -- dirichlet boundary condition
+        // -- applying high pressure from the left and low pressure from the right (as a constant gradient) -- thus
+        // simulating laminar flow (as in the validation function)
     }
 };
 

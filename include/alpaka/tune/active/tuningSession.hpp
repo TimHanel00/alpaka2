@@ -4,9 +4,8 @@
 #ifndef TUNER_H
 #define TUNER_H
 #define ENABLE_AUTOTUNE
-#include "../../../../example/heatEquation2D/src/StencilKernel.hpp"
-
 #include <alpaka/tune/active/constraint.hpp>
+#include <alpaka/tune/utils/TimeEvent.hpp>
 #ifdef ENABLE_AUTOTUNE
 
 #    include <alpaka/tune/active/sessionBuilder.h>
@@ -103,9 +102,16 @@ namespace alpaka::tune::detail::internal
             return stored.state == StorageKernelRun::State::Dummy;
         }
         bool valid = true;
+        int index = 0;
         for_each(
             constraint,
-            [&run, &valid](auto& constraint) { valid = valid && constraint.template operator()<T_Context>(run); });
+            [&index, &run, &valid](auto& constraint)
+            {
+                auto constraintValid = constraint.template operator()<T_Context>(run);
+                valid = valid && constraintValid;
+                if(!constraintValid)
+                    std::cout << " constraint " << index++ << " failed" << std::endl;
+            });
         if(!valid)
         {
             std::cout << " detected constraint violation for " << runHash << std::endl;
@@ -135,6 +141,20 @@ namespace alpaka::tune::detail::internal
             onHost::enqueue(queue, exec, spec, bundle);
             onHost::wait(queue);
         }
+        // verifyCorrectness(NumNodes, spec.m_frameExtent);
+    }
+
+    template<typename NewKernelFn, typename OldKernelBundle>
+    constexpr auto rebind_kernel(NewKernelFn&& newKernel, OldKernelBundle&& bundle)
+    {
+        return std::apply(
+            [&](auto&&... args)
+            {
+                return KernelBundle<std::decay_t<NewKernelFn>, std::decay_t<decltype(args)>...>(
+                    std::forward<NewKernelFn>(newKernel),
+                    std::forward<decltype(args)>(args)...);
+            },
+            std::forward<OldKernelBundle>(bundle).m_args);
     }
 
     // Extracts logic when max configs is reached and best config should be applied
@@ -143,7 +163,7 @@ namespace alpaka::tune::detail::internal
     void applyBestAndExecute(
         auto const& queue,
         auto exec,
-        T_KernelBundle const& kernelBundle,
+        T_KernelBundle& kernelBundle,
         T_kernelRun& run,
         KernelData& data,
         onHost::FrameSpec<T_NumBlocks, T_NumThreads>& spec,
@@ -157,6 +177,7 @@ namespace alpaka::tune::detail::internal
             write = false;
         }
 
+
         alpaka::tune::strategy::bestRecorded<alpaka::tune::Timing>{}(run, data);
         applyConfigAndExecuteKernel(queue, exec, kernelBundle, spec, run);
         onHost::wait(queue);
@@ -166,7 +187,7 @@ namespace alpaka::tune::detail::internal
     {
         auto runHash = run.toHash();
         using T_state = ALPAKA_TYPEOF(data.runs[runHash].state);
-
+        std::cout << " run: " << runHash << " time " << run.metric << std::endl;
         if(!data.runs.contains(runHash))
         {
             data.runs[runHash] = toStore(run);
@@ -326,7 +347,6 @@ namespace alpaka
             onHost::FrameSpec<T_NumFrames, T_FrameExtent> const& frameSpec,
             T_KernelBundle const& kernelBundle)
         {
-            std::cout << " daoiwdoiajwd d " << std::endl;
             auto* kernelptr = tune::detail::internal::setup_enqueue(
                 device,
                 exec,
@@ -341,7 +361,6 @@ namespace alpaka
             KernelData& historyKernelData = (*kernelptr->ptrToHistory);
             using T_Context = ALPAKA_TYPEOF(kernelptr);
 
-            std::cout << " daoiwdoiajwd d " << std::endl;
             internal_enqueue<T_Context>(
                 queue,
                 exec,
@@ -374,28 +393,21 @@ namespace alpaka
             {
                 if(shouldSkipDueToHistory(run, data, sharedParameters, strategy))
                 {
-                    std::cout << " we skip here " << std::endl;
                     continue;
                 }
-                std::cout << " bef check constaint " << run.toHash() << std::endl;
                 if(violatesConstraint<T_Context>(run, data, m_constraint))
                 {
-                    std::cout << " we continue" << std::endl;
                     continue;
                 }
-                std::cout << " we execute this " << std::endl;
                 break;
             }
             if(data.nrOfConfigs >= getMaxRuns(run.maxRuns))
             {
                 applyBestAndExecute(queue, exec, kernelBundle, run, data, spec, history, config);
-                std::cout << "[TUNE] with best config " << run.toHash() << " time: " << run.metric << std::endl;
                 return;
             }
 
             applyConfigAndExecuteKernel(queue, exec, kernelBundle, spec, run);
-            std::cout << "[TUNE] " << data.nrOfConfigs << " out of " << getMaxRuns(run.maxRuns) << " checked. "
-                      << "Current config: " << run.toHash() << " time: " << run.metric << std::endl;
             storeOrUpdateMetrics(run, data);
         }
 
