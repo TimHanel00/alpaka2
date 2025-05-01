@@ -208,7 +208,7 @@ auto createTuningEnvironment(
     printRange(newRun.getNumBlocksTune().idxRange);
 #endif
 
-    auto activePtr = std::make_unique<ALPAKA_TYPEOF(newRun)>(newRun);
+    auto activePtr = std::make_unique<ALPAKA_TYPEOF(completeRun)>(completeRun);
     auto sharedParams = makeSharedParameterInterface(*activePtr);
     auto ptrToHistory = history.getKernelFromHistory(device, exec, bundle, sessionSpecifier);
 

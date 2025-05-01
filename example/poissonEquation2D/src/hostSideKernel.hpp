@@ -73,13 +73,14 @@ struct HostSideKernel
         double dy,
         double const p0,
         double const alpha,
-        double_t omega,
-        double tolerance = 1e-3,
-        std::size_t cutoff = 100000) const -> void
+        auto omega,
+        double tolerance,
+        std::size_t cutoff) const -> void
     {
         using Vec2 = alpaka::Vec<uint32_t, 2u>;
         auto extent = numNodes + halo;
-        double pref = omega / (2.0 * (1.0 / (dx * dx) + 1.0 / (dy * dy)));
+        double pref = omega[0] / (2.0 * (1.0 / (dx * dx) + 1.0 / (dy * dy)));
+        std::cout << "omega: " << omega[0] << " " << std::endl;
         // alpaka::onHost::wait(computeQueue);
 
         // applyBoundaryConditions<Vec2>(pressureFieldBuffer.getMdSpan(), extent, numNodes, p0, alpha, dx);
@@ -118,6 +119,7 @@ struct HostSideKernel
 
         std::size_t counter = 0;
         bool converged = false;
+        double norm = 0.0;
         while(!converged && counter < cutoff)
         {
             /*
@@ -145,7 +147,7 @@ struct HostSideKernel
                     numNodes,
                     dx,
                     dy,
-                    omega,
+                    omega[0],
                     pref});
 
             alpaka::onHost::enqueue(
@@ -183,25 +185,26 @@ struct HostSideKernel
             alpaka::onHost::memcpy(computeQueue, residualHostBufElement, residualAccElement);
             alpaka::onHost::wait(computeQueue);
             double reducedResidual = residualHostBufElement.getMdSpan()[0];
-            double norm = sqrt(reducedResidual);
+            norm = sqrt(reducedResidual);
             // double norm = computeResidual(pressureFieldBuffer, rhs, extent, dx, dy);
             //  double norm = computeResidual(pressureFieldBuffer.getMdSpan(), rhs.getMdSpan(), extent, dx, dy);
             //   double norm = computeResidual(pressureFieldBuffer.getMdSpan(), rhs.getMdSpan(), extent, dx, dy);
-            std::cout << " Norm " << norm << " initialNorm " << initialNorm << std::endl;
 
             if(norm < tolerance * initialNorm)
             {
-                std::cout << " poisson equation converged after " << counter << " steps " << std::endl;
-                std::cout << " Norm " << norm << " initialNorm " << initialNorm << std::endl;
                 converged = true;
             }
 
             ++counter;
         }
-
+        if(converged)
+        {
+            std::cout << " poisson equation converged after " << counter << " steps " << std::endl;
+            std::cout << " Norm " << norm << " initialNorm " << initialNorm << std::endl;
+        }
         if(counter >= cutoff)
         {
-            std::cout << "unfortunately after " << counter << " runs no convergence in sight for Omega: " << omega
+            std::cout << "unfortunately after " << counter << " runs no convergence in sight for Omega: " << omega[0]
                       << std::endl;
         }
     }

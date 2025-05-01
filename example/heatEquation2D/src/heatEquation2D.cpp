@@ -110,8 +110,8 @@ auto example(T_Cfg const& cfg) -> int
     auto uBufHost = alpaka::onHost::alloc<double>(devHost, extent);
 
     // Accelerator buffer
-    auto uCurrBufAcc = alpaka::onHost::allocMirror(devAcc, uBufHost);
-    auto uNextBufAcc = alpaka::onHost::allocMirror(devAcc, uBufHost);
+    auto uCurrBufAcc = onHost::allocMirror(devAcc, uBufHost);
+    auto uNextBufAcc = onHost::allocMirror(devAcc, uBufHost);
     // Set buffer to initial conditions
     initalizeBuffer(uBufHost.getMdSpan(), dx, dy);
 
@@ -120,8 +120,8 @@ auto example(T_Cfg const& cfg) -> int
     Queue computeQueue = devAcc.makeQueue();
 
     // Copy host -> device
-    alpaka::onHost::memcpy(computeQueue, uCurrBufAcc, uBufHost);
-    alpaka::onHost::wait(computeQueue);
+    onHost::memcpy(computeQueue, uCurrBufAcc, uBufHost);
+    onHost::wait(computeQueue);
 
     // Appropriate chunk size to split your problem for your Acc
     constexpr Idx xSize = 16u;
@@ -151,14 +151,12 @@ auto example(T_Cfg const& cfg) -> int
         Vec{dataBlockingStencil.m_frameExtent.x(), dataBlockingStencil.m_frameExtent.y()}};
     using uVec = ALPAKA_TYPEOF(toRTime.m_numFrames);
     using fVec = ALPAKA_TYPEOF(toRTime.m_frameExtent);
-    // static_assert(std::is_same_v<uVec, void>);
-    // static_assert(std::is_same_v<fVec, void>);
     auto vec = fVec{4, 8}; // does not work.
     auto tuningSession
         = tune::TuningBuilder{}
-              .withStrategy(alpaka::tune::strategy::iterativeRefinement{})
+              .withStrategy(tune::strategy::randomSearch{})
               .withBlockSizeTune(tune::Tuneable(fVec{4, 8}, IdxRange{fVec{4, 8}, toRTime.m_frameExtent, fVec{4, 8}}))
-              .withNumBlocksTune(alpaka::Vec{3, 4})
+              .withNumBlocksTune(Vec{3, 4})
               .withRunSpecifiers(std::to_string(numNodes.x()))
               .withConfig("./config/babelstream.toml")
               .build();

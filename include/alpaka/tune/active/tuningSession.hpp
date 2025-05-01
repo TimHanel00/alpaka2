@@ -67,7 +67,7 @@ namespace alpaka::tune::detail::internal
         }
 
         auto& stored = data.runs[runHash];
-        if((stored.nr_runs >= getRunsPerConfig() && stored.fullFlag))
+        if((stored.nr_runs >= getRunsPerConfig() || stored.fullFlag))
         {
             if(data.nrOfConfigs == getMaxRuns(run.maxRuns) - 1)
             {
@@ -136,6 +136,7 @@ namespace alpaka::tune::detail::internal
     {
         applyCustomThreadSpec(run, spec);
         auto bundle = recreate(kernelBundle, run.userTuneables);
+        // static_assert(std::is_same_v<decltype(bundle), void()>);
         {
             auto event = tune::createTimeEventFromActive(run);
             onHost::enqueue(queue, exec, spec, bundle);

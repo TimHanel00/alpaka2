@@ -679,7 +679,7 @@ StorageKernelRun toStore(ActiveKernelRun<T_KernelRunArgs...>& active)
 
     // Convert each tuneable in the tuple
     std::apply(
-        [&result](auto const&... tuneable)
+        [&result](auto&... tuneable)
         {
             ((result.tuneables.emplace_back(
                  alpaka::tune::StorageTuneable{std::string(tuneable.name()), convertToString(tuneable.value)})),

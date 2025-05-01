@@ -150,7 +150,7 @@ auto example(T_Cfg const& cfg) -> int
     auto vec = fVec{4, 8}; // does not work.
 
     auto tuningSession = tune::TuningBuilder{}
-                             .withStrategy(alpaka::tune::strategy::randomSearch{})
+                             .withStrategy(alpaka::tune::strategy::iterativeRefinement{})
                              .withRunSpecifiers(std::to_string(numNodes.x()))
                              .withConfig("./config/babelstream.toml")
                              .build();
@@ -169,37 +169,47 @@ auto example(T_Cfg const& cfg) -> int
         computeQueue,
         dumpQueue};
     using Vec1_float = alpaka::Vec<std::double_t, 1>;
-    constexpr double tolerance = 1e-4;
+    constexpr double tolerance = 1e-3;
     constexpr double p0 = 1.0;
     constexpr double alpha = 1.0;
+
+    constexpr std::size_t cutoff = 10000;
     constexpr double omega = 1.95;
+    constexpr double numRuns = 100;
     // solvePoissonSerialGeneric(uBufHost, uNextBufAcc, rhs, numNodes, halo, dx, dy, p0, alpha, omega); // serial
     //  IMplementation
+    for(int i = 0; i < numRuns; i++)
+    {
+        alpaka::onHost::memset(computeQueue, uCurrBufAcc, 0x0);
+        alpaka::onHost::memset(computeQueue, uNextBufAcc, 0x0);
+        alpaka::onHost::wait(computeQueue);
+        tuningSession.enqueue(
+            devHost,
+            hostQueue,
+            alpaka::exec::CpuSerial{},
+            FrameSpec{alpaka::Vec{1}, alpaka::Vec{1}},
+            // KernelBundle{host_side_kernel, exec});
+            KernelBundle{
+                host_side_kernel,
+                exec,
+                chunkSize,
+                sharedMemExtents,
+                numNodes,
+                halo,
+                dx,
+                dy,
+                p0,
+                alpha,
+                // omega,
+                alpaka::tune::Tuneable{
+                    Vec1_float{1.0},
+                    IdxRange{Vec1_float{1.0}, Vec1_float{2.0}, Vec1_float{0.05}},
+                    "Omega"},
+                tolerance,
+                cutoff});
+    }
 
-    alpaka::onHost::enqueue(
-        // devHost,
-        hostQueue,
-        alpaka::exec::CpuSerial{},
-        FrameSpec{alpaka::Vec{1}, alpaka::Vec{1}},
-        // KernelBundle{host_side_kernel, exec});
-        KernelBundle{
-            host_side_kernel,
-            exec,
-            chunkSize,
-            sharedMemExtents,
-            numNodes,
-            halo,
-            dx,
-            dy,
-            p0,
-            alpha,
-            /*
-            alpaka::tune::Tuneable{
-                Vec1_float{1.0},
-                IdxRange{Vec1_float{1.0}, Vec1_float{2.0}, Vec1_float{0.05}},
-                "Omega"},*/
-
-            omega});
+    // omega});
 
     alpaka::onHost::wait(hostQueue);
     auto endTime = std::chrono::high_resolution_clock::now();

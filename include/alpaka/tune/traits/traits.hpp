@@ -4,5 +4,6 @@
 
 #ifndef TRAITS_HPP
 #define TRAITS_HPP
+#include <alpaka/alpaka.hpp>
 
-#endif //TRAITS_HPP
+#endif // TRAITS_HPP

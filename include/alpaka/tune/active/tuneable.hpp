@@ -102,6 +102,15 @@ namespace alpaka::tune
         }
     }
 
+    template<typename T>
+    constexpr T mod(T a, T b)
+    {
+        if constexpr(std::is_floating_point_v<T>)
+            return std::fmod(a, b);
+        else
+            return a % b;
+    }
+
     void adjustToRange(auto& value, auto& begin, auto& end, auto& stride)
     {
         if constexpr(std::is_same_v<ALPAKA_TYPEOF(begin), ALPAKA_TYPEOF(value)>)
@@ -111,7 +120,7 @@ namespace alpaka::tune
             if(val == begin || val == end) // special case where we can ignore the correction
                 return;
             auto offset = val - begin;
-            auto remainder = offset % stride;
+            auto remainder = mod(offset, stride);
 
             if(remainder == VType{0} && val >= begin && val <= end)
                 return;

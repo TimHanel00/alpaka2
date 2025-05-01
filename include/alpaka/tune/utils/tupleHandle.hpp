@@ -38,8 +38,8 @@ struct is_tuneable : std::false_type
 {
 };
 
-template<typename T, auto N>
-struct is_tuneable<alpaka::tune::Tuneable<T, N>> : std::true_type
+template<typename T, auto N, typename policy>
+struct is_tuneable<alpaka::tune::Tuneable<T, N, policy>> : std::true_type
 {
 };
 
@@ -51,8 +51,8 @@ struct tuneable_underlying
 {
 };
 
-template<auto N, typename T>
-struct tuneable_underlying<alpaka::tune::Tuneable<T, N>>
+template<auto N, typename T, typename policy>
+struct tuneable_underlying<alpaka::tune::Tuneable<T, N, policy>>
 {
     using type = T;
 };

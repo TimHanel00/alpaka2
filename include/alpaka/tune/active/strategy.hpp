@@ -587,7 +587,32 @@ namespace alpaka::tune::strategy
         {
             void operator()(alpaka::concepts::tuneable auto& tune, std::size_t resolution)
             {
-                std::cout << "Default refinement for ID: " << N << "\n";
+                using T_tune = std::remove_cvref_t<decltype(tune)>;
+                using T_range = decltype(tune.idxRange);
+                using T_Vec = typename T_tune::ValueType;
+                using valType = std::remove_reference_t<decltype(tune.value[0])>;
+                auto range = (tune.idxRange.m_end - tune.idxRange.m_begin);
+                auto nrSteps = range / tune.idxRange.m_stride;
+                auto percentageDeviation = (1.0 / static_cast<double_t>(resolution));
+                for(int i = 0; i < alpaka::getDim(T_Vec{}); i++)
+                {
+                    tune.idxRange.m_begin[i] = std::max(
+                        static_cast<valType>(tune.idxRange.m_begin[i]),
+                        static_cast<valType>(tune.value[i] - percentageDeviation * range));
+                    tune.idxRange.m_end[i] = std::min(
+                        tune.idxRange.m_end[i],
+                        static_cast<valType>(tune.value[i] + percentageDeviation * range));
+
+                    tune.idxRange.m_stride[i]
+                        = static_cast<valType>((tune.idxRange.m_end[i] - tune.idxRange.m_begin[i]) / nrSteps[i]);
+                    if(std::is_integral_v<valType> && tune.idxRange.m_stride[i] == valType(0))
+                    {
+                        tune.idxRange.m_stride[i] = 1;
+                    }
+                }
+                std::cout << " new range for: 0 " << tune.idxRange.m_begin.toString()
+                          << " end: " << tune.idxRange.m_end.toString()
+                          << " stride: " << tune.idxRange.m_stride.toString() << std::endl;
             }
         };
     };
@@ -597,28 +622,14 @@ namespace alpaka::tune::strategy
     {
         void operator()(alpaka::concepts::tuneable auto& tune, std::size_t resolution)
         {
-            // tune.idxRange;
+            // example special refinenemt for numBlocks (doesnt not get changed on refinement update cycle)
             using T_tune = std::remove_cvref_t<decltype(tune)>;
             using T_range = decltype(tune.idxRange);
-            using T_Vec = typename T_tune::ValueType; // FIXED: typename required
+            using T_Vec = typename T_tune::ValueType;
             using valType = std::remove_reference_t<decltype(tune.value[0])>;
-
-            auto nrSteps = (tune.idxRange.m_end - tune.idxRange.m_begin) / tune.idxRange.m_stride;
-            auto percentageDeviation = (1.0 / static_cast<double_t>(resolution));
-            for(int i = 0; i < alpaka::getDim(T_Vec{}); i++)
-            {
-                tune.idxRange.m_begin[i] = std::max(
-                    static_cast<valType>(1),
-                    static_cast<valType>(tune.value[i] - percentageDeviation * tune.value[i]));
-
-                tune.idxRange.m_end[i] = static_cast<valType>(tune.value[i] + percentageDeviation * tune.value[i]);
-
-                tune.idxRange.m_stride[i] = (tune.idxRange.m_end[i] - tune.idxRange.m_begin[i]) / nrSteps[i];
-                if(std::is_integral<valType>::value && tune.idxRange.m_stride[i] == valType(0))
-                {
-                    tune.idxRange.m_stride[i] = 1;
-                }
-            }
+            std::cout << " new range for: 0 " << tune.idxRange.m_begin.toString()
+                      << " end: " << tune.idxRange.m_end.toString() << " stride: " << tune.idxRange.m_stride.toString()
+                      << std::endl;
         }
     };
 
@@ -635,10 +646,10 @@ namespace alpaka::tune::strategy
     struct iterativeRefinement
     {
         std::size_t m_numIterations = 5;
-        double_t resolution = 20;
-        iterativeRefinement() {};
+        double_t resolution = 10;
+        iterativeRefinement() = default;
 
-        iterativeRefinement(std::size_t _numIterations) : m_numIterations(_numIterations)
+        explicit iterativeRefinement(std::size_t _numIterations) : m_numIterations(_numIterations)
         {
         }
 
@@ -674,12 +685,10 @@ namespace alpaka::tune::strategy
                         },
                         kernelRun.allTuneables());
 
-                    double oldMaxRuns = kernelRun.maxRuns;
                     curIteration++;
 
                     alpaka::tune::recalculateMaxRuns(kernelRun);
-
-                    kernelRun.maxRuns += oldMaxRuns;
+                    kernel_data.nrOfConfigs = 0;
 
                     // Optional debug:
                     // std::cout << "[Refinement] Running second exhaustive search...\n";
