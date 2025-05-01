@@ -156,9 +156,9 @@ auto example(T_Cfg const& cfg) -> int
     auto vec = fVec{4, 8}; // does not work.
     auto tuningSession
         = tune::TuningBuilder{}
-              .withStrategy(alpaka::tune::strategy::randomSearch{})
+              .withStrategy(alpaka::tune::strategy::iterativeRefinement{})
               .withBlockSizeTune(tune::Tuneable(fVec{4, 8}, IdxRange{fVec{4, 8}, toRTime.m_frameExtent, fVec{4, 8}}))
-              .withNumBlocksTune()
+              .withNumBlocksTune(alpaka::Vec{3, 4})
               .withRunSpecifiers(std::to_string(numNodes.x()))
               .withConfig("./config/babelstream.toml")
               .build();

@@ -566,8 +566,127 @@ namespace alpaka::tune::strategy
             {
                 bool found{false};
                 recurse(tuneables, 0, kernelRun, history, found);
+                if(!found)
+                {
+                    // fallback incase we found no new or still usable config it indicates that we switch to bestConfig
+                    kernel_data.nrOfConfigs = kernelRun.maxRuns;
+                }
             }
         }
+    };
+
+    struct Refinement
+    {
+        // Primary template — default case
+        template<std::size_t N, typename Enable = void>
+        struct Op;
+
+        // Default when no specialization is registered
+        template<std::size_t N>
+        struct Op<N>
+        {
+            void operator()(alpaka::concepts::tuneable auto& tune, std::size_t resolution)
+            {
+                std::cout << "Default refinement for ID: " << N << "\n";
+            }
+        };
+    };
+
+    template<>
+    struct Refinement::Op<static_cast<std::size_t>(alpaka::tune::frameTune::numBlocks)>
+    {
+        void operator()(alpaka::concepts::tuneable auto& tune, std::size_t resolution)
+        {
+            // tune.idxRange;
+            using T_tune = std::remove_cvref_t<decltype(tune)>;
+            using T_range = decltype(tune.idxRange);
+            using T_Vec = typename T_tune::ValueType; // FIXED: typename required
+            using valType = std::remove_reference_t<decltype(tune.value[0])>;
+
+            auto nrSteps = (tune.idxRange.m_end - tune.idxRange.m_begin) / tune.idxRange.m_stride;
+            auto percentageDeviation = (1.0 / static_cast<double_t>(resolution));
+            for(int i = 0; i < alpaka::getDim(T_Vec{}); i++)
+            {
+                tune.idxRange.m_begin[i] = std::max(
+                    static_cast<valType>(1),
+                    static_cast<valType>(tune.value[i] - percentageDeviation * tune.value[i]));
+
+                tune.idxRange.m_end[i] = static_cast<valType>(tune.value[i] + percentageDeviation * tune.value[i]);
+
+                tune.idxRange.m_stride[i] = (tune.idxRange.m_end[i] - tune.idxRange.m_begin[i]) / nrSteps[i];
+                if(std::is_integral<valType>::value && tune.idxRange.m_stride[i] == valType(0))
+                {
+                    tune.idxRange.m_stride[i] = 1;
+                }
+            }
+        }
+    };
+
+    template<typename T_Tuneable>
+    void refineTuneableRange(T_Tuneable& tune, std::size_t resolution)
+
+    {
+        using tuneableType = std::remove_cvref_t<T_Tuneable>;
+        constexpr auto id = tuneableType::tag;
+        Refinement::Op<id>{}(tune, resolution);
+    }
+
+    template<typename T_Metric = alpaka::tune::Timing>
+    struct iterativeRefinement
+    {
+        std::size_t m_numIterations = 5;
+        double_t resolution = 20;
+        iterativeRefinement() {};
+
+        iterativeRefinement(std::size_t _numIterations) : m_numIterations(_numIterations)
+        {
+        }
+
+        std::size_t curIteration = 0;
+
+        template<typename T_tuneables, typename T_ActiveKernel>
+        auto operator()(T_tuneables&& tuneables, T_ActiveKernel& kernelRun, KernelData& kernel_data)
+        {
+            exhaustiveSearch<T_Metric>{}(tuneables, kernelRun, kernel_data);
+
+            auto kernelHash = kernelRun.toHash();
+            if(kernel_data.runs.contains(kernelHash))
+            {
+                exhaustiveSearch<T_Metric>{}(tuneables, kernelRun, kernel_data);
+            }
+
+            if(curIteration < m_numIterations)
+            {
+                if(kernel_data.nrOfConfigs + 2 >= kernelRun.maxRuns)
+                {
+                    bestRecorded<T_Metric>{}(kernelRun, kernel_data);
+
+                    std::apply(
+                        [&]<typename... T>(T&... t)
+                        {
+                            (
+                                [this]<typename U>(U& tune)
+                                {
+                                    refineTuneableRange(tune, resolution);
+                                    tune.toRange();
+                                }(t),
+                                ...);
+                        },
+                        kernelRun.allTuneables());
+
+                    double oldMaxRuns = kernelRun.maxRuns;
+                    curIteration++;
+
+                    alpaka::tune::recalculateMaxRuns(kernelRun);
+
+                    kernelRun.maxRuns += oldMaxRuns;
+
+                    // Optional debug:
+                    // std::cout << "[Refinement] Running second exhaustive search...\n";
+                    // exhaustiveSearch<T_Metric>{}(tuneables, kernelRun, kernel_data);
+                }
+            }
+        };
     };
 
     template<typename T_Metric = alpaka::tune::Timing>

@@ -128,8 +128,10 @@ namespace alpaka::tune
         template<typename T, auto dim, typename DimTraversePolicy = DimensionsIndependent>
         auto withNumBlocksTune(alpaka::Vec<T, dim> tune, DimTraversePolicy = {}) const
         {
-            auto newTune
-                = Tuneable<T, static_cast<std::size_t>(SpecialTuneableID::NumBlocks), DimTraversePolicy>(tune);
+            auto newTune = Tuneable<
+                alpaka::Vec<T, dim>,
+                static_cast<std::size_t>(SpecialTuneableID::NumBlocks),
+                DimTraversePolicy>(tune);
             return this->withTuning(newTune);
         }
 
@@ -160,8 +162,10 @@ namespace alpaka::tune
         template<typename T, auto dim, typename DimTraversePolicy = DimensionsIndependent>
         auto withBlockSizeTune(alpaka::Vec<T, dim> tune, DimTraversePolicy = {}) const
         {
-            auto newTune
-                = Tuneable<T, static_cast<std::size_t>(SpecialTuneableID::ThreadBlock), DimTraversePolicy>(tune);
+            auto newTune = Tuneable<
+                alpaka::Vec<T, dim>,
+                static_cast<std::size_t>(SpecialTuneableID::ThreadBlock),
+                DimTraversePolicy>(tune);
             return this->withTuning(newTune);
         }
 
@@ -192,8 +196,10 @@ namespace alpaka::tune
         template<typename T, auto dim, typename DimTraversePolicy = DimensionsIndependent>
         auto withNumFramesTune(alpaka::Vec<T, dim> tune, DimTraversePolicy = {}) const
         {
-            auto newTune
-                = Tuneable<T, static_cast<std::size_t>(SpecialTuneableID::NumFrames), DimTraversePolicy>(tune);
+            auto newTune = Tuneable<
+                alpaka::Vec<T, dim>,
+                static_cast<std::size_t>(SpecialTuneableID::NumFrames),
+                DimTraversePolicy>(tune);
             return this->withTuning(newTune);
         }
 
@@ -224,8 +230,10 @@ namespace alpaka::tune
         template<typename T, auto dim, typename DimTraversePolicy = DimensionsIndependent>
         auto withFrameExtentTune(alpaka::Vec<T, dim> tune, DimTraversePolicy = {}) const
         {
-            auto newTune
-                = Tuneable<T, static_cast<std::size_t>(SpecialTuneableID::FrameExtent), DimTraversePolicy>(tune);
+            auto newTune = Tuneable<
+                alpaka::Vec<T, dim>,
+                static_cast<std::size_t>(SpecialTuneableID::FrameExtent),
+                DimTraversePolicy>(tune);
             return this->withTuning(newTune);
         }
 

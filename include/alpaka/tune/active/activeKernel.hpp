@@ -196,6 +196,12 @@ struct ActiveKernelRun
         }
     }
 
+    template<auto... ID>
+    constexpr auto getByIDs()
+    {
+        return std::make_tuple(getByID<ID>()...); // expands each getByID
+    }
+
     template<auto ID>
     constexpr auto* getByID()
     {
@@ -259,5 +265,36 @@ auto appendTuning(ExistingKernel const& kernel, NewTuning const& newTuning)
         return ActiveKernelRun{kernel.userTuneables, std::move(newFrameTuple)};
     }
 }
+
+namespace alpaka::tune
+{
+    template<typename T_ActiveKernel>
+    void recalculateMaxRuns(T_ActiveKernel& active)
+    {
+        using maxRunsType = decltype(active.maxRuns);
+        auto init = maxRunsType{1};
+        std::apply([&](auto&... t) { ((init *= t.numSteps()), ...); }, active.userTuneables);
+        active.maxRuns = init;
+        if constexpr(T_ActiveKernel::hasNumBlocksTune())
+        {
+            recalculateMaxRuns_forTune(active, active.getNumBlocksTune(), "grid");
+        }
+
+        if constexpr(T_ActiveKernel::hasThreadBlockSizeTune())
+        {
+            recalculateMaxRuns_forTune(active, active.getThreadBlockSizeTune(), "block");
+        }
+
+        if constexpr(T_ActiveKernel::hasNumFramesTune())
+        {
+            recalculateMaxRuns_forTune(active, active.getNumFramesTune(), "frame");
+        }
+
+        if constexpr(T_ActiveKernel::hasFrameExtentTune())
+        {
+            recalculateMaxRuns_forTune(active, active.getFrameExtentTune(), "extent");
+        }
+    }
+} // namespace alpaka::tune
 
 #endif // ACTIVEKERNEL_H

@@ -29,14 +29,12 @@ struct computeResidualReduceKernel
 
         constexpr auto xDir = CVec<uint32_t, 0u, 1u>{};
         constexpr auto yDir = CVec<uint32_t, 1u, 0u>{};
-        auto residualSdata = onAcc::declareSharedMdArray<double, uniqueId()>(
-            acc,
-            sharedMemExtents); // blockSizeExtent would be a better fit
+        // blockSizeExtent would be a better fit
         for(alpaka::concepts::Dim<2u> auto blockStartIdx :
             onAcc::makeIdxMap(acc, onAcc::worker::blocksInGrid, IdxRange{Vec{0u, 0u}, numNodes, chunkSize}))
         {
             auto pressurSdata = alpaka::onAcc::declareSharedMdArray<double, alpaka::uniqueId()>(acc, sharedMemExtents);
-
+            auto residualSdata = onAcc::declareSharedMdArray<double, uniqueId()>(acc, sharedMemExtents);
 
             // avoid data race with the stencil calculation at the end
             onAcc::syncBlockThreads(acc);
@@ -64,7 +62,7 @@ struct computeResidualReduceKernel
                       + (pressurSdata[idx2d + yDir] - 2.0 * pressurSdata[idx2d] + pressurSdata[idx2d - yDir])
                             / (dy * dy);
                 double h = laplacian - rhs[bufIdx];
-                residualSdata[acc[layer::thread].idx()] += h * h;
+                residualSdata[acc[layer::thread].idx()] += (h * h);
             }
             onAcc::syncBlockThreads(acc);
             /*
@@ -99,7 +97,7 @@ struct computeResidualReduceKernel
                 }
             }
 
-            if(local_i.product() == 0)
+            if(local_i[0] == 0 && local_i[1] == 0)
             {
                 onAcc::atomicAdd(acc, &residualReduced[0], residualSdata[local_i]);
             }

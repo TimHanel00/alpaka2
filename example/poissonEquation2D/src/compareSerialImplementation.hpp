@@ -49,7 +49,7 @@ double computeResidual(auto p, auto rhs, auto const extent, double const dx, dou
             Vec2 idx{y, x};
             double laplacian = (p[idx + xDir] - 2.0 * p[idx] + p[idx - xDir]) / (dx * dx)
                                + (p[idx + yDir] - 2.0 * p[idx] + p[idx - yDir]) / (dy * dy);
-            double h = laplacian - rhs[idx];
+            double h = laplacian - 0.0; //-rhs[idx]w
             accum += (h * h);
         }
     }

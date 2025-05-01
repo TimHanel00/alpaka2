@@ -97,7 +97,7 @@ auto makeConformToTVec(T_Vec const&, alpaka::tune::NoTune const&)
  *
  */
 template<typename T_Vec, typename T_Tuneable>
-auto makeConformToTVec(T_Vec const& vec, T_Tuneable const& tuneable)
+auto makeConformToTVec(T_Vec const& vec, T_Tuneable& tuneable)
 {
     /*
     using Valuetype = T;

@@ -22,6 +22,7 @@ template<
     typename T_NextPressureBuf,
     typename T_ResHost,
     typename T_ResAcc,
+    typename T_bufHost,
     typename T_rhs,
     typename T_computeQueue,
     typename T_dumpQueue>
@@ -31,6 +32,7 @@ struct HostSideKernel
     T_BorderFrameSpec& borderBlockingSpec;
     T_PressureBuf& pressureFieldBuffer;
     T_NextPressureBuf& nextPressureFieldBuffer;
+    T_bufHost& bufHost;
     T_ResHost& residualHostBufElement;
     T_ResAcc& residualAccElement;
     T_rhs& rhs;
@@ -42,6 +44,7 @@ struct HostSideKernel
         T_BorderFrameSpec& _borderBlockingSpec,
         T_PressureBuf& _bufAcc,
         T_NextPressureBuf& _nextBufAcc,
+        T_bufHost& _bufHost,
         T_rhs& _rhs,
         T_ResHost& _resHost,
         T_ResAcc& _resAcc,
@@ -51,6 +54,7 @@ struct HostSideKernel
         , borderBlockingSpec(_borderBlockingSpec)
         , pressureFieldBuffer(_bufAcc)
         , nextPressureFieldBuffer(_nextBufAcc)
+        , bufHost(_bufHost)
         , rhs(_rhs)
         , residualHostBufElement(_resHost)
         , residualAccElement(_resAcc)
@@ -92,6 +96,7 @@ struct HostSideKernel
                 alpha,
                 dx});
         alpaka::onHost::wait(computeQueue);
+
         alpaka::onHost::enqueue(
             computeQueue,
             exec,
@@ -113,7 +118,6 @@ struct HostSideKernel
 
         std::size_t counter = 0;
         bool converged = false;
-
         while(!converged && counter < cutoff)
         {
             /*
@@ -160,6 +164,7 @@ struct HostSideKernel
             // applyBoundaryConditions<Vec2>(nextPressureFieldBuffer.getMdSpan(), extent, numNodes, p0, alpha, dx);
             std::swap(pressureFieldBuffer, nextPressureFieldBuffer);
             alpaka::onHost::memset(computeQueue, residualAccElement, 0x0);
+
             alpaka::onHost::enqueue(
                 computeQueue,
                 exec,
@@ -174,12 +179,14 @@ struct HostSideKernel
                     numNodes,
                     dx,
                     dy});
+
             alpaka::onHost::memcpy(computeQueue, residualHostBufElement, residualAccElement);
             alpaka::onHost::wait(computeQueue);
             double reducedResidual = residualHostBufElement.getMdSpan()[0];
             double norm = sqrt(reducedResidual);
-            // double norm = computeResidual(pressureFieldBuffer.getMdSpan(), rhs.getMdSpan(), extent, dx, dy);
+            // double norm = computeResidual(pressureFieldBuffer, rhs, extent, dx, dy);
             //  double norm = computeResidual(pressureFieldBuffer.getMdSpan(), rhs.getMdSpan(), extent, dx, dy);
+            //   double norm = computeResidual(pressureFieldBuffer.getMdSpan(), rhs.getMdSpan(), extent, dx, dy);
             std::cout << " Norm " << norm << " initialNorm " << initialNorm << std::endl;
 
             if(norm < tolerance * initialNorm)

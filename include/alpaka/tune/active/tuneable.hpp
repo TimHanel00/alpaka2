@@ -64,32 +64,6 @@ namespace alpaka::tune
         }
     }
 
-    template<typename T_ActiveKernel>
-    void recalculateMaxRuns(T_ActiveKernel& active)
-    {
-        active.maxRuns = active.maxRunsDefault;
-
-        if constexpr(T_ActiveKernel::hasNumBlocksTune())
-        {
-            recalculateMaxRuns_forTune(active, active.getNumBlocksTune(), "grid");
-        }
-
-        if constexpr(T_ActiveKernel::hasThreadBlockSizeTune())
-        {
-            recalculateMaxRuns_forTune(active, active.getThreadBlockSizeTune(), "block");
-        }
-
-        if constexpr(T_ActiveKernel::hasNumFramesTune())
-        {
-            recalculateMaxRuns_forTune(active, active.getNumFramesTune(), "frame");
-        }
-
-        if constexpr(T_ActiveKernel::hasFrameExtentTune())
-        {
-            recalculateMaxRuns_forTune(active, active.getFrameExtentTune(), "extent");
-        }
-    }
-
     void clampToSpec_elem(auto& value, auto& idxRange)
     {
         using rangeType = ALPAKA_TYPEOF(idxRange.m_begin);
@@ -353,10 +327,20 @@ namespace alpaka::tune
         {
         }
 
-        // Value + optional range + optional name
-        constexpr Tuneable(T init, IdxRange<T, T, T> ir = defaultIdxRange(T{}), std::string const& name = "")
+        constexpr Tuneable(T init, std::string const& name = "")
             : value(init)
-            , userDef(false)
+            , userDef(true)
+            , idxRange(defaultIdxRange(init))
+        {
+            if(!name.empty())
+                m_name = name;
+            toRange();
+        }
+
+        // Value + optional range + optional name
+        constexpr Tuneable(T init, IdxRange<T, T, T> ir, std::string const& name = "")
+            : value(init)
+            , userDef(true)
             , idxRange(ir)
         {
             if(!name.empty())
@@ -462,4 +446,16 @@ namespace alpaka::tune
 
 
 } // namespace alpaka::tune
+
+namespace alpaka::concepts
+{
+    template<typename T>
+    concept tuneable = requires(T t) {
+        typename T::ValueType;
+        typename T::dimensionTraversePolicy_type;
+        T::tag;
+        t.value;
+        t.idxRange;
+    };
+} // namespace alpaka::concepts
 #endif // TUNEABLE_H

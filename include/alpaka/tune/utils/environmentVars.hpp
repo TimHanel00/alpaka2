@@ -36,6 +36,17 @@ static std::size_t getRunsPerConfig(std::optional<std::size_t> const& reRuns = s
     return envMaxRuns;
 }
 
+static bool userDefMaxRuns(std::optional<bool> userDef = std::nullopt)
+{
+    static bool isUserDef = false;
+    if(userDef.has_value())
+    {
+        isUserDef = userDef.value();
+    }
+
+    return isUserDef;
+}
+
 static std::size_t getMaxRuns_Env()
 {
     if(char const* var = std::getenv("TunerMaxConfigs"))
@@ -43,6 +54,7 @@ static std::size_t getMaxRuns_Env()
         try
         {
             std::size_t value = static_cast<std::size_t>(std::stoul(var));
+            userDefMaxRuns(std::make_optional<bool>(true));
             return value;
         }
         catch(std::exception const& e)
@@ -50,6 +62,7 @@ static std::size_t getMaxRuns_Env()
             std::cerr << "Invalid value for TunerMaxConfigs: " << e.what() << std::endl;
         }
     }
+
     return UINT64_MAX;
 }
 

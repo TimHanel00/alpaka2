@@ -162,6 +162,7 @@ auto example(T_Cfg const& cfg) -> int
         dataBlockingBorder,
         uCurrBufAcc,
         uNextBufAcc,
+        uBufHost,
         rhs,
         reducedResidual_HostBuf,
         reducedResidual_AccBuf,
