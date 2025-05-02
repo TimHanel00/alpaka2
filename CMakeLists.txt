@@ -92,7 +92,8 @@ add_library(alpaka INTERFACE
         example/poissonEquation2D/src/hostSideKernel.hpp
         example/poissonEquation2D/src/residualKernel.hpp
         example/poissonEquation2D/src/compareSerialImplementation.hpp
-        include/alpaka/tune/traits/traits.hpp)
+        include/alpaka/tune/traits/traits.hpp
+        example/heatEqu2DWithFrame/src/userDefTraitsForDynSmem.h)
 target_include_directories(${PROJECT_NAME} INTERFACE $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_20)
 

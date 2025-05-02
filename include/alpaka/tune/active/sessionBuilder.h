@@ -6,6 +6,7 @@
 #include "alpaka/tune/utils/environmentVars.hpp"
 
 #include <alpaka/tune/IO/tuningHistory.hpp>
+#include <alpaka/tune/active/MetricInterface.hpp>
 #include <alpaka/tune/active/constraint.hpp>
 #include <alpaka/tune/active/strategy.hpp>
 
@@ -19,7 +20,7 @@
 
 namespace alpaka
 {
-    template<typename T_Strategy, typename T_Constraint, typename... T_KernelRunArgs>
+    template<typename T_Strategy, typename T_MetricInterface, typename T_Constraint, typename... T_KernelRunArgs>
     struct TuningSession;
 } // namespace alpaka
 
@@ -28,7 +29,8 @@ namespace alpaka::tune
 
 
     template<
-        typename T_Strategy = strategy::randomSearch<Timing>,
+        typename T_Strategy = strategy::randomSearch,
+        typename T_MetricInterface = alpaka::tune::metricInterface::Timing,
         typename T_ConstraintTuple = std::tuple<>,
         typename... T_KernelRunArgs>
     class TuningBuilder
@@ -36,10 +38,19 @@ namespace alpaka::tune
     public:
         TuningBuilder() = default;
         T_ConstraintTuple m_constraintTuple;
+        T_Strategy m_strategy{};
+        T_MetricInterface m_metricInterface{};
 
-        explicit TuningBuilder(T_ConstraintTuple constraints, ActiveKernelRun<T_KernelRunArgs...> const& run)
+        explicit TuningBuilder(
+            T_Strategy strategy,
+            T_MetricInterface interface,
+            T_ConstraintTuple constraints,
+            ActiveKernelRun<T_KernelRunArgs...> const& run)
             : m_constraintTuple(constraints)
             , m_run(run)
+            , m_strategy(strategy)
+            , m_metricInterface(interface)
+
         {
         }
 
@@ -49,7 +60,11 @@ namespace alpaka::tune
             std::cout << " before with Tuning, " << m_run.toHash() << std::endl;
             auto newRun = appendTuning(m_run, tuningObject);
             std::cout << " after with Tuning, " << newRun.toHash() << std::endl;
-            auto ret = helperCreateNewBuilder<T_Strategy, T_ConstraintTuple>(m_constraintTuple, newRun);
+            auto ret = helperCreateNewBuilder<T_Strategy, T_MetricInterface, T_ConstraintTuple>(
+                m_strategy,
+                m_metricInterface,
+                m_constraintTuple,
+                newRun);
             ret.m_config = m_config;
             ret.m_reRuns = m_reRuns;
             ret.m_dynamicRuns = m_dynamicRuns;
@@ -64,7 +79,11 @@ namespace alpaka::tune
             auto newTuple = std::tuple_cat(m_constraintTuple, std::make_tuple(constraint));
 
             using T_ConstraintTupleNew = decltype(newTuple);
-            auto ret = helperCreateNewBuilder<T_Strategy, T_ConstraintTupleNew>(newTuple, m_run);
+            auto ret = helperCreateNewBuilder<T_Strategy, T_MetricInterface, T_ConstraintTupleNew, T_KernelRunArgs...>(
+                m_strategy,
+                m_metricInterface,
+                newTuple,
+                m_run);
             return ret;
         }
 
@@ -89,7 +108,11 @@ namespace alpaka::tune
         template<typename NewStrategy>
         auto withStrategy(NewStrategy strategy) const
         {
-            TuningBuilder<NewStrategy, T_KernelRunArgs...> ret;
+            auto ret = helperCreateNewBuilder<NewStrategy, T_MetricInterface, T_ConstraintTuple, T_KernelRunArgs...>(
+                strategy,
+                m_metricInterface,
+                m_constraintTuple,
+                m_run);
             ret.m_config = m_config;
             ret.m_reRuns = m_reRuns;
             ret.m_dynamicRuns = m_dynamicRuns;
@@ -240,8 +263,9 @@ namespace alpaka::tune
         // Output a fully constructed TuningSession
         auto build() const
         {
-            return TuningSession<T_Strategy, T_ConstraintTuple, T_KernelRunArgs...>(
-                T_Strategy{},
+            return TuningSession<T_Strategy, T_MetricInterface, T_ConstraintTuple, T_KernelRunArgs...>(
+                m_strategy,
+                m_metricInterface,
                 m_constraintTuple,
                 m_config,
                 m_reRuns.value_or(0),
@@ -258,10 +282,18 @@ namespace alpaka::tune
         ActiveKernelRun<T_KernelRunArgs...> m_run;
     };
 
-    template<typename T_Strategy_, typename T_ConstraintTuple, typename... Args>
-    auto helperCreateNewBuilder(T_ConstraintTuple const& newTuple, ActiveKernelRun<Args...> const& run)
+    template<typename T_Strategy_, typename T_MetricInterface, typename T_ConstraintTuple, typename... Args>
+    auto helperCreateNewBuilder(
+        T_Strategy_ const& strategy,
+        T_MetricInterface const& interface,
+        T_ConstraintTuple const& newTuple,
+        ActiveKernelRun<Args...> const& run)
     {
-        return TuningBuilder<T_Strategy_, T_ConstraintTuple, Args...>(newTuple, run);
+        return TuningBuilder<T_Strategy_, T_MetricInterface, T_ConstraintTuple, Args...>(
+            strategy,
+            interface,
+            newTuple,
+            run);
     }
 }; // namespace alpaka::tune
 #endif

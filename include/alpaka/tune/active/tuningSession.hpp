@@ -5,6 +5,7 @@
 #define TUNER_H
 #define ENABLE_AUTOTUNE
 #include <alpaka/tune/active/constraint.hpp>
+#include <alpaka/tune/traits/traits.hpp>
 #include <alpaka/tune/utils/TimeEvent.hpp>
 #ifdef ENABLE_AUTOTUNE
 
@@ -18,6 +19,9 @@ namespace alpaka::tune::detail::internal
         typename T_NumFrames,
         typename T_FrameExtent,
         typename T_KernelBundle,
+        typename T_Strategy,
+        typename T_Interface,
+        typename T_Constraint,
         typename T_Run,
         typename T_SessionSpecifier,
         typename T_History>
@@ -27,6 +31,9 @@ namespace alpaka::tune::detail::internal
         T_Exec exec,
         alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent> const& frameSpec,
         T_KernelBundle const& kernelBundle,
+        T_Strategy& strategy,
+        T_Interface& metricInterface,
+        T_Constraint& constraint,
         T_Run& run,
         T_SessionSpecifier& sessionSpecifier,
         T_History& history,
@@ -41,13 +48,33 @@ namespace alpaka::tune::detail::internal
             }
         }
 
-        static auto* kernelptr
-            = getTuningEnvironment(device, exec, frameSpec, kernelBundle, run, sessionSpecifier, history).get();
+        static auto* kernelptr = getTuningEnvironment(
+                                     device,
+                                     exec,
+                                     frameSpec,
+                                     kernelBundle,
+                                     strategy,
+                                     metricInterface,
+                                     constraint,
+                                     run,
+                                     sessionSpecifier,
+                                     history)
+                                     .get();
 
         if(sessionSpecifier != kernelptr->ptrToHistory->specifiers)
         {
-            kernelptr
-                = getTuningEnvironment(device, exec, frameSpec, kernelBundle, run, sessionSpecifier, history).get();
+            kernelptr = getTuningEnvironment(
+                            device,
+                            exec,
+                            frameSpec,
+                            kernelBundle,
+                            strategy,
+                            metricInterface,
+                            constraint,
+                            run,
+                            sessionSpecifier,
+                            history)
+                            .get();
         }
 
         return kernelptr;
@@ -55,9 +82,14 @@ namespace alpaka::tune::detail::internal
 
     // Strategy functor and Constraint functor must be passed externally now
 
-    // Check if a strategy should be applied and config should be skipped
-    template<typename Run, typename Data, typename SharedParams, typename Strategy>
-    bool shouldSkipDueToHistory(Run& run, Data& data, SharedParams& sharedParams, Strategy& strategy)
+    // Check if a m_strategy should be applied and config should be skipped
+    template<typename Run, typename Data, typename SharedParams, typename Strategy, typename T_MetricInterface>
+    bool shouldSkipDueToHistory(
+        Run& run,
+        Data& data,
+        SharedParams& sharedParams,
+        Strategy& strategy,
+        T_MetricInterface& metric_interface)
     {
         auto runHash = run.toHash();
 
@@ -77,7 +109,7 @@ namespace alpaka::tune::detail::internal
 
             std::string oldHash = run.toHash();
 
-            strategy(sharedParams, run, data);
+            strategy(metric_interface, sharedParams, run, data);
 
             std::string newHash = run.toHash();
 
@@ -132,16 +164,18 @@ namespace alpaka::tune::detail::internal
         auto exec,
         auto const& kernelBundle,
         auto& spec,
+        tune::concepts::MetricInterface auto& interface,
         auto& run)
     {
         applyCustomThreadSpec(run, spec);
         auto bundle = recreate(kernelBundle, run.userTuneables);
         // static_assert(std::is_same_v<decltype(bundle), void()>);
-        {
-            auto event = tune::createTimeEventFromActive(run);
-            onHost::enqueue(queue, exec, spec, bundle);
-            onHost::wait(queue);
-        }
+        callPreProcessing(run, spec, interface, kernelBundle);
+        interface.start(run, spec);
+        onHost::enqueue(queue, exec, spec, bundle);
+        onHost::wait(queue);
+        interface.end(run, spec);
+        callPostProcessing(run, spec, interface, kernelBundle);
         // verifyCorrectness(NumNodes, spec.m_frameExtent);
     }
 
@@ -160,10 +194,16 @@ namespace alpaka::tune::detail::internal
 
     // Extracts logic when max configs is reached and best config should be applied
     // Should be called inside internal_enqueue()
-    template<typename T_KernelBundle, typename T_kernelRun, typename T_NumBlocks, typename T_NumThreads>
+    template<
+        typename T_MetricInterface,
+        typename T_KernelBundle,
+        typename T_kernelRun,
+        typename T_NumBlocks,
+        typename T_NumThreads>
     void applyBestAndExecute(
         auto const& queue,
         auto exec,
+        T_MetricInterface& metric_interface,
         T_KernelBundle& kernelBundle,
         T_kernelRun& run,
         KernelData& data,
@@ -179,8 +219,8 @@ namespace alpaka::tune::detail::internal
         }
 
 
-        alpaka::tune::strategy::bestRecorded<alpaka::tune::Timing>{}(run, data);
-        applyConfigAndExecuteKernel(queue, exec, kernelBundle, spec, run);
+        alpaka::tune::strategy::bestRecorded{}(metric_interface, run, data);
+        applyConfigAndExecuteKernel(queue, exec, kernelBundle, spec, metric_interface, run);
         onHost::wait(queue);
     }
 
@@ -188,7 +228,7 @@ namespace alpaka::tune::detail::internal
     {
         auto runHash = run.toHash();
         using T_state = ALPAKA_TYPEOF(data.runs[runHash].state);
-        std::cout << " run: " << runHash << " time " << run.metric << std::endl;
+        std::cout << " m_run: " << runHash << " time " << run.metric << std::endl;
         if(!data.runs.contains(runHash))
         {
             data.runs[runHash] = toStore(run);
@@ -259,17 +299,21 @@ namespace alpaka
 #    define MetricUndefined std::numeric_limits<float>::quiet_NaN()
 
     template<
-        typename T_Strategy = tune::strategy::randomSearch<tune::Timing>,
-        typename T_Constraint = std::tuple<>,
+        typename T_Strategy = tune::strategy::randomSearch,
+        typename T_MetricInterface = tune::metricInterface::Timing,
+        typename T_Constraints = std::tuple<>,
         typename... T_KernelRunArgs>
     struct TuningSession
     {
         using T_floating = double_t;
         using T_Integer = std::size_t;
-        ActiveKernelRun<T_KernelRunArgs...> run;
-        T_Constraint m_constraint;
+        T_Strategy m_strategy;
+        T_MetricInterface m_metricInterface;
+        T_Constraints m_constraint;
+        ActiveKernelRun<T_KernelRunArgs...> m_run;
+
         tune::TuningHistory& history = tune::TuningHistory::get();
-        T_Strategy strategy;
+
         T_Integer dynamicRuns_Nr{0};
         bool m_initialized = false;
         std::size_t reRuns{0};
@@ -279,22 +323,24 @@ namespace alpaka
 
         explicit TuningSession(
             T_Strategy strategy,
-            T_Constraint constraint,
+            T_MetricInterface interface,
+            T_Constraints constraints,
             std::string config,
             std::size_t reRuns,
             std::size_t dynamicRuns,
             std::vector<std::string> sessionSpecifiers,
             ActiveKernelRun<T_KernelRunArgs...> const& kernel_run)
-            : strategy(std::move(strategy))
-            , m_constraint(std::move(constraint))
+            : m_strategy(std::move(strategy))
+            , m_metricInterface(std::move(interface))
+            , m_constraint(std::move(constraints))
             , config(std::move(config))
             , dynamicRuns_Nr(dynamicRuns)
             , sessionSpecifier(std::move(sessionSpecifiers))
-            , run(kernel_run)
+            , m_run(kernel_run)
             , m_initialized(false)
         {
             this->reRuns = getRunsPerConfig();
-            run.metric = MetricUndefined;
+            m_run.metric = MetricUndefined;
         }
 
         template<typename... T_Specifiers>
@@ -353,12 +399,18 @@ namespace alpaka
                 exec,
                 frameSpec,
                 kernelBundle,
-                this->run,
+                this->m_strategy,
+                this->m_metricInterface,
+                this->m_constraint,
+                this->m_run,
                 sessionSpecifier,
                 history,
                 config);
 
             auto& activeRun = *kernelptr->activeRunPtr;
+            auto& env_strategy = kernelptr->env_strategy;
+            auto& env_metricInterface = kernelptr->env_metricInterface;
+            auto& env_constraints = kernelptr->env_constraints;
             KernelData& historyKernelData = (*kernelptr->ptrToHistory);
             using T_Context = ALPAKA_TYPEOF(kernelptr);
 
@@ -366,6 +418,9 @@ namespace alpaka
                 queue,
                 exec,
                 kernelBundle,
+                env_strategy,
+                env_metricInterface,
+                env_constraints,
                 activeRun,
                 historyKernelData,
                 kernelptr->frameSpec,
@@ -383,6 +438,9 @@ namespace alpaka
             auto const& queue,
             auto exec,
             T_KernelBundle const& kernelBundle,
+            T_Strategy& strategy,
+            T_MetricInterface& metricInterface,
+            T_Constraints& constraints,
             T_kernelRun& run,
             KernelData& data,
             onHost::FrameSpec<T_NumBlocks, T_NumThreads>& spec,
@@ -392,11 +450,11 @@ namespace alpaka
             while(data.nrOfConfigs < getMaxRuns(run.maxRuns)
                   && !run.m_strategyState.done /* add another breaking criteria to prevent busy looping*/)
             {
-                if(shouldSkipDueToHistory(run, data, sharedParameters, strategy))
+                if(shouldSkipDueToHistory(run, data, sharedParameters, strategy, metricInterface))
                 {
                     continue;
                 }
-                if(violatesConstraint<T_Context>(run, data, m_constraint))
+                if(violatesConstraint<T_Context>(run, data, constraints))
                 {
                     continue;
                 }
@@ -404,11 +462,11 @@ namespace alpaka
             }
             if(data.nrOfConfigs >= getMaxRuns(run.maxRuns))
             {
-                applyBestAndExecute(queue, exec, kernelBundle, run, data, spec, history, config);
+                applyBestAndExecute(queue, exec, metricInterface, kernelBundle, run, data, spec, history, config);
                 return;
             }
 
-            applyConfigAndExecuteKernel(queue, exec, kernelBundle, spec, run);
+            applyConfigAndExecuteKernel(queue, exec, kernelBundle, spec, metricInterface, run);
             storeOrUpdateMetrics(run, data);
         }
 

@@ -248,14 +248,14 @@ namespace alpaka::tune
                 for(auto& run : kernelData.runs)
                 {
 #ifdef DEBUG_Hist
-                    std::cout << "Processing run #" << runIndex << std::endl;
+                    std::cout << "Processing m_run #" << runIndex << std::endl;
 #endif
 
                     toml::table runTable;
                     runTable.emplace("nrRuns", run.second.nr_runs);
 
 #ifdef DEBUG_Hist
-                    std::cout << "  - nrRuns: " << run.second.nr_runs << std::endl;
+                    std::cout << "  - nrRuns: " << m_run.second.nr_runs << std::endl;
 #endif
 
                     toml::array metrics;
@@ -269,7 +269,7 @@ namespace alpaka::tune
                     toml::array tuneableNames;
                     toml::array tuneableValues;
 #ifdef DEBUG_Hist
-                    std::cout << "  - Checking tuneables size: " << run.second.tuneables.size() << std::endl;
+                    std::cout << "  - Checking tuneables size: " << m_run.second.tuneables.size() << std::endl;
 #endif
 
                     for(const auto& tuneable : run.second.view())
@@ -288,7 +288,7 @@ namespace alpaka::tune
                     runsArray.emplace_back(runTable);
 
 #ifdef DEBUG_Hist
-                    std::cout << "Finished processing run #" << runIndex << std::endl;
+                    std::cout << "Finished processing m_run #" << runIndex << std::endl;
 #endif
                     ++runIndex;
                 }

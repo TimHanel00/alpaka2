@@ -62,7 +62,7 @@ namespace alpaka::tune
 
     /*
      * this implements a partition method where we take the ceiling of the nth root of the max for each dimension
-     * this is a good strategy to distribute work equally does a lot of times more workers are used then necessary
+     * this is a good m_strategy to distribute work equally does a lot of times more workers are used then necessary
      * very bad for distribution of the threadBlockSize, there primeFactorPartition should be used
      * T
      */

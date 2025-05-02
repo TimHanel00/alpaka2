@@ -132,6 +132,7 @@ namespace alpaka::tune::strategy
     {
         template<typename T_tuneables, typename T_ActiveKernel>
         auto operator()(
+            concepts::MetricInterface auto& metric_interface,
             T_tuneables&& tuneables,
             [[maybe_unused]] T_ActiveKernel& kernelRun,
             [[maybe_unused]] KernelData& kernel_data) const
@@ -228,12 +229,15 @@ namespace alpaka::tune::strategy
     };
 
     //@TODO move to different namespace
-    template<typename T_Metric = alpaka::tune::Timing>
     struct bestRecorded
     {
         template<typename T_ActiveKernel>
-        auto operator()(T_ActiveKernel& kernelRun, KernelData& history)
+        auto operator()(
+            concepts::MetricInterface auto& metricInterface,
+            T_ActiveKernel& kernelRun,
+            KernelData& history)
         {
+            using T_metricInterface = std::remove_cvref_t<decltype(metricInterface)>;
             static std::unordered_map<std::string, std::vector<StorageKernelRun>> storeBestResults;
             // the first entry of each map is used to stay unique across several session instances (where for example
             // specifier could change)
@@ -246,16 +250,16 @@ namespace alpaka::tune::strategy
                 for(auto& entry : history.runs)
                 {
                     StorageKernelRun& run = entry.second;
-                    ::detail::Comparison res = run.compare(best);
+                    ::Comparison res = run.compare(best);
                     switch(res)
                     {
-                    case ::detail::Comparison::Greater:
-                        best = MetricAdjust::aGTb<T_Metric>{}(run, best);
+                    case ::Comparison::Greater:
+                        best = aGTb<T_metricInterface>{}(run, best);
                         break;
-                    case ::detail::Comparison::Less:
-                        best = MetricAdjust::aLTb<T_Metric>{}(run, best);
+                    case ::Comparison::Less:
+                        best = aLTb<T_metricInterface>{}(run, best);
                         break;
-                    case ::detail::Comparison::Inconclusive:
+                    case ::Comparison::Inconclusive:
                         if(run.getMetric<mean_t>().as<t_ns>() < best.getMetric<mean_t>().as<t_ns>())
 
                             best = run; // use mean as a tie-breaker in case statistical characteristics of the
@@ -276,10 +280,10 @@ namespace alpaka::tune::strategy
                 for(auto& entry : history.runs)
                 {
                     StorageKernelRun& run = entry.second;
-                    ::detail::Comparison res = run.compare(best);
+                    ::Comparison res = run.compare(best);
                     switch(res)
                     {
-                    case ::detail::Comparison::Inconclusive:
+                    case ::Comparison::Inconclusive:
                         storeBestResults[history.toHash()].push_back(run);
                     default:
                         break;
@@ -293,7 +297,6 @@ namespace alpaka::tune::strategy
      * extensible compare operator for certain metrics
      * */
 
-    template<typename T_Metric = alpaka::tune::Timing>
     struct simulatedAnnealing
     {
         using T_propabilityFunction = propabilityFunctions::Exponential;
@@ -312,10 +315,12 @@ namespace alpaka::tune::strategy
             return result;
         }
 
+        template<typename T_Metric>
         bool acceptWorseSolution(StorageKernelRun& metricNew, StorageKernelRun& metricOld, double const& temperature)
         {
-            double_t probability
-                = std::exp(-(MetricAdjust::costDifference<T_Metric>{}(metricNew, metricOld) / temperature));
+            double_t probability = std::exp(
+                -(alpaka::tune::strategy::SimulatedAnnealing::costDifference<T_Metric>{}(metricNew, metricOld)
+                  / temperature));
             std::uniform_int_distribution<std::size_t> dis(0, 1000);
             auto k = dis(RNG::get());
             if(k < probability * 1000)
@@ -330,24 +335,25 @@ namespace alpaka::tune::strategy
         /*
          *TODO add genericOperator
          */
+        template<typename T_Metric>
         bool acceptanceFunction(StorageKernelRun& metricNew, StorageKernelRun& metricOld, double const& temperature)
         {
             auto res = metricNew.compare(metricOld);
             switch(res)
             {
-            case ::detail::Comparison::Greater:
-                auto& preferred = MetricAdjust::aLTb<T_Metric>{}(metricNew, metricOld);
+            case ::Comparison::Greater:
+                auto& preferred = aLTb<T_Metric>{}(metricNew, metricOld);
                 if(&preferred == &metricNew)
                     return true;
-                return acceptWorseSolution(metricNew, metricOld, temperature);
-            case ::detail::Comparison::Less:
-                preferred = MetricAdjust::aGTb<T_Metric>{}(metricNew, metricOld);
+                return acceptWorseSolution<T_Metric>(metricNew, metricOld, temperature);
+            case ::Comparison::Less:
+                preferred = aGTb<T_Metric>{}(metricNew, metricOld);
                 if(&preferred == &metricNew)
                     return true;
-                return acceptWorseSolution(metricNew, metricOld, temperature);
-            case ::detail::Comparison::Inconclusive:
+                return acceptWorseSolution<T_Metric>(metricNew, metricOld, temperature);
+            case ::Comparison::Inconclusive:
                 return true; // encourage exploration
-            case ::detail::Comparison::Dummy:
+            case ::Comparison::Dummy:
                 return false;
             default:;
             }
@@ -359,14 +365,14 @@ namespace alpaka::tune::strategy
         /*
          * accept a already stored ParameterConfiguration with the likelyhood of the acceptance function
          */
-        template<typename T_activeKernel>
+        template<typename T_Metric, typename T_activeKernel>
         void acceptNewKernel(
             StorageKernelRun& oldKernel,
             StorageKernelRun& newKernel,
             T_activeKernel& activeKernel,
             double_t temperature)
         {
-            if(acceptanceFunction(newKernel, oldKernel, temperature))
+            if(acceptanceFunction<T_Metric>(newKernel, oldKernel, temperature))
             {
                 // toActive(activeKernel, newKernel); -> we dont have to do anything since ActiveKernel is already in
                 // the newKernel config
@@ -419,8 +425,13 @@ namespace alpaka::tune::strategy
 #define SimA_MaxCachedSteps 300
 
         template<typename T_tuneables, typename T_ActiveKernel>
-        auto operator()(T_tuneables&& tuneables, T_ActiveKernel& kernelRun, KernelData& kernel_data)
+        auto operator()(
+            concepts::MetricInterface auto& metricInterface,
+            T_tuneables&& tuneables,
+            T_ActiveKernel& kernelRun,
+            KernelData& kernel_data)
         {
+            using T_Metric = std::remove_cvref<decltype(metricInterface)>;
             auto& history = kernel_data.runs;
             auto& state = kernelRun.m_strategyState;
             if(state.runs >= std::max(
@@ -444,7 +455,7 @@ namespace alpaka::tune::strategy
             // this means we evaluated the kernelRun activeKernel well enough
             if(!state.oldKernelHash.empty())
             {
-                acceptNewKernel(
+                acceptNewKernel<T_Metric>(
                     history[state.oldKernelHash],
                     history[kernelRun.toHash()],
                     kernelRun,
@@ -471,11 +482,11 @@ namespace alpaka::tune::strategy
                 }
                 if(kernelConfigChecked(history, kernelRun))
                 {
-                    // we run in this case if the newly found config was already cached (evaluated enough)
+                    // we m_run in this case if the newly found config was already cached (evaluated enough)
                     // so we can decide directly if we want to go there
                     // we accept the new found config always if its better and with a propability of e^(-new+old)/temp)
                     // if its worse (if lower is better)
-                    acceptNewKernel(
+                    acceptNewKernel<T_Metric>(
                         history[state.oldKernelHash],
                         history[kernelRun.toHash()],
                         kernelRun,
@@ -501,7 +512,6 @@ namespace alpaka::tune::strategy
      *might not even be on the range (meaning: (value-begin)%stride!=0 && (end-value)%stride!=0)
      *
      * */
-    template<typename T_Metric = alpaka::tune::Timing>
     struct exhaustiveSearch
     {
         template<typename Tuple, typename T_ActiveKernel, typename StorageKernel>
@@ -559,7 +569,11 @@ namespace alpaka::tune::strategy
         }
 
         template<typename T_tuneables, typename T_ActiveKernel>
-        auto operator()(T_tuneables&& tuneables, T_ActiveKernel& kernelRun, KernelData& kernel_data)
+        auto operator()(
+            concepts::MetricInterface auto& metricInterface,
+            T_tuneables&& tuneables,
+            T_ActiveKernel& kernelRun,
+            KernelData& kernel_data)
         {
             auto& history = kernel_data.runs;
             if(history.contains(kernelRun.toHash()))
@@ -622,7 +636,7 @@ namespace alpaka::tune::strategy
     {
         void operator()(alpaka::concepts::tuneable auto& tune, std::size_t resolution)
         {
-            // example special refinenemt for numBlocks (doesnt not get changed on refinement update cycle)
+            // example special refinenemt for numBlocks ( in this case doesnt get changed on refinement update cycle)
             using T_tune = std::remove_cvref_t<decltype(tune)>;
             using T_range = decltype(tune.idxRange);
             using T_Vec = typename T_tune::ValueType;
@@ -642,7 +656,6 @@ namespace alpaka::tune::strategy
         Refinement::Op<id>{}(tune, resolution);
     }
 
-    template<typename T_Metric = alpaka::tune::Timing>
     struct iterativeRefinement
     {
         std::size_t m_numIterations = 5;
@@ -656,21 +669,25 @@ namespace alpaka::tune::strategy
         std::size_t curIteration = 0;
 
         template<typename T_tuneables, typename T_ActiveKernel>
-        auto operator()(T_tuneables&& tuneables, T_ActiveKernel& kernelRun, KernelData& kernel_data)
+        auto operator()(
+            concepts::MetricInterface auto& metricInterface,
+            T_tuneables&& tuneables,
+            T_ActiveKernel& kernelRun,
+            KernelData& kernel_data)
         {
-            exhaustiveSearch<T_Metric>{}(tuneables, kernelRun, kernel_data);
+            exhaustiveSearch{}(metricInterface, tuneables, kernelRun, kernel_data);
 
             auto kernelHash = kernelRun.toHash();
             if(kernel_data.runs.contains(kernelHash))
             {
-                exhaustiveSearch<T_Metric>{}(tuneables, kernelRun, kernel_data);
+                exhaustiveSearch{}(metricInterface, tuneables, kernelRun, kernel_data);
             }
 
             if(curIteration < m_numIterations)
             {
                 if(kernel_data.nrOfConfigs + 2 >= kernelRun.maxRuns)
                 {
-                    bestRecorded<T_Metric>{}(kernelRun, kernel_data);
+                    bestRecorded{}(metricInterface, kernelRun, kernel_data);
 
                     std::apply(
                         [&]<typename... T>(T&... t)
@@ -698,32 +715,23 @@ namespace alpaka::tune::strategy
         };
     };
 
-    template<typename T_Metric = alpaka::tune::Timing>
     struct randomSearch
     {
         template<typename T_tuneables, typename T_ActiveKernel>
-        auto operator()(T_tuneables&& tuneables, T_ActiveKernel& kernelRun, KernelData& kernel_data)
+        auto operator()(
+            concepts::MetricInterface auto& metricInterface,
+            T_tuneables&& tuneables,
+            T_ActiveKernel& kernelRun,
+            KernelData& kernel_data)
         {
+            using T_Metric = std::remove_cvref_t<decltype(metricInterface)>;
             auto& history = kernel_data.runs;
-            randomSample{}(tuneables, kernelRun, kernel_data);
+            randomSample{}(metricInterface, tuneables, kernelRun, kernel_data);
             if(history.contains(kernelRun.toHash()))
             {
-                exhaustiveSearch<T_Metric>{}(tuneables, kernelRun, kernel_data);
+                exhaustiveSearch{}(metricInterface, tuneables, kernelRun, kernel_data);
             }
         };
-    };
-
-    template<typename T_Metric = alpaka::tune::Timing>
-    struct initialValues
-    {
-        template<typename tuneables, typename T_KernelRun, typename KernelRun>
-        auto operator()(
-            std::vector<std::shared_ptr<tuneables>>& tuningParameters,
-            T_KernelRun& kernelRun,
-            std::unordered_map<std::string, KernelRun>& history)
-        {
-            return tuningParameters;
-        }
     };
 } // namespace alpaka::tune::strategy
 #endif // STRATEGY_HPP

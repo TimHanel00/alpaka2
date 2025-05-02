@@ -22,10 +22,12 @@ template<
     typename T_NumFrames,
     typename T_FrameExtent,
     typename T_KernelBundle,
+    typename T_Strategy,
+    typename T_MetricInterface,
+    typename T_Constraints,
     typename T_ActiveKernelRun,
     typename T_PtrToHistory,
-    typename T_SharedParams,
-    typename... T_constraints>
+    typename T_SharedParams>
 class tuningEnvironment
 {
 public:
@@ -34,10 +36,12 @@ public:
     T_Exec exec;
     FrameSpecType frameSpec;
     T_KernelBundle kernelBundle;
+    T_Strategy env_strategy;
+    T_MetricInterface env_metricInterface;
+    T_Constraints env_constraints;
     T_ActiveKernelRun activeRunPtr;
     T_PtrToHistory ptrToHistory;
     T_SharedParams sharedParams;
-    std::tuple<T_constraints...> constraints;
     tuningEnvironment(tuningEnvironment const&) = delete;
     tuningEnvironment& operator=(tuningEnvironment const&) = delete;
     tuningEnvironment(tuningEnvironment&&) = delete;
@@ -48,6 +52,9 @@ public:
         T_Exec exec_,
         FrameSpecType const& frameSpec_,
         T_KernelBundle kernelBundle_,
+        T_Strategy strategy_,
+        T_MetricInterface metric_interface_,
+        T_Constraints constraints_,
         T_ActiveKernelRun activeRun_,
         T_PtrToHistory ptrToHistory_,
         T_SharedParams uniformParamInterface,
@@ -57,6 +64,9 @@ public:
         , exec(exec_)
         , frameSpec(frameSpec_)
         , kernelBundle(kernelBundle_)
+        , env_strategy(std::move(strategy_))
+        , env_metricInterface(std::move(metric_interface_))
+        , env_constraints(std::move(constraints_))
         , activeRunPtr(std::move(activeRun_))
         , ptrToHistory(std::move(ptrToHistory_))
         , sharedParams(std::move(uniformParamInterface))
@@ -168,7 +178,7 @@ auto makeConformToTVec(T_Vec const& vec, T_Tuneable& tuneable)
 template<typename T_frameSpec, typename... T_Args>
 auto makeConformToFrameSpec(T_frameSpec& spec, ActiveKernelRun<T_Args...>& kernelRun)
 {
-    // ActiveKernelRun run;
+    // ActiveKernelRun m_run;
     // auto h = makeConformToTVec(spec.m_numFrames, kernelRun.getNumFramesTune());
     return makeActiveKernel(
         kernelRun.userTuneables,
@@ -185,6 +195,9 @@ template<
     typename T_NumFrames,
     typename T_FrameExtent,
     typename T_KernelBundle,
+    typename T_Strategy,
+    typename T_MetricInterface,
+    typename T_Constraints,
     typename T_Run,
     typename T_SessionSpecifier,
     typename T_History>
@@ -193,6 +206,9 @@ auto createTuningEnvironment(
     T_Exec exec,
     alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent> const& spec,
     T_KernelBundle bundle,
+    T_Strategy& strategy,
+    T_MetricInterface& metric_interface,
+    T_Constraints& constraint,
     T_Run& run,
     T_SessionSpecifier& sessionSpecifier,
     T_History& history)
@@ -218,6 +234,9 @@ auto createTuningEnvironment(
         T_FrameExtent,
         T_NumFrames,
         T_KernelBundle,
+        T_Strategy,
+        T_MetricInterface,
+        T_Constraints,
         ALPAKA_TYPEOF(activePtr),
         ALPAKA_TYPEOF(ptrToHistory),
         ALPAKA_TYPEOF(sharedParams)>;
@@ -227,6 +246,9 @@ auto createTuningEnvironment(
         exec,
         newFrameSpec,
         bundle,
+        strategy,
+        metric_interface,
+        constraint,
         std::move(activePtr),
         ptrToHistory,
         std::move(sharedParams),
@@ -251,6 +273,9 @@ template<
     typename T_NumFrames,
     typename T_FrameExtent,
     typename T_KernelBundle,
+    typename T_Strategy,
+    typename T_MetricInterface,
+    typename T_Constraints,
     typename T_Run,
     typename T_SessionSpecifier,
     typename T_History>
@@ -259,12 +284,24 @@ auto& getTuningEnvironment(
     T_Exec exec,
     alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent> const& spec,
     T_KernelBundle bundle,
+    T_Strategy& strategy,
+    T_MetricInterface& metric_interface,
+    T_Constraints& constraint,
     T_Run& run,
     T_SessionSpecifier& sessionSpecifier,
     T_History& history)
 {
-    using tuningEnvironmentType
-        = decltype(createTuningEnvironment(device, exec, spec, bundle, run, sessionSpecifier, history));
+    using tuningEnvironmentType = decltype(createTuningEnvironment(
+        device,
+        exec,
+        spec,
+        bundle,
+        strategy,
+        metric_interface,
+        constraint,
+        run,
+        sessionSpecifier,
+        history));
 
     static std::unordered_map<std::string, tuningEnvironmentType> singletonMap;
     if(auto it = singletonMap.find(flattenSessionSpecifier(sessionSpecifier)); it != singletonMap.end())
@@ -274,7 +311,17 @@ auto& getTuningEnvironment(
 
     singletonMap.emplace(
         flattenSessionSpecifier(sessionSpecifier),
-        createTuningEnvironment(device, exec, spec, bundle, run, sessionSpecifier, history));
+        createTuningEnvironment(
+            device,
+            exec,
+            spec,
+            bundle,
+            strategy,
+            metric_interface,
+            constraint,
+            run,
+            sessionSpecifier,
+            history));
     return singletonMap.at(flattenSessionSpecifier(sessionSpecifier));
 }
 

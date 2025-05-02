@@ -375,13 +375,11 @@ constexpr bool is_stat_type_v
 
 struct StorageKernelRun;
 
-namespace detail
-{
-    // Shared helper to perform Kruskal-Wallis comparison
-    enum class Comparison;
 
-    Comparison kruskalCompare(StorageKernelRun const& lhs, StorageKernelRun const& rhs, double_t alpha);
-} // namespace detail
+// Shared helper to perform Kruskal-Wallis comparison
+enum class Comparison;
+
+Comparison kruskalCompare(StorageKernelRun const& lhs, StorageKernelRun const& rhs);
 
 // storage container of a single Run used for history
 struct StorageKernelRun
@@ -470,83 +468,81 @@ struct StorageKernelRun
 
     auto compare(StorageKernelRun& b) const
     {
-        return detail::kruskalCompare(*this, b, 0.05);
+        return kruskalCompare(*this, b);
     }
 };
 
-namespace detail
+// Shared helper to perform Kruskal-Wallis comparison
+enum class Comparison
 {
-    // Shared helper to perform Kruskal-Wallis comparison
-    enum class Comparison
+    Less,
+    Greater,
+    Inconclusive,
+    Dummy
+};
+
+// Kruskal–Wallis is essentially the non-parametric alternative to one-way ANOVA. (does not assume normality)
+inline Comparison kruskalCompare(StorageKernelRun const& lhs, StorageKernelRun const& rhs)
+{
+    using T_state = ALPAKA_TYPEOF(lhs.state);
+    if(rhs.state == T_state::Dummy)
     {
-        Less,
-        Greater,
-        Inconclusive,
-        Dummy
-    };
-
-    Comparison kruskalCompare(StorageKernelRun const& lhs, StorageKernelRun const& rhs, double_t alpha = 0.05)
-    {
-        using T_state = ALPAKA_TYPEOF(lhs.state);
-        if(rhs.state == T_state::Dummy)
-        {
-            return Comparison::Dummy;
-        }
-        auto const& lhsVals = lhs.metricContainer.getAll();
-        auto const& rhsVals = rhs.metricContainer.getAll();
-
-        if(lhsVals.size() < 5 || rhsVals.size() < 5)
-            return Comparison::Inconclusive; // not enough data
-
-        std::vector<std::pair<double_t, int>> combined; // (value, group)
-        for(auto v : lhsVals)
-            combined.emplace_back(v, 0);
-        for(auto v : rhsVals)
-            combined.emplace_back(v, 1);
-
-        std::sort(combined.begin(), combined.end(), [](auto const& a, auto const& b) { return a.first < b.first; });
-
-        std::vector<double_t> ranks(combined.size());
-        for(std::size_t i = 0; i < combined.size(); ++i)
-        {
-            std::size_t j = i;
-            while(j + 1 < combined.size() && combined[j + 1].first == combined[i].first)
-                ++j;
-
-            double_t avgRank = (i + j) / 2.0 + 1.0;
-            for(std::size_t k = i; k <= j; ++k)
-                ranks[k] = avgRank;
-
-            i = j;
-        }
-
-        std::size_t n0 = lhsVals.size();
-        std::size_t n1 = rhsVals.size();
-        std::size_t N = n0 + n1;
-
-        double_t R0 = 0.0, R1 = 0.0;
-        for(std::size_t i = 0; i < combined.size(); ++i)
-        {
-            if(combined[i].second == 0)
-                R0 += ranks[i];
-            else
-                R1 += ranks[i];
-        }
-
-        double_t H = (12.0 / (N * (N + 1))) * (R0 * R0 / n0 + R1 * R1 / n1) - 3 * (N + 1);
-
-        // Chi-square critical value for df = 1, alpha = 0.05 is 3.841
-        double_t const chiSquareCritical = 3.841;
-
-        if(H < chiSquareCritical)
-            return Comparison::Inconclusive;
-
-        double_t lhsMedian = lhs.metricContainer.get(median_t{}).value;
-        double_t rhsMedian = rhs.metricContainer.get(median_t{}).value;
-
-        return (lhsMedian < rhsMedian) ? Comparison::Less : Comparison::Greater;
+        return Comparison::Dummy;
     }
-} // namespace detail
+    auto const& lhsVals = lhs.metricContainer.getAll();
+    auto const& rhsVals = rhs.metricContainer.getAll();
+
+    if(lhsVals.size() < 5 || rhsVals.size() < 5)
+        return Comparison::Inconclusive; // not enough data
+
+    std::vector<std::pair<double_t, int>> combined; // (value, group)
+    for(auto v : lhsVals)
+        combined.emplace_back(v, 0);
+    for(auto v : rhsVals)
+        combined.emplace_back(v, 1);
+
+    std::sort(combined.begin(), combined.end(), [](auto const& a, auto const& b) { return a.first < b.first; });
+
+    std::vector<double_t> ranks(combined.size());
+    for(std::size_t i = 0; i < combined.size(); ++i)
+    {
+        std::size_t j = i;
+        while(j + 1 < combined.size() && combined[j + 1].first == combined[i].first)
+            ++j;
+
+        double_t avgRank = (i + j) / 2.0 + 1.0;
+        for(std::size_t k = i; k <= j; ++k)
+            ranks[k] = avgRank;
+
+        i = j;
+    }
+
+    std::size_t n0 = lhsVals.size();
+    std::size_t n1 = rhsVals.size();
+    std::size_t N = n0 + n1;
+
+    double_t R0 = 0.0, R1 = 0.0;
+    for(std::size_t i = 0; i < combined.size(); ++i)
+    {
+        if(combined[i].second == 0)
+            R0 += ranks[i];
+        else
+            R1 += ranks[i];
+    }
+
+    double_t H = (12.0 / (N * (N + 1))) * (R0 * R0 / n0 + R1 * R1 / n1) - 3 * (N + 1);
+
+    // Chi-square critical value for df = 1, alpha = 0.05 is 3.841
+    constexpr double_t chiSquareCritical = 3.841;
+
+    if(H < chiSquareCritical)
+        return Comparison::Inconclusive;
+
+    double_t lhsMedian = lhs.metricContainer.get(median_t{}).value;
+    double_t rhsMedian = rhs.metricContainer.get(median_t{}).value;
+
+    return (lhsMedian < rhsMedian) ? Comparison::Less : Comparison::Greater;
+}
 
 struct KernelData
 {
@@ -585,7 +581,7 @@ static KernelData createKernelData(
 };
 
 /*
- * small predefined storageContainer to represent a certain state strategy State of a activeKernelRun
+ * small predefined storageContainer to represent a certain state m_strategy State of a activeKernelRun
  * (since static variables inside strategies) might violate the constraints implied by the sessionSpecifieres
  */
 

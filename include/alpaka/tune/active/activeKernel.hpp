@@ -22,7 +22,7 @@ struct strategyState
 template<typename T>
 inline constexpr bool is_empty_tuple_v = std::is_same_v<std::remove_cv_t<std::remove_reference_t<T>>, std::tuple<>>;
 
-// concretely defined run for a tuning session stores extracted
+// concretely defined m_run for a tuning session stores extracted
 /*
  * this object defines the "core" state of the tuning mechanism, defining type-safe tuning parameters in the form of
  *tuples each subsequent parameter configuration is derived from this active State by working in references of its
