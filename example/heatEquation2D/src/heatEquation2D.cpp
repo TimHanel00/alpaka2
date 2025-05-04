@@ -140,7 +140,12 @@ auto example(T_Cfg const& cfg) -> int
         && "Domain must be divisible by chunk size");
 
     auto sharedMemExtents = CVec<uint32_t, ySize + halo, xSize + halo>{};
-    StencilKernel stencilKernel;
+
+    StencilKernel<
+        alpaka::CVec<std::size_t, static_cast<size_t>(0)>,
+        alpaka::CVec<std::size_t, static_cast<size_t>(1)>,
+        alpaka::CVec<std::size_t, static_cast<size_t>(2)>>
+        stencilKernel;
     BoundaryKernel boundaryKernel;
     // acceptLiteral("daw");
     auto dataBlockingStencil = FrameSpec{numChunks, chunkSize};

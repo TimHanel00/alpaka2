@@ -23,6 +23,7 @@
 //! \param dx step in x
 //! \param dy step in y
 //! \param dt step in t
+template<typename compileTuneable, typename compileTuneable2, typename compileTuneable3>
 struct StencilKernel
 {
     template<typename TAcc>

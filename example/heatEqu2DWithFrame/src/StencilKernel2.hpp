@@ -23,53 +23,6 @@
 
 #include <iostream>
 
-void verifyCorrectness(auto& numNodes, auto& frameExtent)
-{
-    constexpr auto haloSize = 1;
-    auto tilesPerX = (numNodes.x() + frameExtent.x() - 1) / frameExtent.x();
-    auto tilesPerY = (numNodes.y() + frameExtent.y() - 1) / frameExtent.y();
-    auto totalLoads = tilesPerX * tilesPerY * (frameExtent.x() + 2 * haloSize) * (frameExtent.y() + 2 * haloSize);
-    std::cout << totalLoads << " vs " << writeLoopAccs << std::endl;
-    std::cout << numNodes.product() << " vs " << computeLoopAccs << std::endl;
-    if(numNodes.y() % frameExtent.y() != 0)
-    {
-        std::cout << numNodes.y() << " numNodes y is not divisible by  frameExtent y" << frameExtent.y() << std::endl;
-        std::terminate();
-    }
-    if(numNodes.x() % frameExtent.x() != 0)
-    {
-        std::cout << numNodes.x() << " numNodes x is not divisible by  frameExtent x" << frameExtent.y() << std::endl;
-
-        /*throw std::runtime_error("frameExtent has to divide numNodes -- correctness constraint violated");*/
-        std::terminate();
-    }
-
-
-    if(static_cast<int>(totalLoads) != writeLoopAccs)
-    {
-        std::string prod = std::to_string(static_cast<int>(totalLoads));
-        std::cout << "incorrect number of read accesses to global buffer, expected: " + prod + " vs "
-                         + std::to_string(writeLoopAccs) + "\n"
-                  << std::endl;
-
-        /*throw std::runtime_error(
-            "incorrect number of read accesses to global buffer, expected: " + prod + " vs "
-            + std::to_string(writeLoopAccs) + "\n");*/
-        std::terminate();
-    }
-    if(static_cast<int>(numNodes.product()) != computeLoopAccs)
-    {
-        std::cout << " running into except 3" << std::endl;
-        std::string prod = std::to_string(static_cast<int>(numNodes.product()));
-        /*throw std::runtime_error(
-            "incorrect number of computational Accesses to global buffer, expected: " + prod
-            + " vs: " + std::to_string(computeLoopAccs) + "\n");*/
-        std::terminate();
-    }
-    resetWriteLoopAccs();
-    resetComputeLoopAccs();
-}
-
 struct StencilKernel2
 {
     template<typename TAcc>
@@ -86,8 +39,6 @@ struct StencilKernel2
         auto numFrames = acc[frame::count];
         auto frameExtent = acc[frame::extent];
         auto frameDomain = numFrames * frameExtent;
-
-        setNumNodes(numNodes);
         auto traverseOverFrames = onAcc::makeIdxMap(acc, onAcc::worker::blocksInGrid, IdxRange{numFrames});
         using _2Vec = alpaka::Vec<u_int32_t, 2u>;
         auto _0Vec = ALPAKA_TYPEOF(frameExtent){0u, 0u};

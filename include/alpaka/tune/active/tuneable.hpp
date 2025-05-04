@@ -301,8 +301,22 @@ namespace alpaka::tune
         return TuneableA::tag == TuneableB::tag;
     }
 
+    template<
+        typename Value,
+        typename Begin,
+        typename End,
+        typename Stride,
+        std::size_t ID = static_cast<std::size_t>(SpecialTuneableID::userDef),
+        typename dimensionTraversePolicy = DimensionsIndependent>
+    struct CTunable
+    {
+        using value = Value;
+        using idxRange = IdxRange<Begin, End, Stride>;
+        static constexpr std::size_t tag = getId<ID>();
+    };
+
     //--------------------------------------
-    // 3. Tuneable with compile-time-only name
+    // 3. Tuneable
     //--------------------------------------
     template<
         typename T = alpaka::Vec<std::size_t, 1>,
@@ -320,6 +334,11 @@ namespace alpaka::tune
         DimensionTraversePolicy policy;
         template<typename TuneableA, typename TuneableB>
         friend constexpr bool isSameTuneable(TuneableA const& a, TuneableB const& b);
+
+        std::string name() const
+        {
+            return m_name;
+        }
 
         std::string name()
         {

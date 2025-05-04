@@ -172,15 +172,40 @@ inline auto makeNonOwningTuneableTuple(alpaka::tune::NoTune const&)
 }
 
 // Main handler for general tunables
-template<typename TuneableType>
-auto makeNonOwningTuneableTuple(TuneableType& t)
+template<typename T_Vec, auto ID>
+auto makeNonOwningTuneableTuple(alpaka::tune::Tuneable<T_Vec, ID, alpaka::tune::DimensionsIndependent> const& t)
 {
     using elementType = ALPAKA_TYPEOF(t.value);
-
+    using TuneableType = alpaka::tune::Tuneable<T_Vec, ID, alpaka::tune::DimensionsIndependent>;
     if constexpr(alpaka::isVector_v<elementType>)
     {
         // flatten() needs non-const access — cast safely
         return flatten(const_cast<std::remove_cv_t<TuneableType>&>(t));
+    }
+    else
+    {
+        static_assert(!sizeof(TuneableType), "Unhandled Tuneable Type does not contain a Vector !");
+    }
+}
+
+template<typename T_Vec, auto ID>
+auto makeNonOwningTuneableTuple(alpaka::tune::Tuneable<T_Vec, ID, alpaka::tune::DimensionsDependent> const& t)
+{
+    std::cout << " hit it right there " << std::endl;
+    using elementType = ALPAKA_TYPEOF(t.value);
+    using TuneableType = alpaka::tune::Tuneable<T_Vec, ID, alpaka::tune::DimensionsDependent>;
+    auto& newTune = const_cast<std::remove_cv_t<TuneableType>&>(t);
+    if constexpr(alpaka::isVector_v<elementType>)
+    {
+        // flatten() needs non-const access — cast safely
+        return std::make_tuple(
+            alpaka::tune::FlatTuneableHandle<elementType>(
+                newTune.value,
+                std::string(newTune.name()),
+                newTune.userDef,
+                newTune.idxRange.m_begin,
+                newTune.idxRange.m_end,
+                newTune.idxRange.m_stride));
     }
     else
     {

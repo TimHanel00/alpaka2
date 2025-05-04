@@ -373,12 +373,14 @@ void testKernels(auto cfg)
     auto tuningSession
        = tune::TuningBuilder{}.withStrategy(alpaka::tune::strategy::randomSearch{})
              .withBlockSizeTune(
-                 alpaka::tune::ThreadBlockSizeTune{
+                 alpaka::tune::Tuneable{
                      fVec{64},
                      IdxRange{fVec{64}, dataBlocking.m_frameExtent, fVec{64}}})
              .withRunSpecifiers(std::to_string(arraySize))
              .withNumBlocksTune(
-                 alpaka::tune::NumBlocksTune{uVec{56*2}, IdxRange{uVec{56*2}, uVec{dataBlocking.m_numFrames}, uVec{56*2}}})
+                 alpaka::tune::Tuneable<uVec,static_cast<std::size_t>(0),tune::DimensionsDependent>{uVec{4}, IdxRange{uVec{4}, uVec{12}, uVec{4}}})
+             //.withNumBlocksTune(
+                 //alpaka::tune::Tuneable{uVec{56*2}, IdxRange{uVec{56*2}, uVec{dataBlocking.m_numFrames}, uVec{56*2}}})
              .withConfig("./config/babelstream.toml")
              .build();
     // To record runtime data generated while running the kernels

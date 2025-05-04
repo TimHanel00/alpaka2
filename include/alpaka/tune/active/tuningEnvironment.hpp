@@ -10,6 +10,7 @@
 #include <alpaka/onHost/FrameSpec.hpp>
 #include <alpaka/tune/IO/storageTypes.hpp>
 #include <alpaka/tune/active/activeKernel.hpp>
+#include <alpaka/tune/traits/traits.hpp>
 
 #include <any>
 #include <utility>
@@ -121,17 +122,7 @@ auto makeConformToTVec(T_Vec const& vec, T_Tuneable& tuneable)
     constexpr std::size_t targetDim = T_Vec::dim();
     constexpr std::size_t sourceDim = ALPAKA_TYPEOF(tuneable.value)::dim();
 
-    if constexpr(targetDim == 1)
-    {
-        auto ret = T_Tunable(
-            T_Vec(tuneable.value),
-            alpaka::IdxRange{
-                T_Vec(tuneable.idxRange.m_begin[0]),
-                T_Vec(tuneable.idxRange.m_end[0]),
-                T_Vec(tuneable.idxRange.m_stride[0])});
-        return ret;
-    }
-    else if constexpr(sourceDim != targetDim)
+    if constexpr(sourceDim != targetDim)
     {
         if(!tuneable.userDef)
         {
@@ -215,7 +206,7 @@ auto createTuningEnvironment(
 {
     auto activeRun = makeConformToFrameSpec(spec, run);
     auto retPair = alpaka::tune::applyHwConstraints(device, exec, spec, activeRun);
-
+    alpaka::tune::trait::registerCTuneabels(bundle);
     auto newFrameSpec = retPair.first;
     auto newRun = retPair.second;
     auto userTuple = extractTuneables(bundle);

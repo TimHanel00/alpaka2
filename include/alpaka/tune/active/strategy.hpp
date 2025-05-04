@@ -64,16 +64,16 @@ namespace alpaka::tune::strategy
         assert(step != 0 && "Stride of Tuneable must be non-negative!");
         assert(value >= minVal && value <= maxVal && "Value of Tuneable is not in idxRange");
         using VecType = ALPAKA_TYPEOF(minVal);
-        auto numStepsUp = (maxVal - VecType(value)) / step;
+        auto numStepsUp = (maxVal - value) / step;
         if constexpr(is_signed_type<ALPAKA_TYPEOF(step)>)
         {
-            numStepsUp = (maxVal - VecType(value)) / abs(step);
+            numStepsUp = (maxVal - value) / abs(step);
         }
 
-        auto numStepsDown = (VecType(value) - minVal) / step;
+        auto numStepsDown = (value - minVal) / step;
         if constexpr(is_signed_type<ALPAKA_TYPEOF(step)>)
         {
-            numStepsDown = (VecType(value) - minVal) / abs(step);
+            numStepsDown = (value - minVal) / abs(step);
         }
         std::uniform_int_distribution<decltype(minVal)> dis(0, numStepsUp + numStepsDown);
         auto k = dis(RNG::get());

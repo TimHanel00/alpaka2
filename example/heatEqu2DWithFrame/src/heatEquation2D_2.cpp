@@ -12,6 +12,7 @@
 #    include "writeImage.hpp"
 #endif
 
+#include "userDefTraitsForDynSmem.h"
 
 #include <algorithm>
 #include <cassert>
@@ -44,32 +45,7 @@ struct BlockDynSharedMemBytes<StencilKernel2, alpaka::onHost::FrameSpec<T_numFra
     alpaka::onHost::FrameSpec<T_numFrames, T_numThreads> spec_;
 };
 */
-
-
-template<typename T_numFrames, typename T_frameSpec>
-auto getSpec(alpaka::onHost::ThreadSpec<T_numFrames, T_frameSpec> const& spec)
-{
-    return getFrameSpec<T_numFrames, T_frameSpec>();
-}
-
-#include "StencilKernel2.hpp"
-
-template<typename T_Spec>
-struct alpaka::onHost::trait::BlockDynSharedMemBytes<StencilKernel2, T_Spec>
-{
-    BlockDynSharedMemBytes(StencilKernel2, T_Spec spec) : spec_(spec)
-    {
-    }
-
-    uint32_t operator()(auto const executor, auto const&... args) const
-    {
-        auto frameSpec = getSpec(spec_);
-        // std::cout << " Specialized for StencilKernel2" << std::endl;
-        return static_cast<uint32_t>(frameSpec.m_frameExtent.x() * frameSpec.m_frameExtent.y() * sizeof(double) + 4);
-    }
-
-    T_Spec spec_;
-}; // namespace alpaka::onHost::trait
+// namespace alpaka::onHost::trait
 
 //! Each kernel computes the next step for one point.
 //! Therefore the number of threads should be equal to numNodesX.
@@ -220,6 +196,12 @@ auto example(T_Cfg const& cfg) -> int
         uVec{});
     auto frameSpec = FrameSpec{toRTime.m_numFrames, toRTime.m_frameExtent, setFixedNumBlocks_, toRTime.m_frameExtent};
     std::cout << " original numFrames " << frameSpec.m_numFrames.toString() << std::endl;
+    static constexpr auto n = tune::CTunable<
+        alpaka::CVec<int, 1, 2, 3>,
+        alpaka::CVec<int, 0, 0, 0>,
+        alpaka::CVec<int, 10, 10, 10>,
+        alpaka::CVec<int, 1, 1, 1>,
+        static_cast<std::size_t>(0)>{};
     auto tuningSession
         = tune::TuningBuilder{}
               .withStrategy(alpaka::tune::strategy::randomSearch{})

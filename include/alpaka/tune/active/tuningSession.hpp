@@ -170,12 +170,12 @@ namespace alpaka::tune::detail::internal
         applyCustomThreadSpec(run, spec);
         auto bundle = recreate(kernelBundle, run.userTuneables);
         // static_assert(std::is_same_v<decltype(bundle), void()>);
-        callPreProcessing(run, spec, interface, kernelBundle);
+        trait::callPreProcessing(run, spec, interface, kernelBundle);
         interface.start(run, spec);
         onHost::enqueue(queue, exec, spec, bundle);
         onHost::wait(queue);
         interface.end(run, spec);
-        callPostProcessing(run, spec, interface, kernelBundle);
+        trait::callPostProcessing(run, spec, interface, kernelBundle);
         // verifyCorrectness(NumNodes, spec.m_frameExtent);
     }
 
