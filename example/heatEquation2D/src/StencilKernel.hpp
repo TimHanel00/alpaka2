@@ -39,7 +39,8 @@ struct StencilKernel
         double const dt) const -> void
     {
         using namespace alpaka;
-
+        auto cVec = compileTuneable{};
+        std::cout << " Vec of type: " << cVec.toString() << std::endl;
         for(alpaka::concepts::Dim<2u> auto blockStartIdx :
             onAcc::makeIdxMap(acc, onAcc::worker::blocksInGrid, IdxRange{Vec{0u, 0u}, numNodes, chunkSize}))
         {

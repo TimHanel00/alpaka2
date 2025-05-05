@@ -28,7 +28,13 @@ inline constexpr bool is_empty_tuple_v = std::is_same_v<std::remove_cv_t<std::re
  *tuples each subsequent parameter configuration is derived from this active State by working in references of its
  *types ..
  **/
-template<typename T_UserTuple = std::tuple<>, typename T_FrameTuneables = std::tuple<>>
+// T_CompileTimeTuple does not actually contain compile time tuneables but runtime tuneables,
+// but its used to select a compile time instantiated Kernel based on a internal mapping (T_CompiletimeTuple... ->
+// Kernel<Args...>)
+template<
+    typename T_UserTuple = std::tuple<>,
+    typename T_FrameTuneables = std::tuple<>,
+    typename T_CompileTimeTuple = std::tuple<>>
 struct ActiveKernelRun
 {
     using T_floating = double_t;
@@ -41,6 +47,8 @@ struct ActiveKernelRun
     std::size_t maxRuns{};
     std::size_t maxRunsDefault{1};
     strategyState m_strategyState{};
+    T_CompileTimeTuple m_compileTimeTuple{};
+
     bool resetSignal{false};
 
     constexpr ActiveKernelRun() = default;
@@ -51,6 +59,22 @@ struct ActiveKernelRun
         , metric(std::numeric_limits<T_floating>::quiet_NaN())
     {
         std::apply([&](auto&... t) { ((maxRunsDefault *= t.numSteps()), ...); }, userTuneables);
+        maxRuns = maxRunsDefault;
+    }
+
+    constexpr auto compileTimeToFlatValueTuple()
+    {
+        return std::apply([](auto&... t) { return std::tuple_cat(std::make_tuple(t.value)...); }, m_compileTimeTuple);
+    }
+
+    constexpr explicit ActiveKernelRun(T_UserTuple userT, T_FrameTuneables frameT, T_CompileTimeTuple compileT)
+        : userTuneables(std::move(userT))
+        , frameTuneables(std::move(frameT))
+        , m_compileTimeTuple(std::move(compileT))
+        , metric(std::numeric_limits<T_floating>::quiet_NaN())
+    {
+        std::apply([&](auto&... t) { ((maxRunsDefault *= t.numSteps()), ...); }, userTuneables);
+        std::apply([&](auto&... t) { ((maxRunsDefault *= t.numSteps()), ...); }, m_compileTimeTuple);
         maxRuns = maxRunsDefault;
     }
 

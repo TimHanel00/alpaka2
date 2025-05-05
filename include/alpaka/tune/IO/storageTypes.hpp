@@ -393,6 +393,7 @@ struct StorageKernelRun
     };
     std::size_t stamp; // indicates this is the nth configuration found for a kernel.
     std::vector<alpaka::tune::StorageTuneable> tuneables;
+    std::vector<alpaka::tune::StorageTuneable> Ctuneables;
     std::optional<alpaka::tune::StorageTuneable> numBlocksTune{std::nullopt};
     std::optional<alpaka::tune::StorageTuneable> threadBlockSize{std::nullopt};
     std::optional<alpaka::tune::StorageTuneable> numFramesTune{std::nullopt};
@@ -416,7 +417,10 @@ struct StorageKernelRun
             m += numBlocksTune.value().toHash();
         if(threadBlockSize.has_value())
             m += threadBlockSize.value().toHash();
-
+        for(auto const& tuneable : Ctuneables)
+        {
+            m += tuneable.toHash();
+        }
         return m;
     }
 
@@ -437,7 +441,10 @@ struct StorageKernelRun
             view.emplace_back(*numFramesTune);
         if(frameExtentTune)
             view.emplace_back(*frameExtentTune);
-
+        for(auto const& t : Ctuneables)
+        {
+            view.emplace_back(t);
+        }
         return view;
     }
 
@@ -608,8 +615,8 @@ void updateTuneables(Tuple& tup, std::vector<alpaka::tune::StorageTuneable> cons
 }
 
 // A free function that updates an the configuration found in a storageKernel
-template<typename T_userTuple, typename T_frameTuple>
-void toActive(ActiveKernelRun<T_userTuple, T_frameTuple>& active, StorageKernelRun const& storeKernel)
+template<typename T_userTuple, typename T_frameTuple, typename T_compileTuple>
+void toActive(ActiveKernelRun<T_userTuple, T_frameTuple, T_compileTuple>& active, StorageKernelRun const& storeKernel)
 {
     // Update gridSize if available.
     if(storeKernel.numFramesTune.has_value())
@@ -629,6 +636,7 @@ void toActive(ActiveKernelRun<T_userTuple, T_frameTuple>& active, StorageKernelR
         tuneableFromString(storeKernel.threadBlockSize.value(), active.getThreadBlockSizeTune());
     }
     updateTuneables(active.userTuneables, storeKernel.tuneables);
+    updateTuneables(active.m_compileTimeTuple, storeKernel.Ctuneables);
 
     // Update metric by converting the storage string metric to the active kernel's floating type.
     active.metric = storeKernel.getMetric<median_t>().as<t_ns>();
@@ -682,6 +690,14 @@ StorageKernelRun toStore(ActiveKernelRun<T_KernelRunArgs...>& active)
              ...);
         },
         active.userTuneables);
+    std::apply(
+        [&result](auto&... tuneable)
+        {
+            ((result.tuneables.emplace_back(
+                 alpaka::tune::StorageTuneable{std::string(tuneable.name()), convertToString(tuneable.value)})),
+             ...);
+        },
+        active.m_compileTimeTuple);
     return result;
 }
 

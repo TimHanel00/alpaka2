@@ -44,15 +44,14 @@ namespace alpaka::tune::strategy
     };
 
     template<typename T>
-    constexpr bool is_signed_type = std::is_signed<T>::value;
+    constexpr bool is_signed_type = std::is_signed_v<T>;
 
     template<typename T>
-    T randomIdx(IdxRangeHandle<T> const& range, auto& value)
+    auto randomIdx(IdxRangeHandle<T> const& range, auto& value)
     {
         // Alias the vector type for the result.
-
         // Create a result vector.
-        T result;
+        typename utils::toRTime<T>::get result;
         // Assume that T_Begin has a static member T_dim (or use T_End::T_dim).
 
         // Set up a random number generator.
@@ -61,31 +60,20 @@ namespace alpaka::tune::strategy
         auto minVal = range.m_begin;
         auto maxVal = range.m_end;
         auto step = range.m_stride;
-        assert(step != 0 && "Stride of Tuneable must be non-negative!");
-        assert(value >= minVal && value <= maxVal && "Value of Tuneable is not in idxRange");
-        using VecType = ALPAKA_TYPEOF(minVal);
-        auto numStepsUp = (maxVal - value) / step;
-        if constexpr(is_signed_type<ALPAKA_TYPEOF(step)>)
-        {
-            numStepsUp = (maxVal - value) / abs(step);
-        }
+        auto numStepsUp = utils::min_element((maxVal - value) / utils::abs(step));
 
-        auto numStepsDown = (value - minVal) / step;
-        if constexpr(is_signed_type<ALPAKA_TYPEOF(step)>)
-        {
-            numStepsDown = (value - minVal) / abs(step);
-        }
-        std::uniform_int_distribution<decltype(minVal)> dis(0, numStepsUp + numStepsDown);
+        auto numStepsDown = utils::min_element((value - minVal) / utils::abs(step));
+        std::uniform_int_distribution<typename T::type> dis(0, numStepsUp + numStepsDown);
         auto k = dis(RNG::get());
         if(k > numStepsUp)
         {
-            std::uniform_int_distribution<decltype(minVal)> disD(0, numStepsDown);
+            std::uniform_int_distribution<typename T::type> disD(0, numStepsDown);
             auto numStep = disD(RNG::get());
             result = value - (numStep * step);
         }
         else
         {
-            std::uniform_int_distribution<decltype(minVal)> disU(0, numStepsUp);
+            std::uniform_int_distribution<typename T::type> disU(0, numStepsUp);
             auto numStep = disU(RNG::get());
             result = value + (numStep * step);
         }
@@ -93,33 +81,32 @@ namespace alpaka::tune::strategy
     }
 
     template<typename T>
-    T getNextUpper(T const& value, IdxRangeHandle<T> const& range, bool& valid)
+    T getNextUpper(auto const& value, IdxRangeHandle<T> const& range, bool& valid)
     {
         // Create a result vector.
-        T result{value};
+        T result = value;
         auto minVal = range.m_begin;
         auto maxVal = range.m_end;
         auto step = range.m_stride;
         result = (result + step);
-        if(result < minVal || result > maxVal)
+        if(utils::anyTrue(result < minVal || result > maxVal))
         {
             valid = false;
             return maxVal;
         }
-
         return result;
     }
 
     template<typename T>
-    T getNextLower(T const& value, IdxRangeHandle<T> const& range, bool& valid)
+    T getNextLower(auto const& value, IdxRangeHandle<T> const& range, bool& valid)
     {
         // Create a result vector.
-        T result{value};
+        T result = value;
         auto minVal = range.m_begin;
         auto maxVal = range.m_end;
         auto step = range.m_stride;
         result = (result - step);
-        if(result < minVal || result > maxVal)
+        if(utils::anyTrue(result < minVal || result > maxVal))
         {
             valid = false;
             return minVal;
@@ -166,7 +153,7 @@ namespace alpaka::tune::strategy
         bool validL = true;
         bool validH = true;
         auto lower = getNextLower(value, range, validL);
-        auto higher = getNextgetNextUpper(value, range, validH);
+        auto higher = getNextUpper(value, range, validH);
         if(lower && higher)
         {
             std::uniform_int_distribution<std::size_t> dis(0, 1);
@@ -391,19 +378,23 @@ namespace alpaka::tune::strategy
          * in the paper they use the hamming distance between two configurations which would include all parameters
          * but applying it per parameter simplifies the computation and algorithm
          */
-        std::size_t applyProbabilityFunction(auto currentValue, auto const& range, double_t temperature)
+        auto applyProbabilityFunction(auto currentValue, auto const& range, double_t temperature)
         {
-            std::size_t backwardSteps = (currentValue - range.m_begin) / range.m_stride;
-            std::size_t forwardSteps = (range.m_end - currentValue) / range.m_stride;
+            using type = typename decltype(currentValue)::type; // this is a primitive type
+            auto backwardSteps
+                = utils::min_element((currentValue - range.m_begin) / range.m_stride); // this is a n dim vector dim>=1
+            auto forwardSteps
+                = utils::min_element((range.m_end - currentValue) / range.m_stride); // this is a n dim vector dim>=1
+
             std::vector<double> weights(backwardSteps + forwardSteps + 1);
             double total = 0.0;
 
-            for(std::size_t i = 0; i <= backwardSteps; ++i)
+            for(type i = 0; i <= backwardSteps; ++i)
             {
                 weights[backwardSteps - i] = T_propabilityFunction{}(i, temperature); // backward
                 total += weights[backwardSteps - i];
             }
-            for(std::size_t i = 1; i <= forwardSteps; ++i)
+            for(type i = 1; i <= forwardSteps; ++i)
             {
                 weights[backwardSteps + i] = T_propabilityFunction{}(i, temperature); // forward
                 total += weights[backwardSteps + i];
@@ -411,15 +402,20 @@ namespace alpaka::tune::strategy
 
             for(auto& w : weights)
                 w /= total;
-            std::discrete_distribution<std::size_t> dist(weights.begin(), weights.end());
-            std::size_t sampledIndex = dist(RNG::get());
+            std::discrete_distribution<type> dist(weights.begin(), weights.end());
+            type sampledIndex = dist(RNG::get());
             if(sampledIndex < backwardSteps)
             {
-                std::size_t stepsBack = backwardSteps - sampledIndex;
-                return currentValue - stepsBack * range.m_stride; // go backwards
+                type stepsBack = backwardSteps - sampledIndex;
+                auto backwardsStepVec = utils::toRTime<decltype(currentValue)>::get::all(stepsBack);
+
+                return currentValue - backwardsStepVec * range.m_stride; // this is a correct calculation if stepsBack
+                                                                         // has the same dimension as curVal
             }
-            std::size_t stepsForward = sampledIndex - backwardSteps;
-            return currentValue + stepsForward * range.m_stride; // go forwards
+            type stepsForward = sampledIndex - backwardSteps;
+            auto forwardsStepVec = utils::toRTime<decltype(currentValue)>::get::all(stepsForward);
+            return currentValue + forwardsStepVec * range.m_stride; // this is a correct calculation if stepsBack has
+                                                                    // the same dimension as curVal
         }
 
 #define SimA_MaxCachedSteps 300

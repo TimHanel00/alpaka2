@@ -5,6 +5,7 @@
 #ifndef TUPLEHANDLE_H
 #define TUPLEHANDLE_H
 #include "alpaka/KernelBundle.hpp"
+#include "alpaka/tune/active/activeKernel.hpp"
 #include "alpaka/tune/active/tuneable.hpp"
 
 #include <string>
@@ -86,7 +87,7 @@ auto flattenImpl(TuneableType& tune, std::index_sequence<I...>)
     using ElementType = typename VecType::type;
 
     return std::make_tuple(
-        alpaka::tune::FlatTuneableHandle<ElementType>(
+        alpaka::tune::TuneableHandle<ElementType>(
             tune.value[I],
             std::string(tune.name()) + "_" + std::to_string(I),
             tune.userDef,
@@ -191,7 +192,6 @@ auto makeNonOwningTuneableTuple(alpaka::tune::Tuneable<T_Vec, ID, alpaka::tune::
 template<typename T_Vec, auto ID>
 auto makeNonOwningTuneableTuple(alpaka::tune::Tuneable<T_Vec, ID, alpaka::tune::DimensionsDependent> const& t)
 {
-    std::cout << " hit it right there " << std::endl;
     using elementType = ALPAKA_TYPEOF(t.value);
     using TuneableType = alpaka::tune::Tuneable<T_Vec, ID, alpaka::tune::DimensionsDependent>;
     auto& newTune = const_cast<std::remove_cv_t<TuneableType>&>(t);
@@ -199,7 +199,7 @@ auto makeNonOwningTuneableTuple(alpaka::tune::Tuneable<T_Vec, ID, alpaka::tune::
     {
         // flatten() needs non-const access — cast safely
         return std::make_tuple(
-            alpaka::tune::FlatTuneableHandle<elementType>(
+            alpaka::tune::TuneableHandle<elementType>(
                 newTune.value,
                 std::string(newTune.name()),
                 newTune.userDef,
@@ -232,7 +232,12 @@ auto makeSharedParameterInterface(T_KernelRun& run)
     auto userDef_tuneableTupleInterface = std::apply(
         [](auto&... elems) { return std::tuple_cat(makeNonOwningTuneableTuple(elems)...); },
         run.userTuneables);
-
-    return std::tuple_cat(userDef_tuneableTupleInterface, makeNonOwningframeSpecTuple(run.frameTuneables));
+    auto CtuneableInterface = std::apply(
+        [](auto&... elems) { return std::tuple_cat(makeNonOwningTuneableTuple(elems)...); },
+        run.m_compileTimeTuple);
+    return std::tuple_cat(
+        userDef_tuneableTupleInterface,
+        makeNonOwningframeSpecTuple(run.frameTuneables),
+        CtuneableInterface);
 }
 #endif // TUPLEHANDLE_H

@@ -159,10 +159,11 @@ namespace alpaka::tune::detail::internal
         return false;
     }
 
+    template<typename KernelFn, typename... Args>
     inline void applyConfigAndExecuteKernel(
         auto const& queue,
         auto exec,
-        auto const& kernelBundle,
+        KernelBundle<KernelFn, Args...> const& kernelBundle,
         auto& spec,
         tune::concepts::MetricInterface auto& interface,
         auto& run)
@@ -170,12 +171,28 @@ namespace alpaka::tune::detail::internal
         applyCustomThreadSpec(run, spec);
         auto bundle = recreate(kernelBundle, run.userTuneables);
         // static_assert(std::is_same_v<decltype(bundle), void()>);
+        // we take the original KernelBundle here as userdefined traits are most likely according to the initial
+        // KernelBundle Definition
         trait::callPreProcessing(run, spec, interface, kernelBundle);
-        interface.start(run, spec);
-        onHost::enqueue(queue, exec, spec, bundle);
-        onHost::wait(queue);
-        interface.end(run, spec);
+
+        std::size_t i = trait::getRtimeIndexMap(kernelBundle)[run.compileTimeToFlatValueTuple()]; // kernelFn index
+        static auto variants = typename trait::RegisteredCTuneables<std::decay_t<KernelFn>>::T_KernelVariants{};
+        alpaka::tune::trait::runtime_Kernel_dispatch(
+            i,
+            variants,
+            [&i, &bundle, &interface, &run, spec, &queue, exec](auto&& element)
+            {
+                auto newBundle = std::apply(
+                    [&element]<typename... T0>(T0&&... args)
+                    { return KernelBundle{element, std::forward<T0>(args)...}; },
+                    bundle.m_args);
+                interface.start(run, spec);
+                onHost::enqueue(queue, exec, spec, newBundle);
+                onHost::wait(queue);
+                interface.end(run, spec);
+            });
         trait::callPostProcessing(run, spec, interface, kernelBundle);
+
         // verifyCorrectness(NumNodes, spec.m_frameExtent);
     }
 

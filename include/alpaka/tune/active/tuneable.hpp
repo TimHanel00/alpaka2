@@ -6,6 +6,7 @@
 #define TUNEABLE_H
 #include "alpaka/mem/IdxRange.hpp"
 
+#include <alpaka/tune/utils/VecUtils.h>
 #include <alpaka/tune/utils/partitioning.hpp>
 
 #include <functional>
@@ -160,18 +161,99 @@ namespace alpaka::tune
     };
 
     template<typename T>
-    concept IsIntegral = std::is_integral_v<T>;
+    concept isIntegral = std::is_integral_v<T>;
 
-    template<typename T>
-    struct IdxRangeHandle
+    template<typename T, uint32_t Dim>
+    struct RefStorage
     {
-        T& m_begin;
-        T& m_end;
-        T& m_stride;
+        std::array<std::reference_wrapper<T>, Dim> refs;
+        RefStorage() = delete;
 
-        IdxRangeHandle(T& begin, T& end, T& stride) : m_begin(begin), m_end(end), m_stride(stride)
+        constexpr RefStorage(alpaka::Vec<T, Dim>& vec) : refs{makeRefs(vec, std::make_index_sequence<Dim>{})}
         {
         }
+
+        template<std::size_t... Is>
+        static constexpr std::array<std::reference_wrapper<T>, Dim> makeRefs(
+            alpaka::Vec<T, Dim>& vec,
+            std::index_sequence<Is...>)
+        {
+            return {std::ref(vec[Is])...};
+        }
+
+        constexpr RefStorage(isIntegral auto& value) : refs{std::ref(value)}
+        {
+        }
+
+        constexpr T& operator[](std::size_t i)
+        {
+            return refs[i].get();
+        }
+
+        constexpr T const& operator[](std::size_t i) const
+        {
+            return refs[i].get();
+        }
+    };
+
+    template<typename T>
+    concept IsIntegral = std::is_integral_v<T>;
+
+    template<typename T_Vec>
+    struct IdxRangeHandle
+    {
+        using T_Storage = typename T_Vec::Storage;
+        T_Vec m_begin;
+        T_Vec m_end;
+        T_Vec m_stride;
+
+        IdxRangeHandle(auto& b, auto& e, auto& s) : m_begin(T_Storage(b)), m_end(T_Storage(e)), m_stride(T_Storage(s))
+        {
+        }
+    };
+    template<typename T, bool = alpaka::isVector_v<T>>
+    struct TuneableHandle;
+
+    template<typename T>
+    struct TuneableHandle<T, true>
+    {
+        std::string name;
+        bool userDef;
+        using T_Storage = RefStorage<typename T::type, alpaka::getDim(T{})>;
+        using T_Vec = Vec<typename T::type, alpaka::getDim(T{}), T_Storage>;
+        static constexpr auto dim = ::alpaka::getDim(T{});
+        IdxRangeHandle<T_Vec> idxRange;
+
+        TuneableHandle(T& val, std::string n, bool u, T& b, T& e, T& s)
+            : value(T_Storage(val))
+            , name(std::move(n))
+            , userDef(u)
+            , idxRange(b, e, s)
+        {
+        }
+
+        T_Vec value;
+    };
+
+    template<typename T>
+    struct TuneableHandle<T, false>
+    {
+        std::string name;
+        bool userDef;
+        using T_Storage = RefStorage<T, 1>;
+        using T_Vec = Vec<T, 1, T_Storage>;
+        static constexpr auto dim = 1;
+        IdxRangeHandle<T_Vec> idxRange;
+
+        TuneableHandle(T& val, std::string n, bool u, T& b, T& e, T& s)
+            : value(T_Vec(T_Storage(val)))
+            , name(std::move(n))
+            , userDef(u)
+            , idxRange(b, e, s)
+        {
+        }
+
+        T_Vec value;
     };
 
     /**
@@ -180,24 +262,6 @@ namespace alpaka::tune
      * @tparam T a primitive type used to store the reference to the tuneable object in a tuple
      *
      */
-    template<typename T>
-    struct FlatTuneableHandle
-    {
-        std::string name;
-        bool userDef;
-        IdxRangeHandle<T> idxRange;
-
-        FlatTuneableHandle(T& val, std::string n, bool u, T& b, T& e, T& s)
-            : value(val)
-            , name(std::move(n))
-            , userDef(u)
-            , idxRange(b, e, s)
-        {
-        }
-
-        T& value;
-    };
-
     inline std::size_t globalId = 0;
 
     struct NoTune
@@ -302,16 +366,40 @@ namespace alpaka::tune
     }
 
     template<
-        typename Value,
         typename Begin,
         typename End,
         typename Stride,
-        std::size_t ID = static_cast<std::size_t>(SpecialTuneableID::userDef),
-        typename dimensionTraversePolicy = DimensionsIndependent>
+        std::size_t ID = static_cast<std::size_t>(SpecialTuneableID::userDef)>
     struct CTunable
     {
-        using value = Value;
-        using idxRange = IdxRange<Begin, End, Stride>;
+        // Check they are all CVec
+        static_assert(alpaka::isCVector_v<Begin>, "CTuneable construction failed: Begin must be a CVec");
+        static_assert(alpaka::isCVector_v<End>, "CTuneable construction failed:  End must be a CVec");
+        static_assert(alpaka::isCVector_v<Stride>, "CTuneable construction failed:  Stride must be a CVec");
+
+        // Get dimensions
+        static constexpr std::size_t dimBegin = std::tuple_size_v<typename Begin::Storage::Values>;
+        static constexpr std::size_t dimEnd = std::tuple_size_v<typename End::Storage::Values>;
+        static constexpr std::size_t dimStride = std::tuple_size_v<typename Stride::Storage::Values>;
+
+        static_assert(
+            dimBegin == dimEnd && dimEnd == dimStride,
+            "CTuneable construction failed:  Begin, End, and Stride must have the same number of dimensions");
+
+        // Get scalar types
+        using ScalarBegin = typename Begin::type;
+        using ScalarEnd = typename End::type;
+        using ScalarStride = typename Stride::type;
+
+        static_assert(
+            std::is_same_v<ScalarBegin, ScalarEnd> && std::is_same_v<ScalarEnd, ScalarStride>
+                && std::is_same_v<ScalarStride, ScalarBegin>,
+            "CTuneable construction failed:  types of Begin, End, and Stride must match");
+
+        // This is valid now
+        using T_Begin = Begin;
+        using T_End = End;
+        using T_Stride = Stride;
         static constexpr std::size_t tag = getId<ID>();
     };
 

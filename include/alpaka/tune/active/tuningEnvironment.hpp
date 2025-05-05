@@ -206,11 +206,13 @@ auto createTuningEnvironment(
 {
     auto activeRun = makeConformToFrameSpec(spec, run);
     auto retPair = alpaka::tune::applyHwConstraints(device, exec, spec, activeRun);
-    alpaka::tune::trait::registerCTuneabels(bundle);
+
+    auto CTuneableBundle = alpaka::tune::trait::constructRuntimeCtuneablesForActivKernel(bundle);
     auto newFrameSpec = retPair.first;
     auto newRun = retPair.second;
     auto userTuple = extractTuneables(bundle);
-    auto completeRun = ActiveKernelRun{userTuple, newRun.frameTuneables};
+    auto completeRun = ActiveKernelRun{userTuple, newRun.frameTuneables, CTuneableBundle};
+    // static_assert(std::is_same_v<decltype(completeRun), void()>);
 #ifdef DEBUG_Singleton
     printRange(newRun.getNumBlocksTune().idxRange);
 #endif

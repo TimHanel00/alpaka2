@@ -160,6 +160,11 @@ namespace alpaka::tune
                                                 run.frameExtentTune
                                                     = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
                                             }
+                                            else if(std::string_view(tkey).find("CTune") != std::string_view::npos)
+                                            {
+                                                run.Ctuneables.push_back(
+                                                    alpaka::tune::StorageTuneable{tkey, value_tuneAble});
+                                            }
                                             else
                                             {
                                                 run.tuneables.push_back(

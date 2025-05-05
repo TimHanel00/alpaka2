@@ -705,8 +705,9 @@ namespace alpaka
     }
 
     template<std::integral T_IntegralType, typename T_Storage, typename T_OtherStorage>
-    ALPAKA_FN_HOST_ACC T_IntegralType
-    linearize(Vec<T_IntegralType, 1u, T_Storage> const&, Vec<T_IntegralType, 1u, T_OtherStorage> const& idx)
+    ALPAKA_FN_HOST_ACC T_IntegralType linearize(
+        Vec<T_IntegralType, 1u, T_Storage> const&,
+        Vec<T_IntegralType, 1u, T_OtherStorage> const& idx)
     {
         return idx.x();
     }

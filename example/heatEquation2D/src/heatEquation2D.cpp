@@ -142,9 +142,9 @@ auto example(T_Cfg const& cfg) -> int
     auto sharedMemExtents = CVec<uint32_t, ySize + halo, xSize + halo>{};
 
     StencilKernel<
-        alpaka::CVec<std::size_t, static_cast<size_t>(0)>,
-        alpaka::CVec<std::size_t, static_cast<size_t>(1)>,
-        alpaka::CVec<std::size_t, static_cast<size_t>(2)>>
+        alpaka::CVec<int, static_cast<size_t>(0), static_cast<size_t>(5)>,
+        alpaka::CVec<int, static_cast<size_t>(1), static_cast<size_t>(7)>,
+        alpaka::CVec<int, static_cast<size_t>(2), static_cast<size_t>(8)>>
         stencilKernel;
     BoundaryKernel boundaryKernel;
     // acceptLiteral("daw");
@@ -161,7 +161,7 @@ auto example(T_Cfg const& cfg) -> int
         = tune::TuningBuilder{}
               .withStrategy(tune::strategy::randomSearch{})
               .withBlockSizeTune(tune::Tuneable(fVec{4, 8}, IdxRange{fVec{4, 8}, toRTime.m_frameExtent, fVec{4, 8}}))
-              .withNumBlocksTune(Vec{3, 4})
+              .withNumBlocksTune(tune::Tuneable(uVec{1, 1}, IdxRange{uVec{1, 1}, uVec{3, 4}, uVec{1, 1}}))
               .withRunSpecifiers(std::to_string(numNodes.x()))
               .withConfig("./config/babelstream.toml")
               .build();
