@@ -95,7 +95,10 @@ add_library(alpaka INTERFACE
         include/alpaka/tune/traits/traits.hpp
         example/heatEqu2DWithFrame/src/userDefTraitsForDynSmem.h
         include/alpaka/tune/utils/VecUtils.h
-        include/alpaka/tune/utils/tupleHash.h)
+        include/alpaka/tune/utils/tupleHash.h
+        include/alpaka/tune/utils/CompileTimeUtils.h
+        include/alpaka/tune/utils/compileTimeTemplates.hpp
+)
 target_include_directories(${PROJECT_NAME} INTERFACE $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_20)
 

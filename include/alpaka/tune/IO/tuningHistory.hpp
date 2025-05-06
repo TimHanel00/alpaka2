@@ -276,7 +276,6 @@ namespace alpaka::tune
 #ifdef DEBUG_Hist
                     std::cout << "  - Checking tuneables size: " << m_run.second.tuneables.size() << std::endl;
 #endif
-
                     for(const auto& tuneable : run.second.view())
                     {
 #ifdef DEBUG_Hist

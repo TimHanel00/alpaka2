@@ -39,8 +39,15 @@ struct StencilKernel
         double const dt) const -> void
     {
         using namespace alpaka;
-        auto cVec = compileTuneable{};
-        std::cout << " Vec of type: " << cVec.toString() << std::endl;
+        // constexpr auto cVec = compileTuneable{};
+        // constexpr auto cVec2 = compileTuneable3{};
+        // std::cout << " Config: " << cVec[0] << cVec2[0] << std::endl;
+        /*
+        std::cout << " before " << std::endl;
+        tune::utils::unroll<cVec[0]>([](auto i) { std::cout << "Unrolled index: " << i << "\n"; });
+        std::cout << " after " << std::endl;
+        tune::utils::unroll<cVec[0]>([](auto i) { std::cout << "Unrolled index: " << i << "\n"; });
+        std::cout << " Vec of type: " << cVec.toString() << std::endl;*/
         for(alpaka::concepts::Dim<2u> auto blockStartIdx :
             onAcc::makeIdxMap(acc, onAcc::worker::blocksInGrid, IdxRange{Vec{0u, 0u}, numNodes, chunkSize}))
         {

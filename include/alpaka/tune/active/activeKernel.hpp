@@ -114,10 +114,32 @@ struct ActiveKernelRun
             [this](auto const&... frameElems)
             {
                 return std::apply(
-                    [&](auto const&... userElems) { return std::tie(frameElems..., userElems...); },
+                    [&](auto const&... userElems)
+                    {
+                        return std::apply(
+                            [&](auto const&... compileElems)
+                            { return std::tie(userElems..., frameElems..., compileElems...); },
+                            m_compileTimeTuple);
+                    },
                     userTuneables);
             },
             frameTuneables);
+    }
+
+    template<typename ConfigTuple>
+    void fromConfig(ConfigTuple const& config)
+    {
+        std::apply(
+            [&](auto&... tuneables)
+            { std::apply([&](auto const&... values) { ((tuneables.value = values), ...); }, config); },
+            allTuneables());
+    }
+
+    auto toConfig()
+    {
+        return std::apply(
+            [&](auto const&... tuneables) { return std::make_tuple(tuneables.value...); },
+            allTuneables());
     }
 
     template<typename Tuple, auto ID>
@@ -298,6 +320,7 @@ namespace alpaka::tune
         using maxRunsType = decltype(active.maxRuns);
         auto init = maxRunsType{1};
         std::apply([&](auto&... t) { ((init *= t.numSteps()), ...); }, active.userTuneables);
+        std::apply([&](auto&... t) { ((init *= t.numSteps()), ...); }, active.m_compileTimeTuple);
         active.maxRuns = init;
         if constexpr(T_ActiveKernel::hasNumBlocksTune())
         {

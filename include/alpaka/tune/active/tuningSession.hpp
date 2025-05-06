@@ -5,8 +5,8 @@
 #define TUNER_H
 #define ENABLE_AUTOTUNE
 #include <alpaka/tune/active/constraint.hpp>
-#include <alpaka/tune/traits/traits.hpp>
 #include <alpaka/tune/utils/TimeEvent.hpp>
+#include <alpaka/tune/utils/compileTimeTemplates.hpp>
 #ifdef ENABLE_AUTOTUNE
 
 #    include <alpaka/tune/active/sessionBuilder.h>
@@ -175,22 +175,33 @@ namespace alpaka::tune::detail::internal
         // KernelBundle Definition
         trait::callPreProcessing(run, spec, interface, kernelBundle);
 
-        std::size_t i = trait::getRtimeIndexMap(kernelBundle)[run.compileTimeToFlatValueTuple()]; // kernelFn index
-        static auto variants = typename trait::RegisteredCTuneables<std::decay_t<KernelFn>>::T_KernelVariants{};
-        alpaka::tune::trait::runtime_Kernel_dispatch(
-            i,
-            variants,
-            [&i, &bundle, &interface, &run, spec, &queue, exec](auto&& element)
-            {
-                auto newBundle = std::apply(
-                    [&element]<typename... T0>(T0&&... args)
-                    { return KernelBundle{element, std::forward<T0>(args)...}; },
-                    bundle.m_args);
-                interface.start(run, spec);
-                onHost::enqueue(queue, exec, spec, newBundle);
-                onHost::wait(queue);
-                interface.end(run, spec);
-            });
+
+        if constexpr(!trait::hasUserDefinedCTuneable<KernelFn>::value)
+        {
+            interface.start(run, spec);
+            onHost::enqueue(queue, exec, spec, bundle);
+            onHost::wait(queue);
+            interface.end(run, spec);
+        }
+        else
+        {
+            std::size_t i = trait::getRtimeIndexMap(kernelBundle)[run.compileTimeToFlatValueTuple()]; // kernelFn index
+            static auto variants = typename trait::RegisteredCTuneables<std::decay_t<KernelFn>>::T_KernelVariants{};
+            alpaka::tune::runtime_Kernel_dispatch(
+                i,
+                variants,
+                [&i, &bundle, &interface, &run, spec, &queue, exec](auto&& element)
+                {
+                    auto newBundle = std::apply(
+                        [&element]<typename... T0>(T0&&... args)
+                        { return KernelBundle{element, std::forward<T0>(args)...}; },
+                        bundle.m_args);
+                    interface.start(run, spec);
+                    onHost::enqueue(queue, exec, spec, newBundle);
+                    onHost::wait(queue);
+                    interface.end(run, spec);
+                });
+        }
         trait::callPostProcessing(run, spec, interface, kernelBundle);
 
         // verifyCorrectness(NumNodes, spec.m_frameExtent);
@@ -234,7 +245,6 @@ namespace alpaka::tune::detail::internal
             history.storeConfig(config);
             write = false;
         }
-
 
         alpaka::tune::strategy::bestRecorded{}(metric_interface, run, data);
         applyConfigAndExecuteKernel(queue, exec, kernelBundle, spec, metric_interface, run);

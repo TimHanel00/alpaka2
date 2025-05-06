@@ -235,9 +235,11 @@ auto makeSharedParameterInterface(T_KernelRun& run)
     auto CtuneableInterface = std::apply(
         [](auto&... elems) { return std::tuple_cat(makeNonOwningTuneableTuple(elems)...); },
         run.m_compileTimeTuple);
-    return std::tuple_cat(
+    auto ret = std::tuple_cat(
         userDef_tuneableTupleInterface,
         makeNonOwningframeSpecTuple(run.frameTuneables),
         CtuneableInterface);
+
+    return ret;
 }
 #endif // TUPLEHANDLE_H

@@ -427,8 +427,6 @@ struct StorageKernelRun
     [[nodiscard]] std::vector<std::reference_wrapper<alpaka::tune::StorageTuneable const>> view() const
     {
         std::vector<std::reference_wrapper<alpaka::tune::StorageTuneable const>> view;
-
-        view.reserve(tuneables.size());
         for(auto const& t : tuneables)
         {
             view.emplace_back(t);
@@ -693,7 +691,7 @@ StorageKernelRun toStore(ActiveKernelRun<T_KernelRunArgs...>& active)
     std::apply(
         [&result](auto&... tuneable)
         {
-            ((result.tuneables.emplace_back(
+            ((result.Ctuneables.emplace_back(
                  alpaka::tune::StorageTuneable{std::string(tuneable.name()), convertToString(tuneable.value)})),
              ...);
         },

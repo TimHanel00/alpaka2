@@ -6,6 +6,7 @@
 #define VECUTILS_H
 
 #include <alpaka/Vec.hpp>
+#include <alpaka/tune/utils/CompileTimeUtils.h>
 
 #include <algorithm> // for std::min / std::max
 #include <cmath> // for std::abs
@@ -53,11 +54,26 @@ namespace alpaka::tune::utils
     template<typename T_Vec>
     struct toRTime
     {
+        using cleanTVec = std::remove_cvref_t<T_Vec>;
         using get = alpaka::Vec<
-            typename T_Vec::type,
-            getDimFromTemplate<T_Vec>::Dim,
-            alpaka::ArrayStorage<typename T_Vec::type, getDimFromTemplate<T_Vec>::Dim>>;
+            typename cleanTVec::type,
+            getDimFromTemplate<cleanTVec>::Dim,
+            alpaka::ArrayStorage<typename cleanTVec::type, getDimFromTemplate<cleanTVec>::Dim>>;
+
+        auto operator()(T_Vec const& vec)
+        {
+            auto ret = get{};
+            for(std::size_t i = 0; i < getDimFromTemplate<T_Vec>::Dim; ++i)
+                ret[i] = vec[i];
+            return ret;
+        }
     };
+
+    template<typename T_Vec>
+    auto toRT(T_Vec const& vec)
+    {
+        return toRTime<T_Vec>{}(vec);
+    }
 
     template<typename T_Vec>
     auto anyTrue(T_Vec const& vec)

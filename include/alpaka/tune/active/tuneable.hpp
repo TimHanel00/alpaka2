@@ -54,7 +54,7 @@ namespace alpaka::tune
     {
         auto const steps = tune.numSteps();
         std::cout << label << "STEPS:  " << steps << std::endl;
-
+        std::cout << " for tune " << tune.name() << " steps: " << steps << std::endl;
         active.maxRuns *= steps;
         if(active.maxRuns < active.maxRunsDefault)
         {
@@ -306,7 +306,7 @@ namespace alpaka::tune
     }
 
     template<std::size_t N>
-    constexpr std::size_t getId()
+    inline constexpr std::size_t getId()
     {
         if constexpr(N == 0)
         {
@@ -365,6 +365,38 @@ namespace alpaka::tune
         return TuneableA::tag == TuneableB::tag;
     }
 
+    template<auto N>
+    struct wrapper
+    {
+    };
+
+    template<int N>
+    struct Tag;
+
+    template<int N>
+    Tag<N> register_tag(Tag<N>);
+
+    template<typename T, typename = void>
+    struct is_registered : std::false_type
+    {
+    };
+
+    template<typename T>
+    struct is_registered<T, decltype(register_tag(std::declval<T>()), void())> : std::true_type
+    {
+    };
+
+    template<int N = 0>
+    struct UniqueID
+    {
+        static constexpr bool used = is_registered<Tag<N>>::value;
+
+        static constexpr int value = used ? UniqueID<N + 1>::value : N;
+
+        // This registers Tag<N> the moment we use it
+        using Register = decltype(register_tag(Tag<value>{}));
+    };
+
     template<
         typename Begin,
         typename End,
@@ -400,7 +432,7 @@ namespace alpaka::tune
         using T_Begin = Begin;
         using T_End = End;
         using T_Stride = Stride;
-        static constexpr std::size_t tag = getId<ID>();
+        static constexpr std::size_t tag = ID;
     };
 
     //--------------------------------------
@@ -416,7 +448,7 @@ namespace alpaka::tune
         using dimensionTraversePolicy_type = dimensionTraversePolicy;
         T value;
         bool userDef;
-        static constexpr std::size_t tag = getId<ID>();
+        static constexpr std::size_t tag = ID;
         IdxRange<T, T, T> idxRange;
         std::string m_name = getNameFromTag<ID>();
         DimensionTraversePolicy policy;

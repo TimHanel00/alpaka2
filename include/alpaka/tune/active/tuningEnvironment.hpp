@@ -212,6 +212,7 @@ auto createTuningEnvironment(
     auto newRun = retPair.second;
     auto userTuple = extractTuneables(bundle);
     auto completeRun = ActiveKernelRun{userTuple, newRun.frameTuneables, CTuneableBundle};
+    using T_config = decltype(completeRun.toConfig());
     // static_assert(std::is_same_v<decltype(completeRun), void()>);
 #ifdef DEBUG_Singleton
     printRange(newRun.getNumBlocksTune().idxRange);

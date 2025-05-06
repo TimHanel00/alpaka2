@@ -49,22 +49,31 @@ namespace alpaka::tune::strategy
     template<typename T>
     auto randomIdx(IdxRangeHandle<T> const& range, auto& value)
     {
-        // Alias the vector type for the result.
-        // Create a result vector.
         typename utils::toRTime<T>::get result;
-        // Assume that T_Begin has a static member T_dim (or use T_End::T_dim).
 
-        // Set up a random number generator.
-        // (Using static so that the generator is not re-seeded on every call.)
-        // For each dimension, retrieve the minimum, maximum and stride.
+        // Get the range values.
         auto minVal = range.m_begin;
         auto maxVal = range.m_end;
         auto step = range.m_stride;
-        auto numStepsUp = utils::min_element((maxVal - value) / utils::abs(step));
+        // std::cout << "[DEBUG]  maxVal" << maxVal.toString() << std::endl;
+        // std::cout << "[DEBUG]  value" << value.toString() << std::endl;
+        //  Step-by-step debug output
+        auto diff = maxVal - value;
+        // std::cout << "[DEBUG] (maxVal - value): " << diff.toString() << std::endl;
+
+        auto absStep = utils::abs(step);
+        // std::cout << "[DEBUG] utils::abs(step): " << absStep.toString() << std::endl;
+
+        auto div = diff / absStep;
+        // std::cout << "[DEBUG] (maxVal - value) / utils::abs(step): " << div.toString() << std::endl;
+
+        auto numStepsUp = utils::min_element(div);
+        // std::cout << "[DEBUG] utils::min_element((maxVal - value) / utils::abs(step)): " << numStepsUp << std::endl;
 
         auto numStepsDown = utils::min_element((value - minVal) / utils::abs(step));
         std::uniform_int_distribution<typename T::type> dis(0, numStepsUp + numStepsDown);
         auto k = dis(RNG::get());
+
         if(k > numStepsUp)
         {
             std::uniform_int_distribution<typename T::type> disD(0, numStepsDown);
@@ -77,11 +86,12 @@ namespace alpaka::tune::strategy
             auto numStep = disU(RNG::get());
             result = value + (numStep * step);
         }
+
         return result;
     }
 
-    template<typename T>
-    T getNextUpper(auto const& value, IdxRangeHandle<T> const& range, bool& valid)
+    template<typename T, typename T_Ref>
+    T getNextUpper(T const& value, IdxRangeHandle<T_Ref> const& range, bool& valid)
     {
         // Create a result vector.
         T result = value;
@@ -89,7 +99,8 @@ namespace alpaka::tune::strategy
         auto maxVal = range.m_end;
         auto step = range.m_stride;
         result = (result + step);
-        if(utils::anyTrue(result < minVal || result > maxVal))
+
+        if(utils::anyTrue(result < minVal) || utils::anyTrue(result > maxVal))
         {
             valid = false;
             return maxVal;
@@ -97,8 +108,8 @@ namespace alpaka::tune::strategy
         return result;
     }
 
-    template<typename T>
-    T getNextLower(auto const& value, IdxRangeHandle<T> const& range, bool& valid)
+    template<typename T, typename T_Ref>
+    T getNextLower(T const& value, IdxRangeHandle<T_Ref> const& range, bool& valid)
     {
         // Create a result vector.
         T result = value;
@@ -106,7 +117,7 @@ namespace alpaka::tune::strategy
         auto maxVal = range.m_end;
         auto step = range.m_stride;
         result = (result - step);
-        if(utils::anyTrue(result < minVal || result > maxVal))
+        if(utils::anyTrue(result < minVal) || utils::anyTrue(result > maxVal))
         {
             valid = false;
             return minVal;
@@ -126,7 +137,11 @@ namespace alpaka::tune::strategy
         {
             for_each(
                 tuneables,
-                [](auto& parameter) { parameter.value = randomIdx(parameter.idxRange, parameter.value); });
+                [](auto& parameter)
+                {
+                    auto val = randomIdx(parameter.idxRange, parameter.value);
+                    parameter.value = val;
+                });
         };
     };
 
@@ -226,54 +241,56 @@ namespace alpaka::tune::strategy
         {
             using T_metricInterface = std::remove_cvref_t<decltype(metricInterface)>;
             static std::unordered_map<std::string, std::vector<StorageKernelRun>> storeBestResults;
-            // the first entry of each map is used to stay unique across several session instances (where for example
-            // specifier could change)
             static std::unordered_map<std::string, std::string> bestResult;
             if(bestResult.contains(history.toHash()) && bestResult[history.toHash()] == kernelRun.toHash())
+            {
                 return;
+            }
             if(!history.runs.empty())
             {
-                auto best = history.runs.begin()->second;
+                StorageKernelRun best = history.runs.begin()->second;
+
                 for(auto& entry : history.runs)
                 {
                     StorageKernelRun& run = entry.second;
                     ::Comparison res = run.compare(best);
+
                     switch(res)
                     {
                     case ::Comparison::Greater:
                         best = aGTb<T_metricInterface>{}(run, best);
                         break;
+
                     case ::Comparison::Less:
                         best = aLTb<T_metricInterface>{}(run, best);
                         break;
-                    case ::Comparison::Inconclusive:
-                        if(run.getMetric<mean_t>().as<t_ns>() < best.getMetric<mean_t>().as<t_ns>())
 
-                            best = run; // use mean as a tie-breaker in case statistical characteristics of the
-                                        // distribution are similar
-                        break;
-                    default: // also contains dummy case
+                    case ::Comparison::Inconclusive:
+                        {
+                            auto runMean = run.getMetric<mean_t>().as<t_ns>();
+                            auto bestMean = best.getMetric<mean_t>().as<t_ns>();
+                            if(runMean < bestMean)
+                            {
+                                best = run;
+                            }
+                            break;
+                        }
+
+                    default:
                         break;
                     }
                 }
                 bestResult[history.toHash()] = kernelRun.toHash();
                 storeBestResults[history.toHash()].push_back(best);
                 toActive(kernelRun, best);
-                /**
-                 *go again over all entries, now that we have identified one "best" configuration,
-                 *this time write out "equal" entries according the kruskal wallis test
-                 *this can be useful for later debugging or to write out a compact result list in production runs.
-                 **/
+
                 for(auto& entry : history.runs)
                 {
                     StorageKernelRun& run = entry.second;
                     ::Comparison res = run.compare(best);
-                    switch(res)
+                    if(res == ::Comparison::Inconclusive)
                     {
-                    case ::Comparison::Inconclusive:
                         storeBestResults[history.toHash()].push_back(run);
-                    default:
-                        break;
                     }
                 }
             }
@@ -536,12 +553,12 @@ namespace alpaka::tune::strategy
                 tuneables,
                 [&](auto& param)
                 {
-                    auto oldValue = param.value;
+                    auto oldValue = utils::toRT(param.value); // creates a temporary vector from a RefStorage Vector
 
                     // Try all values in the index range for this parameter
                     {
                         bool valid = true;
-                        auto value = param.value;
+                        auto value = utils::toRT(param.value);
                         while(valid && !found)
                         {
                             param.value = value;
@@ -581,6 +598,7 @@ namespace alpaka::tune::strategy
                     // fallback incase we found no new or still usable config it indicates that we switch to bestConfig
                     kernel_data.nrOfConfigs = kernelRun.maxRuns;
                 }
+                std::cout << " was valid: " << found << std::endl;
             }
         }
     };
@@ -722,7 +740,33 @@ namespace alpaka::tune::strategy
         {
             using T_Metric = std::remove_cvref_t<decltype(metricInterface)>;
             auto& history = kernel_data.runs;
+            /*
+            std::cout << " before random Sample: " << std::endl;
+            std::apply(
+                [](auto&... elem)
+                {
+                    ((std::cout << " value: " << elem.value.toString() << " begin: "
+                                << elem.idxRange.m_begin.toString() << " end: " << elem.idxRange.m_end.toString()
+                                << " stride: " << elem.idxRange.m_stride.toString() << std::endl),
+                     ...);
+                },
+                tuneables);*/
+            std::cout << "before " << kernelRun.toHash() << std::endl;
             randomSample{}(metricInterface, tuneables, kernelRun, kernel_data);
+            /*
+            std::cout << " after random Sample: " << std::endl;
+            std::apply(
+                [](auto&... elem)
+                {
+                    ((std::cout << " value: " << elem.value.toString() << " begin: "
+                                << elem.idxRange.m_begin.toString() << " end: " << elem.idxRange.m_end.toString()
+                                << " stride: " << elem.idxRange.m_stride.toString() << std::endl),
+                     ...);
+                },
+                tuneables);
+            std::cout << " finish " << std::endl;
+            */
+            std::cout << "after " << kernelRun.toHash() << std::endl;
             if(history.contains(kernelRun.toHash()))
             {
                 exhaustiveSearch{}(metricInterface, tuneables, kernelRun, kernel_data);
