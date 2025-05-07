@@ -453,7 +453,8 @@ namespace alpaka::tune
             using AllCombinations =
                 typename alpaka::tune::CompileTimeHelpers::allCombinations::CartesianFromTuple<ExpandedTuples>::type;
 
-            static constexpr auto rCombinations = convertAllCVecCombinationsToRuntimeVecs(AllCombinations{});
+            static constexpr auto rCombinations
+                = alpaka::tune::CompileTimeHelpers::convertAllCVecCombinationsToRuntimeVecs(AllCombinations{});
 
             using KernelTuple =
                 typename alpaka::tune::CompileTimeHelpers::createNewKernel::ExtractTemplateArgsFromGenericKernel<
@@ -464,8 +465,8 @@ namespace alpaka::tune
             using T_KernelVariants = typename alpaka::tune::CompileTimeHelpers::
                 InstantiateKernelsFromTuple<KernelFn, T_KernelArguments>::type;
             static constexpr auto KernelVariants = T_KernelVariants{};
-            static constexpr auto KernelInitialValues
-                = getValues<KernelTuple>(toIntegerSequence(FromTrait::tuned_indices));
+            static constexpr auto KernelInitialValues = alpaka::tune::CompileTimeHelpers::getValues<KernelTuple>(
+                toIntegerSequence(FromTrait::tuned_indices));
         };
 
         template<typename KernelFn>
@@ -524,15 +525,18 @@ namespace alpaka::tune
                 {
                     return std::make_tuple(
                         ::alpaka::tune::Tuneable<
-                            decltype(toRuntimeVec(
+                            decltype(CompileTimeHelpers::toRuntimeVec(
                                 typename std::decay_t<decltype(std::get<Is>(definitions))>::T_Begin{})),
                             std::decay_t<decltype(std::get<Is>(definitions))>::tag,
                             ::alpaka::tune::DimensionsDependent>{
-                            toRuntimeVec(std::get<Is>(KernelInitialValues)),
+                            CompileTimeHelpers::toRuntimeVec(std::get<Is>(KernelInitialValues)),
                             ::alpaka::IdxRange{
-                                toRuntimeVec(typename std::decay_t<decltype(std::get<Is>(definitions))>::T_Begin{}),
-                                toRuntimeVec(typename std::decay_t<decltype(std::get<Is>(definitions))>::T_End{}),
-                                toRuntimeVec(typename std::decay_t<decltype(std::get<Is>(definitions))>::T_Stride{})},
+                                CompileTimeHelpers::toRuntimeVec(
+                                    typename std::decay_t<decltype(std::get<Is>(definitions))>::T_Begin{}),
+                                CompileTimeHelpers::toRuntimeVec(
+                                    typename std::decay_t<decltype(std::get<Is>(definitions))>::T_End{}),
+                                CompileTimeHelpers::toRuntimeVec(
+                                    typename std::decay_t<decltype(std::get<Is>(definitions))>::T_Stride{})},
                             "CTune_" + std::to_string(Is)}...);
                 }(std::make_index_sequence<N>{});
             }

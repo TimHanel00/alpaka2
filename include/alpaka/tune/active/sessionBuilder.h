@@ -26,7 +26,22 @@ namespace alpaka
 
 namespace alpaka::tune
 {
+    template<typename T_Strategy, typename T_MetricInterface, typename T_ConstraintTuple, typename... T_KernelRunArgs>
+    class TuningBuilder;
 
+    template<typename T_Strategy_, typename T_MetricInterface, typename T_ConstraintTuple, typename... Args>
+    auto helperCreateNewBuilder(
+        T_Strategy_ const& strategy,
+        T_MetricInterface const& interface,
+        T_ConstraintTuple const& newTuple,
+        ActiveKernelRun<Args...> const& run)
+    {
+        return TuningBuilder<T_Strategy_, T_MetricInterface, T_ConstraintTuple, Args...>(
+            strategy,
+            interface,
+            newTuple,
+            run);
+    }
 
     template<
         typename T_Strategy = strategy::randomSearch,
@@ -282,18 +297,6 @@ namespace alpaka::tune
         ActiveKernelRun<T_KernelRunArgs...> m_run;
     };
 
-    template<typename T_Strategy_, typename T_MetricInterface, typename T_ConstraintTuple, typename... Args>
-    auto helperCreateNewBuilder(
-        T_Strategy_ const& strategy,
-        T_MetricInterface const& interface,
-        T_ConstraintTuple const& newTuple,
-        ActiveKernelRun<Args...> const& run)
-    {
-        return TuningBuilder<T_Strategy_, T_MetricInterface, T_ConstraintTuple, Args...>(
-            strategy,
-            interface,
-            newTuple,
-            run);
-    }
+
 }; // namespace alpaka::tune
 #endif

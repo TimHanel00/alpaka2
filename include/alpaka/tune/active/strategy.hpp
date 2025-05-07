@@ -682,11 +682,10 @@ namespace alpaka::tune::strategy
 
         std::size_t curIteration = 0;
 
-        template<typename T_tuneables, typename T_ActiveKernel>
         auto operator()(
             concepts::MetricInterface auto& metricInterface,
-            T_tuneables&& tuneables,
-            T_ActiveKernel& kernelRun,
+            auto&& tuneables,
+            auto& kernelRun,
             KernelData& kernel_data)
         {
             exhaustiveSearch{}(metricInterface, tuneables, kernelRun, kernel_data);

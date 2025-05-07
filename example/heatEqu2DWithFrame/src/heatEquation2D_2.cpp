@@ -87,7 +87,7 @@ auto example(T_Cfg const& cfg) -> int
     // fVec{108}}}). withGridSizeTune(tune::GridSizeTune{fVec{22}, IdxRange{fVec{22}, fVec{32},
     // fVec{1}}}).//#cpu
 
-    constexpr IdxVec numNodes{4 * 1024, 4 * 1024};
+    constexpr IdxVec numNodes{16 * 1024, 16 * 1024};
     constexpr IdxVec haloSize{2, 2};
     constexpr IdxVec extent = numNodes + haloSize;
 
@@ -191,24 +191,23 @@ auto example(T_Cfg const& cfg) -> int
     using VecType = ALPAKA_TYPEOF(dataBlockingBorder.m_numFrames);
 
     auto setFixedNumBlocks = uVec{3, 4};
+    auto setFixedNumThreads = fVec{16, 16};
     auto setFixedNumBlocks_ = alpaka::tune::primeFactorPartitioning(
-        alpaka::onHost::getDeviceProperties(devAcc).m_multiProcessorCount,
+        alpaka::onHost::getDeviceProperties(devAcc).m_multiProcessorCount * 4,
         uVec{});
     auto frameSpec = FrameSpec{toRTime.m_numFrames, toRTime.m_frameExtent, setFixedNumBlocks_, toRTime.m_frameExtent};
     std::cout << " original numFrames " << frameSpec.m_numFrames.toString() << std::endl;
-    static constexpr auto n = tune::CTunable<
-        alpaka::CVec<int, 1, 2, 3>,
-        alpaka::CVec<int, 0, 0, 0>,
-        alpaka::CVec<int, 10, 10, 10>,
-        alpaka::CVec<int, 1, 1, 1>,
-        static_cast<std::size_t>(0)>{};
     auto tuningSession
         = tune::TuningBuilder{}
               .withStrategy(alpaka::tune::strategy::randomSearch{})
-              .withNumFramesTune(
-                  tune::Tuneable(frameSpec.m_numFrames, IdxRange{uVec{64, 64}, frameSpec.m_numFrames, uVec{64, 64}}))
+              //.withNumFramesTune(
+              // tune::Tuneable(
+              // setFixedNumBlocks_,
+              // IdxRange{setFixedNumBlocks_, toRTime.m_numFrames, setFixedNumBlocks_}))
               .withFrameExtentTune(
-                  tune::Tuneable(frameSpec.m_frameExtent, IdxRange{fVec{4, 4}, frameSpec.m_frameExtent, fVec{4, 4}}))
+                  tune::Tuneable(
+                      frameSpec.m_frameExtent,
+                      IdxRange{frameSpec.m_frameExtent, frameSpec.m_frameExtent * fVec{2, 3}, fVec{8, 8}}))
               .template withConstraint<tune::frameTune::FrameExtent>(
                   [numNodes](auto a)
                   {
@@ -217,9 +216,13 @@ auto example(T_Cfg const& cfg) -> int
                       auto condY = (numNodes.y() % a.y()) == type{0};
                       return condX && condY;
                   })
-              .template withConstraint<tune::frameTune::NumFrames>(
-                  [setFixedNumBlocks](auto a)
-                  { return (a.x() > setFixedNumBlocks.x() && a.y() > setFixedNumBlocks.y()); })
+              //.withNumBlocksTune()
+
+              /*
+
+                        .template withConstraint<tune::frameTune::NumFrames>(
+                            [setFixedNumBlocks](auto a)
+                            { return (a.x() > setFixedNumBlocks.x() && a.y() > setFixedNumBlocks.y()); })*/
               .withConfig("./config/babelstream.toml")
               .build();
     auto startTime = std::chrono::high_resolution_clock::now();

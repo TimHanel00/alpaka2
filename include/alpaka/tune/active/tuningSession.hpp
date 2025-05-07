@@ -159,11 +159,21 @@ namespace alpaka::tune::detail::internal
         return false;
     }
 
+    template<typename T_KernelBundle>
+    struct getTypeFrom
+    {
+    };
+
     template<typename KernelFn, typename... Args>
+    struct getTypeFrom<KernelBundle<KernelFn, Args...>>
+    {
+        using type = KernelFn;
+    };
+
     inline void applyConfigAndExecuteKernel(
         auto const& queue,
         auto exec,
-        KernelBundle<KernelFn, Args...> const& kernelBundle,
+        auto const& kernelBundle,
         auto& spec,
         tune::concepts::MetricInterface auto& interface,
         auto& run)
@@ -174,7 +184,7 @@ namespace alpaka::tune::detail::internal
         // we take the original KernelBundle here as userdefined traits are most likely according to the initial
         // KernelBundle Definition
         trait::callPreProcessing(run, spec, interface, kernelBundle);
-
+        using KernelFn = typename getTypeFrom<std::decay_t<decltype(kernelBundle)>>::type;
 
         if constexpr(!trait::hasUserDefinedCTuneable<KernelFn>::value)
         {

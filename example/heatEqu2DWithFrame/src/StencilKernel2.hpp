@@ -39,27 +39,29 @@ struct StencilKernel2
         auto numFrames = acc[frame::count];
         auto frameExtent = acc[frame::extent];
         auto frameDomain = numFrames * frameExtent;
-        auto traverseOverFrames = onAcc::makeIdxMap(acc, onAcc::worker::blocksInGrid, IdxRange{numFrames});
-        using _2Vec = alpaka::Vec<u_int32_t, 2u>;
         auto _0Vec = ALPAKA_TYPEOF(frameExtent){0u, 0u};
+        auto traverseOverFrames = onAcc::makeIdxMap(acc, onAcc::worker::blocksInGrid, IdxRange{_0Vec, numFrames});
+        using _2Vec = alpaka::Vec<u_int32_t, 2u>;
+
         auto const blockCount = acc[layer::thread].count();
         auto traverseOverExtentsWithHalo = onAcc::makeIdxMap(
             acc,
             onAcc::worker::threadsInBlock,
-            IdxRange{Vec{0u, 0u}, alpaka::Vec{frameExtent.x() + 2, frameExtent.y() + 2}, Vec{1u, 1u}});
+            IdxRange{Vec{0u, 0u}, alpaka::Vec{frameExtent[0] + 2, frameExtent[1] + 2}, Vec{1u, 1u}});
         auto traverseOverExtentsWithOutHalo = onAcc::makeIdxMap(
             acc,
             onAcc::worker::threadsInBlock,
-            IdxRange{Vec{0u, 0u}, alpaka::Vec{frameExtent.x(), frameExtent.y()}, Vec{1u, 1u}});
+            IdxRange{Vec{0u, 0u}, alpaka::Vec{frameExtent[0], frameExtent[1]}, Vec{1u, 1u}});
 
-        auto sdata = onAcc::getDynSharedMem<double>(acc);
-        auto span = alpaka::makeMdSpan(
-            sdata,
-            frameExtent,
-            alpaka::onHost::mem::calculatePitchesFromExtents<double>(frameExtent),
-            Alignment<sizeof(double)>{});
+
         for(auto frameIdx : traverseOverFrames)
         {
+            auto sdata = onAcc::getDynSharedMem<double>(acc);
+            auto span = alpaka::makeMdSpan(
+                sdata,
+                frameExtent,
+                alpaka::onHost::mem::calculatePitchesFromExtents<double>(frameExtent),
+                Alignment<sizeof(double)>{});
             for(auto bufStartIdx : onAcc::makeIdxMap(
                     acc,
                     onAcc::WorkerGroup{frameIdx, numFrames},
