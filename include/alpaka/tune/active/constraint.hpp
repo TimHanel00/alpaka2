@@ -53,8 +53,27 @@ struct Constraint
     bool operator()(KernelRun& run)
     {
         static auto accessorTuple = constructAccessorTuple<Environment, KernelRun, IDs...>(run);
-        //@TODO: this has to be done in the environment construction phase T_Strategy also has to belong inside their.
-        return std::apply(predicate, accessorTuple);
+
+        constexpr std::size_t expectedSize = sizeof...(IDs);
+        constexpr std::size_t actualSize = std::tuple_size<decltype(accessorTuple)>::value;
+
+        if constexpr(actualSize != expectedSize)
+        {
+            std::cerr << "[Constraint] Warning: Accessor tuple size (" << actualSize
+                      << ") does not match expected number of IDs (" << expectedSize
+                      << "). Skipping constraint evaluation. Tuneable IDs: ";
+
+            // Print all IDs in one line, separated by commas
+            bool first = true;
+            ((std::cerr << (first ? "" : ", ") << IDs, first = false), ...);
+            std::cerr << std::endl;
+
+            return true;
+        }
+        else
+        {
+            return std::apply(predicate, accessorTuple);
+        }
     }
 };
 #endif // CONSTRAINT_HPP

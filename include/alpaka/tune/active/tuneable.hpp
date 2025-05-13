@@ -162,6 +162,8 @@ namespace alpaka::tune
 
     template<typename T>
     concept isIntegral = std::is_integral_v<T>;
+    template<typename T>
+    concept isFloating = std::is_floating_point_v<T>;
 
     template<typename T, uint32_t Dim>
     struct RefStorage
@@ -182,6 +184,10 @@ namespace alpaka::tune
         }
 
         constexpr RefStorage(isIntegral auto& value) : refs{std::ref(value)}
+        {
+        }
+
+        constexpr RefStorage(isFloating auto& value) : refs{std::ref(value)}
         {
         }
 
@@ -386,17 +392,6 @@ namespace alpaka::tune
     {
     };
 
-    template<int N = 0>
-    struct UniqueID
-    {
-        static constexpr bool used = is_registered<Tag<N>>::value;
-
-        static constexpr int value = used ? UniqueID<N + 1>::value : N;
-
-        // This registers Tag<N> the moment we use it
-        using Register = decltype(register_tag(Tag<value>{}));
-    };
-
     template<
         typename Begin,
         typename End,
@@ -519,15 +514,22 @@ namespace alpaka::tune
         }
 
         // provide steps in a vector
-        constexpr Tuneable(T numSteps, T start, T end, std::string const& name = "") : value(end), userDef(true)
+        constexpr Tuneable(T numSteps, T start, T end, std::string const& name = "")
+            : value(end)
+            , userDef(true)
+            , idxRange(start, end, T::all(1))
         {
             if(!name.empty())
                 m_name = name;
 
-            IdxRange<T, T, T> stepsRange(start, end, T{});
+            IdxRange<T, T, T> stepsRange(start, end, T::all(1));
             for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
             {
-                stepsRange[i].m_stride = (end[i] - start[i]) / numSteps[i];
+                if(numSteps[i] > 1)
+                    stepsRange.m_stride[i] = (stepsRange.m_end[i] - stepsRange.m_begin[i]) / (numSteps[i] - 1);
+                else
+                    stepsRange.m_stride[i] = 0;
+                stepsRange.m_end[i] = stepsRange.m_begin[i] + stepsRange.m_stride[i] * (numSteps[i] - 1);
             }
             idxRange = stepsRange;
             toRange();
@@ -537,16 +539,23 @@ namespace alpaka::tune
         constexpr Tuneable(T numSteps, T start, T end, T init, std::string const& name = "")
             : value(init)
             , userDef(true)
+            , idxRange(start, end, T::all(1))
         {
             if(!name.empty())
                 m_name = name;
 
-            IdxRange<T, T, T> stepsRange(start, end, T{});
+            IdxRange<T, T, T> stepsRange(start, end, T::all(1));
+            T steps{};
             for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
             {
-                stepsRange[i].m_stride = (end[i] - start[i]) / numSteps[i];
+                if(numSteps[i] > 1)
+                    stepsRange.m_stride[i] = (stepsRange.m_end[i] - stepsRange.m_begin[i]) / (numSteps[i] - 1);
+                else
+                    stepsRange.m_stride[i] = 0;
+                stepsRange.m_end[i] = stepsRange.m_begin[i] + stepsRange.m_stride[i] * (numSteps[i] - 1);
             }
             idxRange = stepsRange;
+
             toRange();
         }
 

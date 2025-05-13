@@ -98,12 +98,12 @@ namespace alpaka::tune
             { t.returnComparison } -> std::convertible_to<detail::returnComparison>;
             {
                 t.start(
-                    std::declval<ActiveKernelRun<>&>(),
+                    std::declval<KernelTuningModel<>&>(),
                     std::declval<onHost::FrameSpec<alpaka::Vec<uint32_t, 1>, alpaka::Vec<uint32_t, 1>>&>())
             } -> std::same_as<void>;
             {
                 t.end(
-                    std::declval<ActiveKernelRun<>&>(),
+                    std::declval<KernelTuningModel<>&>(),
                     std::declval<onHost::FrameSpec<alpaka::Vec<uint32_t, 1>, alpaka::Vec<uint32_t, 1>>&>())
             } -> std::same_as<void>;
             //{ t.end(std::declval<R&>(), std::declval<S&>()) } -> std::same_as<void>;

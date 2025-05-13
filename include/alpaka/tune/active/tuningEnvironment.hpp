@@ -167,9 +167,9 @@ auto makeConformToTVec(T_Vec const& vec, T_Tuneable& tuneable)
 }
 
 template<typename T_frameSpec, typename... T_Args>
-auto makeConformToFrameSpec(T_frameSpec& spec, ActiveKernelRun<T_Args...>& kernelRun)
+auto makeConformToFrameSpec(T_frameSpec& spec, KernelTuningModel<T_Args...>& kernelRun)
 {
-    // ActiveKernelRun m_run;
+    // KernelTuningModel m_run;
     // auto h = makeConformToTVec(spec.m_numFrames, kernelRun.getNumFramesTune());
     return makeActiveKernel(
         kernelRun.userTuneables,
@@ -211,7 +211,7 @@ auto createTuningEnvironment(
     auto newFrameSpec = retPair.first;
     auto newRun = retPair.second;
     auto userTuple = extractTuneables(bundle);
-    auto completeRun = ActiveKernelRun{userTuple, newRun.frameTuneables, CTuneableBundle};
+    auto completeRun = KernelTuningModel{userTuple, newRun.frameTuneables, CTuneableBundle};
     using T_config = decltype(completeRun.toConfig());
     // static_assert(std::is_same_v<decltype(completeRun), void()>);
 #ifdef DEBUG_Singleton
@@ -221,7 +221,6 @@ auto createTuningEnvironment(
     auto activePtr = std::make_unique<ALPAKA_TYPEOF(completeRun)>(completeRun);
     auto sharedParams = makeSharedParameterInterface(*activePtr);
     auto ptrToHistory = history.getKernelFromHistory(device, exec, bundle, sessionSpecifier);
-
     using tuningEnvironmentType = tuningEnvironment<
         T_Device,
         T_Exec,

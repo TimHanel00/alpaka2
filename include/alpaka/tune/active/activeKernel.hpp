@@ -35,7 +35,7 @@ template<
     typename T_UserTuple = std::tuple<>,
     typename T_FrameTuneables = std::tuple<>,
     typename T_CompileTimeTuple = std::tuple<>>
-struct ActiveKernelRun
+struct KernelTuningModel
 {
     using T_floating = double_t;
     using T_TuneTuple = decltype(std::tuple_cat(std::declval<T_FrameTuneables>(), std::declval<T_UserTuple>()));
@@ -51,9 +51,9 @@ struct ActiveKernelRun
 
     bool resetSignal{false};
 
-    constexpr ActiveKernelRun() = default;
+    constexpr KernelTuningModel() = default;
 
-    constexpr explicit ActiveKernelRun(T_UserTuple userT, T_FrameTuneables frameT)
+    constexpr explicit KernelTuningModel(T_UserTuple userT, T_FrameTuneables frameT)
         : userTuneables(std::move(userT))
         , frameTuneables(std::move(frameT))
         , metric(std::numeric_limits<T_floating>::quiet_NaN())
@@ -67,7 +67,7 @@ struct ActiveKernelRun
         return std::apply([](auto&... t) { return std::tuple_cat(std::make_tuple(t.value)...); }, m_compileTimeTuple);
     }
 
-    constexpr explicit ActiveKernelRun(T_UserTuple userT, T_FrameTuneables frameT, T_CompileTimeTuple compileT)
+    constexpr explicit KernelTuningModel(T_UserTuple userT, T_FrameTuneables frameT, T_CompileTimeTuple compileT)
         : userTuneables(std::move(userT))
         , frameTuneables(std::move(frameT))
         , m_compileTimeTuple(std::move(compileT))
@@ -284,7 +284,7 @@ constexpr auto makeActiveKernel(UserTuple userT, FrameT&&... frameArgs)
         }(std::forward<FrameT>(frameArgs))... // expand pack
     );
     using FilteredTuple = decltype(filteredTuple);
-    return ActiveKernelRun<UserTuple, FilteredTuple>{std::move(userT), std::move(filteredTuple)};
+    return KernelTuningModel<UserTuple, FilteredTuple>{std::move(userT), std::move(filteredTuple)};
 }
 
 //--------------------------------------
@@ -308,7 +308,7 @@ auto appendTuning(ExistingKernel const& kernel, NewTuning const& newTuning)
             [&](auto const&... elems) { return std::make_tuple(elems..., newTuning); },
             kernel.frameTuneables);
 
-        return ActiveKernelRun{kernel.userTuneables, std::move(newFrameTuple)};
+        return KernelTuningModel{kernel.userTuneables, std::move(newFrameTuple)};
     }
 }
 

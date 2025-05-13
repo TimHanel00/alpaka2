@@ -595,6 +595,7 @@ namespace alpaka::tune::strategy
                 recurse(tuneables, 0, kernelRun, history, found);
                 if(!found)
                 {
+                    std::cout << " did not find any tuneable new tuneable use best recorded run now. " << std::endl;
                     // fallback incase we found no new or still usable config it indicates that we switch to bestConfig
                     kernel_data.nrOfConfigs = kernelRun.maxRuns;
                 }

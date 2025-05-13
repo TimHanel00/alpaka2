@@ -91,8 +91,8 @@ auto example(T_Cfg const& cfg) -> int
     constexpr IdxVec haloSize{2, 2};
     constexpr IdxVec extent = numNodes + haloSize;
 
-    constexpr uint32_t numTimeSteps = 4000 * 32;
-    constexpr double tMax = 0.0000001;
+    constexpr uint32_t numTimeSteps = 4000 * 32 * 4;
+    constexpr double tMax = 0.00000005;
     // GPU settings
     /*
     constexpr IdxVec numNodes{128, 128};
@@ -139,8 +139,8 @@ auto example(T_Cfg const& cfg) -> int
     alpaka::onHost::wait(computeQueue);
 
     // Appropriate chunk size to split your problem for your Acc
-    constexpr Idx xSize = 16u;
-    constexpr Idx ySize = 16u;
+    constexpr Idx xSize = 32u;
+    constexpr Idx ySize = 32u;
     constexpr Idx halo = 2u;
     constexpr auto chunkSize = CVec<Idx, ySize, xSize>{};
     constexpr auto numNodesWithHalo = numNodes + halo;
@@ -192,37 +192,74 @@ auto example(T_Cfg const& cfg) -> int
 
     auto setFixedNumBlocks = uVec{3, 4};
     auto setFixedNumThreads = fVec{16, 16};
-    auto setFixedNumBlocks_ = alpaka::tune::primeFactorPartitioning(
-        alpaka::onHost::getDeviceProperties(devAcc).m_multiProcessorCount * 4,
-        uVec{});
-    auto frameSpec = FrameSpec{toRTime.m_numFrames, toRTime.m_frameExtent, setFixedNumBlocks_, toRTime.m_frameExtent};
+
+    auto setFixedNumBlocks_
+        = tune::primeFactorPartitioning(onHost::getDeviceProperties(devAcc).m_multiProcessorCount * 16u, uVec{});
+    auto setnumThreads_ = fVec{4, 8};
+    auto frameSpec = FrameSpec{toRTime.m_numFrames, toRTime.m_frameExtent, toRTime.m_numFrames, toRTime.m_frameExtent};
     std::cout << " original numFrames " << frameSpec.m_numFrames.toString() << std::endl;
     auto tuningSession
-        = tune::TuningBuilder{}
-              .withStrategy(alpaka::tune::strategy::randomSearch{})
+        = tune::TuningBuilder{} //.withBlockSizeTune()
+
               //.withNumFramesTune(
-              // tune::Tuneable(
-              // setFixedNumBlocks_,
-              // IdxRange{setFixedNumBlocks_, toRTime.m_numFrames, setFixedNumBlocks_}))
-              .withFrameExtentTune(
-                  tune::Tuneable(
-                      frameSpec.m_frameExtent,
-                      IdxRange{frameSpec.m_frameExtent, frameSpec.m_frameExtent * fVec{2, 3}, fVec{8, 8}}))
+              // tune::Tuneable(uVec{64, 64}, setFixedNumBlocks_, toRTime.m_numFrames, setFixedNumBlocks_))
+              //.withFrameExtentTune(tune::Tuneable(fVec{8, 4}, toRTime.m_frameExtent, fVec{8, 4}))
+              //.withNumBlocksTune(setFixedNumBlocks_,IdxRange{fVec{4, 8}, toRTime.m_frameExtent * fVec{4, 4}, fVec{4,
+              // 8}})
+              /*
+                        .withFrameExtentTune(
+                            tune::Tuneable(
+                                setnumThreads_,
+                                IdxRange{setnumThreads_, toRTime.m_frameExtent * fVec{4, 4}, fVec{2, 2}}))
+                  */
+              .withFrameExtentTune(tune::Tuneable(IdxRange{fVec{4, 8}, toRTime.m_frameExtent, fVec{4, 8}}))
+              .withNumBlocksTune(
+                  tune::Tuneable(IdxRange{setFixedNumBlocks_, toRTime.m_numFrames * uVec{2, 2}, setFixedNumBlocks_}))
+              .withBlockSizeTune(tune::Tuneable(IdxRange{fVec{4, 8}, toRTime.m_frameExtent, fVec{4, 8}}))
+              .template withConstraint<tune::frameTune::numBlocks, tune::frameTune::FrameExtent>(
+                  [numNodes](auto numBlocks, auto numElementsPerChunk)
+                  {
+                      bool XinBounds = numBlocks.x() * numElementsPerChunk.x() <= numNodes.x();
+                      bool YinBounds = numBlocks.y() * numElementsPerChunk.y() <= numNodes.y();
+                      return XinBounds && YinBounds;
+                  })
+
               .template withConstraint<tune::frameTune::FrameExtent>(
                   [numNodes](auto a)
                   {
                       using type = std::remove_cvref_t<decltype(a.x())>;
                       auto condX = (numNodes.x() % a.x()) == type{0};
                       auto condY = (numNodes.y() % a.y()) == type{0};
+
                       return condX && condY;
                   })
-              //.withNumBlocksTune()
-
               /*
+              .template withConstraint<tune::frameTune::FrameExtent, tune::frameTune::ThreadBlock>(
+                  [numNodes, setFixedNumBlocks_](auto frameExtent, auto threadBlockExtent)
+                  {
+                      using type = std::remove_cvref_t<decltype(frameExtent.x())>;
+                      auto condX = (numNodes.x() % frameExtent.x()) == type{0};
+                      auto condY = (numNodes.y() % frameExtent.y()) == type{0};
+                      auto condZ
+                          = frameExtent.x() >= threadBlockExtent.x() && frameExtent.y() >= threadBlockExtent.y();
+                      auto condU = ((setFixedNumBlocks_.x() * frameExtent.x()) <= numNodes.x())
+                                   && (setFixedNumBlocks_.y() * frameExtent.y()) <= numNodes.y();
+                      return condX && condY && condZ && condU;
+                  }) /*
+               .template withConstraint<tune::frameTune::FrameExtent, tune::frameTune::ThreadBlock>(
+                   [](auto a, auto b)
+                   {
+                       using type = std::remove_cvref_t<decltype(a.x())>;
+                       auto condZ = (a.x() >= b.x() & a.y() >= b.y());
 
-                        .template withConstraint<tune::frameTune::NumFrames>(
-                            [setFixedNumBlocks](auto a)
-                            { return (a.x() > setFixedNumBlocks.x() && a.y() > setFixedNumBlocks.y()); })*/
+                       return condZ;
+                   })*/
+              .withStrategy(alpaka::tune::strategy::exhaustiveSearch{})
+              /*
+              .template withConstraint<tune::frameTune::NumFrames, tune::frameTune::FrameExtent>(
+              [toRTime, numNodes](auto a, auto b) { return numNodes > (a * b); })*/
+
+
               .withConfig("./config/babelstream.toml")
               .build();
     auto startTime = std::chrono::high_resolution_clock::now();

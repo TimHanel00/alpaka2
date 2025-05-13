@@ -49,7 +49,6 @@ namespace alpaka::onHost::trait
         {
             auto frameSpec = accessFrameSpec<T_NumFrames, T_NumThreads>();
             auto extent = frameSpec.m_frameExtent;
-            std::cout << "setting memory to : " << extent.x() << " " << extent.y() << std::endl;
             return static_cast<uint32_t>((extent.y() + 2) * (extent.x() + 2) * sizeof(double));
         }
     };

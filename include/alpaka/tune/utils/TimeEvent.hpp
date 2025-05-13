@@ -36,7 +36,7 @@ namespace alpaka::tune
     }
 
     template<typename... Tars>
-    static auto createTimeEventFromActive(ActiveKernelRun<Tars...>& activeRun)
+    static auto createTimeEventFromActive(KernelTuningModel<Tars...>& activeRun)
     {
         return TimeEvent(activeRun);
     }

@@ -116,6 +116,8 @@ namespace alpaka::tune::detail::internal
             if(newHash != oldHash && !data.runs.contains(newHash))
             {
                 ++data.nrOfConfigs; // basically indicate that the last config was finished.
+                std::cout << oldHash << " complete " << data.nrOfConfigs << " of " << getMaxRuns(run.maxRuns) - 1
+                          << " configs finished " << std::endl;
             }
 
             return true;
@@ -235,7 +237,7 @@ namespace alpaka::tune::detail::internal
     template<
         typename T_MetricInterface,
         typename T_KernelBundle,
-        typename T_kernelRun,
+        typename T_kernelTuningModel,
         typename T_NumBlocks,
         typename T_NumThreads>
     void applyBestAndExecute(
@@ -243,7 +245,7 @@ namespace alpaka::tune::detail::internal
         auto exec,
         T_MetricInterface& metric_interface,
         T_KernelBundle& kernelBundle,
-        T_kernelRun& run,
+        T_kernelTuningModel& run,
         KernelData& data,
         onHost::FrameSpec<T_NumBlocks, T_NumThreads>& spec,
         auto& history,
@@ -252,7 +254,9 @@ namespace alpaka::tune::detail::internal
         static bool write = true;
         if(write)
         {
+            std::cout << " store config: " << std::endl;
             history.storeConfig(config);
+            // std::terminate();
             write = false;
         }
 
@@ -311,21 +315,21 @@ namespace alpaka::tune::detail::internal
 namespace alpaka
 {
     template<typename T_FrameSpec, typename... T_Args>
-    static T_FrameSpec& applyCustomThreadSpec(ActiveKernelRun<T_Args...>& kernelRun, T_FrameSpec& spec)
+    static T_FrameSpec& applyCustomThreadSpec(KernelTuningModel<T_Args...>& kernelRun, T_FrameSpec& spec)
     {
-        if constexpr(ActiveKernelRun<T_Args...>::hasNumFramesTune())
+        if constexpr(KernelTuningModel<T_Args...>::hasNumFramesTune())
         {
             spec.m_numFrames = kernelRun.getNumFramesTune().value;
         }
-        if constexpr(ActiveKernelRun<T_Args...>::hasFrameExtentTune())
+        if constexpr(KernelTuningModel<T_Args...>::hasFrameExtentTune())
         {
             spec.m_frameExtent = kernelRun.getFrameExtentTune().value;
         }
-        if constexpr(ActiveKernelRun<T_Args...>::hasNumBlocksTune())
+        if constexpr(KernelTuningModel<T_Args...>::hasNumBlocksTune())
         {
             spec.m_threadSpec.m_numBlocks = kernelRun.getNumBlocksTune().value;
         }
-        if constexpr(ActiveKernelRun<T_Args...>::hasThreadBlockSizeTune())
+        if constexpr(KernelTuningModel<T_Args...>::hasThreadBlockSizeTune())
         {
             spec.m_threadSpec.m_numThreads = kernelRun.getThreadBlockSizeTune().value;
         }
@@ -347,7 +351,7 @@ namespace alpaka
         T_Strategy m_strategy;
         T_MetricInterface m_metricInterface;
         T_Constraints m_constraint;
-        ActiveKernelRun<T_KernelRunArgs...> m_run;
+        KernelTuningModel<T_KernelRunArgs...> m_run;
 
         tune::TuningHistory& history = tune::TuningHistory::get();
 
@@ -366,7 +370,7 @@ namespace alpaka
             std::size_t reRuns,
             std::size_t dynamicRuns,
             std::vector<std::string> sessionSpecifiers,
-            ActiveKernelRun<T_KernelRunArgs...> const& kernel_run)
+            KernelTuningModel<T_KernelRunArgs...> const& kernel_run)
             : m_strategy(std::move(strategy))
             , m_metricInterface(std::move(interface))
             , m_constraint(std::move(constraints))
@@ -484,6 +488,7 @@ namespace alpaka
             auto& sharedParameters)
         {
             using namespace alpaka::tune::detail::internal;
+            std::cout << data.nrOfConfigs << " vs " << getMaxRuns(run.maxRuns) << std::endl;
             while(data.nrOfConfigs < getMaxRuns(run.maxRuns)
                   && !run.m_strategyState.done /* add another breaking criteria to prevent busy looping*/)
             {
@@ -497,6 +502,7 @@ namespace alpaka
                 }
                 break;
             }
+            std::cout << data.nrOfConfigs << " vs " << getMaxRuns(run.maxRuns) << std::endl;
             if(data.nrOfConfigs >= getMaxRuns(run.maxRuns))
             {
                 applyBestAndExecute(queue, exec, metricInterface, kernelBundle, run, data, spec, history, config);

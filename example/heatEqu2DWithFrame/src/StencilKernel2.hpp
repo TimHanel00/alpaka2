@@ -54,44 +54,41 @@ struct StencilKernel2
             IdxRange{Vec{0u, 0u}, alpaka::Vec{frameExtent[0], frameExtent[1]}, Vec{1u, 1u}});
 
 
-        for(auto frameIdx : traverseOverFrames)
+        auto sdata = onAcc::getDynSharedMem<double>(acc);
+        auto span = alpaka::makeMdSpan(
+            sdata,
+            frameExtent,
+            alpaka::onHost::mem::calculatePitchesFromExtents<double>(frameExtent),
+            Alignment<sizeof(double)>{});
+        for(auto bufStartIdx : onAcc::makeIdxMap(
+                acc,
+                onAcc::WorkerGroup{onAcc::worker::blocksInGrid},
+                IdxRange{_0Vec, numNodes, frameExtent}))
         {
-            auto sdata = onAcc::getDynSharedMem<double>(acc);
-            auto span = alpaka::makeMdSpan(
-                sdata,
-                frameExtent,
-                alpaka::onHost::mem::calculatePitchesFromExtents<double>(frameExtent),
-                Alignment<sizeof(double)>{});
-            for(auto bufStartIdx : onAcc::makeIdxMap(
-                    acc,
-                    onAcc::WorkerGroup{frameIdx, numFrames},
-                    IdxRange{_0Vec, numNodes, frameExtent}))
+            onAcc::syncBlockThreads(acc);
+
+
+            for(auto elemIdxInFrame : traverseOverExtentsWithHalo)
             {
-                onAcc::syncBlockThreads(acc);
+                auto bufIdx = bufStartIdx + elemIdxInFrame;
+                span[elemIdxInFrame] = uCurrBuf[bufIdx];
+                // writeLoopAccs_Add();
+            }
 
+            onAcc::syncBlockThreads(acc);
+            double const rX = dt / (dx * dx);
+            double const rY = dt / (dy * dy);
 
-                for(auto elemIdxInFrame : traverseOverExtentsWithHalo)
-                {
-                    auto bufIdx = bufStartIdx + elemIdxInFrame;
-                    span[elemIdxInFrame] = uCurrBuf[bufIdx];
-                    // writeLoopAccs_Add();
-                }
+            constexpr auto xDir = CVec<uint32_t, 0u, 1u>{};
+            constexpr auto yDir = CVec<uint32_t, 1u, 0u>{};
 
-                onAcc::syncBlockThreads(acc);
-                double const rX = dt / (dx * dx);
-                double const rY = dt / (dy * dy);
-
-                constexpr auto xDir = CVec<uint32_t, 0u, 1u>{};
-                constexpr auto yDir = CVec<uint32_t, 1u, 0u>{};
-
-                for(auto elemIdxInFrame : traverseOverExtentsWithOutHalo)
-                {
-                    auto idx2D = elemIdxInFrame + Vec{1u, 1u};
-                    auto bufIdx = bufStartIdx + idx2D;
-                    // computeLoopAccs_Add();
-                    uNextBuf[bufIdx] = span[idx2D] * (1.0 - 2.0 * rX - 2.0 * rY) + span[idx2D - xDir] * rX
-                                       + span[idx2D + xDir] * rX + span[idx2D - yDir] * rY + span[idx2D + yDir] * rY;
-                }
+            for(auto elemIdxInFrame : traverseOverExtentsWithOutHalo)
+            {
+                auto idx2D = elemIdxInFrame + Vec{1u, 1u};
+                auto bufIdx = bufStartIdx + idx2D;
+                // computeLoopAccs_Add();
+                uNextBuf[bufIdx] = span[idx2D] * (1.0 - 2.0 * rX - 2.0 * rY) + span[idx2D - xDir] * rX
+                                   + span[idx2D + xDir] * rX + span[idx2D - yDir] * rY + span[idx2D + yDir] * rY;
             }
         }
     }

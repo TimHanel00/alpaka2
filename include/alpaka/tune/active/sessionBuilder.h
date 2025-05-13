@@ -34,7 +34,7 @@ namespace alpaka::tune
         T_Strategy_ const& strategy,
         T_MetricInterface const& interface,
         T_ConstraintTuple const& newTuple,
-        ActiveKernelRun<Args...> const& run)
+        KernelTuningModel<Args...> const& run)
     {
         return TuningBuilder<T_Strategy_, T_MetricInterface, T_ConstraintTuple, Args...>(
             strategy,
@@ -60,7 +60,7 @@ namespace alpaka::tune
             T_Strategy strategy,
             T_MetricInterface interface,
             T_ConstraintTuple constraints,
-            ActiveKernelRun<T_KernelRunArgs...> const& run)
+            KernelTuningModel<T_KernelRunArgs...> const& run)
             : m_constraintTuple(constraints)
             , m_run(run)
             , m_strategy(strategy)
@@ -85,6 +85,12 @@ namespace alpaka::tune
             ret.m_dynamicRuns = m_dynamicRuns;
             ret.m_sessionSpecifiers = m_sessionSpecifiers;
             return ret;
+        }
+
+        template<auto... TuneableIDs, typename T_Predicate>
+        auto constraintHelper(T_Predicate pred) const
+        {
+            return Constraint<T_Predicate, TuneableIDs...>{pred};
         }
 
         template<auto... TuneableIDs, typename T_Predicate>
@@ -278,15 +284,105 @@ namespace alpaka::tune
         // Output a fully constructed TuningSession
         auto build() const
         {
-            return TuningSession<T_Strategy, T_MetricInterface, T_ConstraintTuple, T_KernelRunArgs...>(
-                m_strategy,
-                m_metricInterface,
-                m_constraintTuple,
-                m_config,
-                m_reRuns.value_or(0),
-                m_dynamicRuns.value_or(0),
-                m_sessionSpecifiers,
-                m_run);
+            constexpr auto condA = m_run.hasNumBlocksTune() && m_run.hasNumFramesTune();
+            constexpr auto condB = m_run.hasThreadBlockSizeTune() && m_run.hasFrameExtentTune();
+            if constexpr(condA || condB)
+            {
+                if constexpr(condA && condB)
+                {
+                    auto framesSmallerBlocksCondition
+                        = this->template constraintHelper<frameTune::NumFrames, frameTune::numBlocks>(
+                            []<typename T0>(T0 a, auto b)
+                            {
+                                using T = T0;
+                                bool allTrue = true;
+                                for(int i = 0; i < T::dim(); i++)
+                                    allTrue = allTrue && a[i] >= b[i];
+                                return allTrue;
+                            });
+                    auto threadsSmallerExtentCondition
+                        = this->template constraintHelper<frameTune::FrameExtent, frameTune::ThreadBlock>(
+                            []<typename T0>(T0 a, auto b)
+                            {
+                                using T = T0;
+                                bool allTrue = true;
+                                for(int i = 0; i < T::dim(); i++)
+                                    allTrue = allTrue && a[i] >= b[i];
+                                return allTrue;
+                            });
+
+                    auto newTuple = std::tuple_cat(
+                        m_constraintTuple,
+                        std::make_tuple(threadsSmallerExtentCondition),
+                        std::make_tuple(framesSmallerBlocksCondition));
+                    return TuningSession<T_Strategy, T_MetricInterface, decltype(newTuple), T_KernelRunArgs...>(
+                        m_strategy,
+                        m_metricInterface,
+                        newTuple,
+                        m_config,
+                        m_reRuns.value_or(0),
+                        m_dynamicRuns.value_or(0),
+                        m_sessionSpecifiers,
+                        m_run);
+                }
+                else if constexpr(condA)
+                {
+                    auto framesSmallerBlocksCondition
+                        = this->template constraintHelper<frameTune::NumFrames, frameTune::numBlocks>(
+                            []<typename T0>(T0 a, auto b)
+                            {
+                                using T = T0;
+                                bool allTrue = true;
+                                for(int i = 0; i < T::dim(); i++)
+                                    allTrue = allTrue && a[i] >= b[i];
+                                return allTrue;
+                            });
+                    auto newTuple = std::tuple_cat(m_constraintTuple, std::make_tuple(framesSmallerBlocksCondition));
+                    return TuningSession<T_Strategy, T_MetricInterface, decltype(newTuple), T_KernelRunArgs...>(
+                        m_strategy,
+                        m_metricInterface,
+                        newTuple,
+                        m_config,
+                        m_reRuns.value_or(0),
+                        m_dynamicRuns.value_or(0),
+                        m_sessionSpecifiers,
+                        m_run);
+                }
+                else
+                {
+                    auto threadsSmallerExtentCondition
+                        = this->template constraintHelper<frameTune::FrameExtent, frameTune::ThreadBlock>(
+                            []<typename T0>(T0 a, auto b)
+                            {
+                                using T = T0;
+                                bool allTrue = true;
+                                for(int i = 0; i < T::dim(); i++)
+                                    allTrue = allTrue && a[i] >= b[i];
+                                return allTrue;
+                            });
+                    auto newTuple = std::tuple_cat(m_constraintTuple, std::make_tuple(threadsSmallerExtentCondition));
+                    return TuningSession<T_Strategy, T_MetricInterface, decltype(newTuple), T_KernelRunArgs...>(
+                        m_strategy,
+                        m_metricInterface,
+                        newTuple,
+                        m_config,
+                        m_reRuns.value_or(0),
+                        m_dynamicRuns.value_or(0),
+                        m_sessionSpecifiers,
+                        m_run);
+                }
+            }
+            else
+
+                return TuningSession<T_Strategy, T_MetricInterface, T_ConstraintTuple, T_KernelRunArgs...>(
+                    m_strategy,
+                    m_metricInterface,
+                    m_constraintTuple,
+                    m_config,
+                    m_reRuns.value_or(0),
+                    m_dynamicRuns.value_or(0),
+                    m_sessionSpecifiers,
+                    m_run);
         }
 
         std::optional<std::size_t> m_reRuns;
@@ -294,7 +390,11 @@ namespace alpaka::tune
         std::string m_config;
         std::vector<std::string> m_sessionSpecifiers;
 
-        ActiveKernelRun<T_KernelRunArgs...> m_run;
+        KernelTuningModel<T_KernelRunArgs...> m_run;
+
+    private:
+        // numframe,frameExtent,numBlocks,numThreads
+        bool frameTuneExists[4] = {false, false, false, false};
     };
 
 

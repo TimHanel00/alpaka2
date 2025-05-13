@@ -12,6 +12,7 @@
 
 #include <alpaka/alpaka.hpp>
 
+/*
 //! alpaka version of explicit finite-difference 1d heat equation solver
 //!
 //! Applies boundary conditions
@@ -67,10 +68,45 @@ struct PoissonBoundaryKernel
             p[Vec2{extent_y - 1u, x}] = p[Vec2{extent_y - 2u, x}];
         }          */
 
-        // Left and right edges -- dirichlet boundary condition
-        // -- applying high pressure from the left and low pressure from the right (as a constant gradient) -- thus
-        // simulating laminar flow (as in the validation function)
+// Left and right edges -- dirichlet boundary condition
+// -- applying high pressure from the left and low pressure from the right (as a constant gradient) -- thus
+// simulating laminar flow (as in the validation function)
+// }
+//};
+template<typename Vec2>
+struct PoissonBoundaryKernel
+{
+    template<typename TAcc>
+    ALPAKA_FN_ACC auto operator()(
+        TAcc const& acc,
+        auto p,
+        auto extent,
+        auto numNodes,
+        double p0,
+        double alpha,
+        double dx) const -> void
+    {
+        using Idx = uint32_t;
+
+        Idx extent_y = extent[0];
+        Idx extent_x = extent[1];
+        Idx nx = numNodes[1];
+        Idx ny = numNodes[0];
+
+        // Left and right boundaries (x = 0 and x = nx-1)
+        for(Idx y = 0; y < extent_y; ++y)
+        {
+            p[Vec2{y, 0}] = p0;
+            p[Vec2{y, extent_x - 1}] = p0 - alpha * (nx - 1.0) * dx;
+        }
+
+        // Top and bottom boundaries (y = 0 and y = ny-1)
+        for(Idx x = 0; x < extent_x; ++x)
+        {
+            // Apply Dirichlet condition explicitly
+            p[Vec2{0, x}] = p0;
+            p[Vec2{extent_y - 1, x}] = p0;
+        }
     }
 };
-
 #endif // POISSONBOUNDARYKERNEL_H

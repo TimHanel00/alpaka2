@@ -614,7 +614,9 @@ void updateTuneables(Tuple& tup, std::vector<alpaka::tune::StorageTuneable> cons
 
 // A free function that updates an the configuration found in a storageKernel
 template<typename T_userTuple, typename T_frameTuple, typename T_compileTuple>
-void toActive(ActiveKernelRun<T_userTuple, T_frameTuple, T_compileTuple>& active, StorageKernelRun const& storeKernel)
+void toActive(
+    KernelTuningModel<T_userTuple, T_frameTuple, T_compileTuple>& active,
+    StorageKernelRun const& storeKernel)
 {
     // Update gridSize if available.
     if(storeKernel.numFramesTune.has_value())
@@ -641,29 +643,29 @@ void toActive(ActiveKernelRun<T_userTuple, T_frameTuple, T_compileTuple>& active
 }
 
 template<typename... T_KernelRunArgs>
-StorageKernelRun toStore(ActiveKernelRun<T_KernelRunArgs...>& active)
+StorageKernelRun toStore(KernelTuningModel<T_KernelRunArgs...>& active)
 {
     StorageKernelRun result;
     // Convert gridSize.
-    if constexpr(ActiveKernelRun<T_KernelRunArgs...>::hasNumFramesTune())
+    if constexpr(KernelTuningModel<T_KernelRunArgs...>::hasNumFramesTune())
     {
         result.numFramesTune = alpaka::tune::StorageTuneable{
             std::string(active.getNumFramesTune().name()),
             convertToString(active.getNumFramesTune().value)};
     }
-    if constexpr(ActiveKernelRun<T_KernelRunArgs...>::hasFrameExtentTune())
+    if constexpr(KernelTuningModel<T_KernelRunArgs...>::hasFrameExtentTune())
     {
         result.frameExtentTune = alpaka::tune::StorageTuneable{
             std::string(active.getFrameExtentTune().name()),
             convertToString(active.getFrameExtentTune().value)};
     }
-    if constexpr(ActiveKernelRun<T_KernelRunArgs...>::hasNumBlocksTune())
+    if constexpr(KernelTuningModel<T_KernelRunArgs...>::hasNumBlocksTune())
     {
         result.numBlocksTune = alpaka::tune::StorageTuneable{
             std::string(active.getNumBlocksTune().name()),
             convertToString(active.getNumBlocksTune().value)};
     }
-    if constexpr(ActiveKernelRun<T_KernelRunArgs...>::hasThreadBlockSizeTune())
+    if constexpr(KernelTuningModel<T_KernelRunArgs...>::hasThreadBlockSizeTune())
     {
         result.threadBlockSize = alpaka::tune::StorageTuneable{
             std::string(active.getThreadBlockSizeTune().name()),
