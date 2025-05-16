@@ -79,8 +79,8 @@ struct HostSideKernel
     {
         using Vec2 = alpaka::Vec<uint32_t, 2u>;
         auto extent = numNodes + halo;
-        double pref = omega[0] / (2.0 * (1.0 / (dx * dx) + 1.0 / (dy * dy)));
-        std::cout << "omega: " << omega[0] << " " << std::endl;
+
+        std::cout << "omega: " << omega << " " << std::endl;
         // alpaka::onHost::wait(computeQueue);
 
         // applyBoundaryConditions<Vec2>(pressureFieldBuffer.getMdSpan(), extent, numNodes, p0, alpha, dx);
@@ -120,6 +120,7 @@ struct HostSideKernel
         std::size_t counter = 0;
         bool converged = false;
         double norm = 0.0;
+
         while(!converged && counter < cutoff)
         {
             /*
@@ -147,8 +148,7 @@ struct HostSideKernel
                     numNodes,
                     dx,
                     dy,
-                    omega[0],
-                    pref});
+                    omega[0]});
 
             alpaka::onHost::enqueue(
                 computeQueue,
@@ -189,7 +189,7 @@ struct HostSideKernel
             // double norm = computeResidual(pressureFieldBuffer, rhs, extent, dx, dy);
             //  double norm = computeResidual(pressureFieldBuffer.getMdSpan(), rhs.getMdSpan(), extent, dx, dy);
             //   double norm = computeResidual(pressureFieldBuffer.getMdSpan(), rhs.getMdSpan(), extent, dx, dy);
-
+            // std::cout << " current norm: " << norm << std::endl;
             if(norm < tolerance * initialNorm)
             {
                 converged = true;

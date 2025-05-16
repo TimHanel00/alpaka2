@@ -29,7 +29,7 @@
 template<size_t N>
 constexpr char getFirstChar(char const (&str)[N])
 {
-    return str[0]; // ✅ OK, compile-time access
+    return str[0];
 }
 
 //! Each kernel computes the next step for one point.
@@ -84,132 +84,129 @@ auto example(T_Cfg const& cfg) -> int
 
     // simulation defines
     // {Y, X}
-    constexpr IdxVec numNodes{256, 256};
+    constexpr IdxVec numNodes{64, 64};
     constexpr IdxVec haloSize{2, 2};
     constexpr IdxVec extent = numNodes + haloSize;
 
     constexpr uint32_t numTimeSteps = 4000 * 32;
     constexpr double tMax = 0.000001;
+    // x, y in [0, 1], t in [0, tMax]
+    double dx = 1.0 / static_cast<double>(extent[1] - 1);
+    double dy = 1.0 / static_cast<double>(extent[0] - 1);
+    // Initialize host-buffer
+    // This buffer will hold the current values (used for the next step)
+    auto uBufHost = alpaka::onHost::alloc<double>(devHost, extent);
+    auto reducedResidual_HostBuf = alpaka::onHost::alloc<double>(devHost, alpaka::Vec<std::size_t, 1>{1});
+    reducedResidual_HostBuf[0] = 0.0;
+    // Accelerator buffers
+    auto uCurrBufAcc = alpaka::onHost::allocMirror(devAcc, uBufHost);
+    auto uNextBufAcc = alpaka::onHost::allocMirror(devAcc, uBufHost);
+    auto residual = alpaka::onHost::allocMirror(devAcc, uBufHost);
+    auto rhs = alpaka::onHost::allocMirror(devAcc, uBufHost); // right hand side of the equation --> f(x,y)
+    auto reducedResidual_AccBuf = alpaka::onHost::allocMirror(devAcc, reducedResidual_HostBuf);
+    // Set buffer to initial conditions
+    initalizeBuffer(uBufHost.getMdSpan(), dx, dy);
+    Queue computeQueue = devAcc.makeQueue();
+    Queue dumpQueue = devAcc.makeQueue();
+    // Copy host -> device
+    alpaka::onHost::memcpy(computeQueue, rhs, uBufHost);
+    alpaka::onHost::memcpy(computeQueue, reducedResidual_AccBuf, reducedResidual_HostBuf);
+    alpaka::onHost::memcpy(computeQueue, uCurrBufAcc, uBufHost);
+    alpaka::onHost::memcpy(
+        computeQueue,
+        uNextBufAcc,
+        uBufHost); // for corner cells since they are not handled in the boundary Kernel
+    alpaka::onHost::wait(computeQueue);
 
-    std::vector<double> convChange={1.0,10.0,500.0,10000.0};
-    for(int j=0;j<convChange.size();++j){
-        // x, y in [0, 1], t in [0, tMax]
-        double dx = convChange[j] / static_cast<double>(extent[1] - 1);
-        double dy = convChange[j] / static_cast<double>(extent[0] - 1);
-        // Initialize host-buffer
-        // This buffer will hold the current values (used for the next step)
-        auto uBufHost = alpaka::onHost::alloc<double>(devHost, extent);
-        auto reducedResidual_HostBuf = alpaka::onHost::alloc<double>(devHost, alpaka::Vec<std::size_t, 1>{1});
-        reducedResidual_HostBuf[0] = 0.0;
-        // Accelerator buffers
-        auto uCurrBufAcc = alpaka::onHost::allocMirror(devAcc, uBufHost);
-        auto uNextBufAcc = alpaka::onHost::allocMirror(devAcc, uBufHost);
-        auto residual = alpaka::onHost::allocMirror(devAcc, uBufHost);
-        auto rhs = alpaka::onHost::allocMirror(devAcc, uBufHost); // right hand side of the equation --> f(x,y)
-        auto reducedResidual_AccBuf = alpaka::onHost::allocMirror(devAcc, reducedResidual_HostBuf);
-        // Set buffer to initial conditions
-        initalizeBuffer(uBufHost.getMdSpan(), dx, dy);
-        Queue computeQueue = devAcc.makeQueue();
-        Queue dumpQueue = devAcc.makeQueue();
-        // Copy host -> device
-        alpaka::onHost::memcpy(computeQueue, rhs, uBufHost);
-        alpaka::onHost::memcpy(computeQueue, reducedResidual_AccBuf, reducedResidual_HostBuf);
-        alpaka::onHost::memcpy(computeQueue, uCurrBufAcc, uBufHost);
-        alpaka::onHost::memcpy(
-            computeQueue,
-            uNextBufAcc,
-            uBufHost); // for corner cells since they are not handled in the boundary Kernel
+    // Appropriate chunk size to split your problem for your Acc
+    constexpr Idx xSize = 16u;
+    constexpr Idx ySize = 16u;
+    constexpr Idx halo = 2u;
+    constexpr auto chunkSize = CVec<Idx, ySize, xSize>{};
+    constexpr auto numNodesWithHalo = numNodes + halo;
+
+    IdxVec numChunks{
+        alpaka::divCeil(numNodes[0], chunkSize[0]),
+        alpaka::divCeil(numNodes[1], chunkSize[1]),
+    };
+
+    assert(
+        numNodes[0] % chunkSize[0] == 0 && numNodes[1] % chunkSize[1] == 0
+        && "Domain must be divisible by chunk size");
+
+    auto sharedMemExtents = CVec<uint32_t, ySize + halo, xSize + halo>{};
+    // acceptLiteral("daw");
+    auto dataBlockingStencil = FrameSpec{numChunks, chunkSize};
+    constexpr auto longestSide = std::max(numNodesWithHalo.y(), numNodesWithHalo.x());
+    auto dataBlockingBorder = FrameSpec{Vec{longestSide / chunkSize.x()}, Vec{std::max(chunkSize.y(), chunkSize.x())}};
+    auto toRTime = FrameSpec{
+        Vec{dataBlockingStencil.m_numFrames.x(), dataBlockingStencil.m_numFrames.y()},
+        Vec{dataBlockingStencil.m_frameExtent.x(), dataBlockingStencil.m_frameExtent.y()}};
+    using uVec = ALPAKA_TYPEOF(toRTime.m_numFrames);
+    using fVec = ALPAKA_TYPEOF(toRTime.m_frameExtent);
+    // static_assert(std::is_same_v<uVec, void>);
+    // static_assert(std::is_same_v<fVec, void>);
+    auto vec = fVec{4, 8}; // does not work.
+
+    auto tuningSession = tune::TuningBuilder{}
+                             .withStrategy(alpaka::tune::strategy::iterativeRefinement{})
+                             .withConfig("./config/poissonEqu0.99.toml")
+                             .build();
+    std::cout << " after build " << std::endl;
+    auto startTime = std::chrono::high_resolution_clock::now();
+    Queue hostQueue = devHost.makeQueue();
+    HostSideKernel host_side_kernel{
+        toRTime,
+        dataBlockingBorder,
+        uCurrBufAcc,
+        uNextBufAcc,
+        uBufHost,
+        rhs,
+        reducedResidual_HostBuf,
+        reducedResidual_AccBuf,
+        computeQueue,
+        dumpQueue};
+    using Vec1_float = alpaka::Vec<std::double_t, 1>;
+    constexpr double tolerance = 1e-3;
+    constexpr double p0 = 1.0;
+    constexpr double alpha = 1.0;
+
+    constexpr std::size_t cutoff = 4000;
+    constexpr double numRuns = 200;
+    // solvePoissonSerialGeneric(uBufHost, uNextBufAcc, rhs, numNodes, halo, dx, dy, p0, alpha, omega); // serial
+    //  IMplementation
+    for(int i = 0; i < numRuns; i++)
+    {
+        alpaka::onHost::memset(computeQueue, uCurrBufAcc, 0x0);
+        alpaka::onHost::memset(computeQueue, uNextBufAcc, 0x0);
+        alpaka::onHost::memset(computeQueue, rhs, 0x0);
+        alpaka::onHost::memset(computeQueue, reducedResidual_AccBuf, 0x0);
         alpaka::onHost::wait(computeQueue);
-
-        // Appropriate chunk size to split your problem for your Acc
-        constexpr Idx xSize = 16u;
-        constexpr Idx ySize = 16u;
-        constexpr Idx halo = 2u;
-        constexpr auto chunkSize = CVec<Idx, ySize, xSize>{};
-        constexpr auto numNodesWithHalo = numNodes + halo;
-
-        IdxVec numChunks{
-            alpaka::divCeil(numNodes[0], chunkSize[0]),
-            alpaka::divCeil(numNodes[1], chunkSize[1]),
-        };
-
-        assert(
-            numNodes[0] % chunkSize[0] == 0 && numNodes[1] % chunkSize[1] == 0
-            && "Domain must be divisible by chunk size");
-
-        auto sharedMemExtents = CVec<uint32_t, ySize + halo, xSize + halo>{};
-        // acceptLiteral("daw");
-        auto dataBlockingStencil = FrameSpec{numChunks, chunkSize};
-        constexpr auto longestSide = std::max(numNodesWithHalo.y(), numNodesWithHalo.x());
-        auto dataBlockingBorder = FrameSpec{Vec{longestSide / chunkSize.x()}, Vec{std::max(chunkSize.y(), chunkSize.x())}};
-        auto toRTime = FrameSpec{
-            Vec{dataBlockingStencil.m_numFrames.x(), dataBlockingStencil.m_numFrames.y()},
-            Vec{dataBlockingStencil.m_frameExtent.x(), dataBlockingStencil.m_frameExtent.y()}};
-        using uVec = ALPAKA_TYPEOF(toRTime.m_numFrames);
-        using fVec = ALPAKA_TYPEOF(toRTime.m_frameExtent);
-        // static_assert(std::is_same_v<uVec, void>);
-        // static_assert(std::is_same_v<fVec, void>);
-        auto vec = fVec{4, 8}; // does not work.
-
-        auto tuningSession = tune::TuningBuilder{}
-                                 .withStrategy(alpaka::tune::strategy::iterativeRefinement{})
-                                 .withRunSpecifiers(std::to_string(convChange[j]))
-                                 .withConfig("./config/poissonEqu"+std::to_string(convChange[j])+".toml")
-                                 .build();
-        std::cout << " after build " << std::endl;
-        auto startTime = std::chrono::high_resolution_clock::now();
-        Queue hostQueue = devHost.makeQueue();
-        HostSideKernel host_side_kernel{
-            toRTime,
-            dataBlockingBorder,
-            uCurrBufAcc,
-            uNextBufAcc,
-            uBufHost,
-            rhs,
-            reducedResidual_HostBuf,
-            reducedResidual_AccBuf,
-            computeQueue,
-            dumpQueue};
-        using Vec1_float = alpaka::Vec<std::double_t, 1>;
-        constexpr double tolerance = 1e-3;
-        constexpr double p0 = 1.0;
-        constexpr double alpha = 1.0;
-
-        constexpr std::size_t cutoff = 10000;
-        constexpr double omega = 1.95;
-        constexpr double numRuns = 200;
-        // solvePoissonSerialGeneric(uBufHost, uNextBufAcc, rhs, numNodes, halo, dx, dy, p0, alpha, omega); // serial
-        //  IMplementation
-        for(int i = 0; i < numRuns; i++)
-        {
-            alpaka::onHost::memset(computeQueue, uCurrBufAcc, 0x0);
-            alpaka::onHost::memset(computeQueue, uNextBufAcc, 0x0);
-            alpaka::onHost::wait(computeQueue);
-            tuningSession.enqueue(
-                devHost,
-                hostQueue,
-                alpaka::exec::CpuSerial{},
-                FrameSpec{alpaka::Vec{1}, alpaka::Vec{1}},
-                // KernelBundle{host_side_kernel, exec});
-                KernelBundle{
-                    host_side_kernel,
-                    exec,
-                    chunkSize,
-                    sharedMemExtents,
-                    numNodes,
-                    halo,
-                    dx,
-                    dy,
-                    p0,
-                    alpha,
-                    // omega,
-                    alpaka::tune::Tuneable{
-                        Vec1_float{1.95},
-                        IdxRange{Vec1_float{1.95}, Vec1_float{2.0}, Vec1_float{0.005}},
-                        "Omega"},
-                    tolerance,
-                    cutoff});
-        }
+        tuningSession.enqueue(
+            devHost,
+            hostQueue,
+            alpaka::exec::CpuSerial{},
+            FrameSpec{alpaka::Vec{1}, alpaka::Vec{1}},
+            // KernelBundle{host_side_kernel, exec});
+            KernelBundle{
+                host_side_kernel,
+                exec,
+                chunkSize,
+                sharedMemExtents,
+                numNodes,
+                halo,
+                dx,
+                dy,
+                p0,
+                alpha,
+                // omega,
+                alpaka::tune::Tuneable{
+                    Vec1_float{1.0},
+                    IdxRange{Vec1_float{1.0}, Vec1_float{2.0}, Vec1_float{0.05}},
+                    "Omega"},
+                tolerance,
+                cutoff});
+    }
 
 
     // omega});
@@ -227,20 +224,19 @@ auto example(T_Cfg const& cfg) -> int
 
     // Validate
     auto const [resultIsCorrect, maxError] = validateSolution(uBufHost.getMdSpan(), extent, dx, dy, p0, alpha);
-        if(resultIsCorrect)
-        {
-            std::cout << "Execution results correct!" << std::endl;
-            //return EXIT_SUCCESS;
-        }
-        else
-        {
-            std::cout << "Execution results incorrect: Max error = " << maxError << " (the grid resolution may be too low)"
-                      << std::endl;
-            //return EXIT_FAILURE;
-        }
+    if(resultIsCorrect)
+    {
+        std::cout << "Execution results correct!" << std::endl;
+        // return EXIT_SUCCESS;
+    }
+    else
+    {
+        std::cout << "Execution results incorrect: Max error = " << maxError << " (the grid resolution may be too low)"
+                  << std::endl;
+        // return EXIT_FAILURE;
     }
 
-
+    return 0;
 }
 
 auto main() -> int

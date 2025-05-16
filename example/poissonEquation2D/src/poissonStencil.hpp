@@ -37,10 +37,10 @@ struct PoissonStencilKernel
         alpaka::concepts::Vector auto numNodes,
         double const dx,
         double const dy,
-        double const omega,
-        double const pref) const -> void
+        double omega) const -> void
     {
         using namespace alpaka;
+
 
         for(alpaka::concepts::Dim<2u> auto blockStartIdx :
             onAcc::makeIdxMap(acc, onAcc::worker::blocksInGrid, IdxRange{Vec{0u, 0u}, numNodes, chunkSize}))
@@ -58,7 +58,7 @@ struct PoissonStencilKernel
             }
 
             onAcc::syncBlockThreads(acc);
-
+            auto factor = 0.9998;
             // Vec2 xDir{0u, 1u};
             // Vec2 yDir{1u, 0u};
             constexpr auto xDir = CVec<uint32_t, 0u, 1u>{};
@@ -72,11 +72,18 @@ struct PoissonStencilKernel
                     IdxRange{chunkSize} >> 1u,
                     onAcc::traverse::tiled))
             {
+                double lambda = 2.0;
+
+                // Updated denominator of the Laplace operator (diagonal entry of A + λI)
+                double denom = 2.0 * (1.0 / (dx * dx) + 1.0 / (dy * dy));
+
+                // Updated prefactor based on new diagonal
+                double pref = omega / denom;
                 auto bufIdx = idx2D + blockStartIdx;
                 double update = (sdata[idx2D + xDir] + sdata[idx2D - xDir]) / (dx * dx)
                                 + (sdata[idx2D + yDir] + sdata[idx2D - yDir]) / (dy * dy) - rhs[bufIdx];
-
-                nextPressureField[bufIdx] = (1.0 - omega) * sdata[idx2D] + pref * update;
+                // double diagCorrection = lambda * sdata[idx2D];
+                nextPressureField[bufIdx] = (1 - omega) * factor * sdata[idx2D] + pref * update;
             }
         }
     }

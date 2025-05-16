@@ -102,7 +102,18 @@ struct KernelTuningModel
             [this](auto&... frameElems)
             {
                 return std::apply(
-                    [&](auto&... userElems) { return std::tie(frameElems..., userElems...); },
+                    [&](auto&... userElems)
+                    {
+                        return std::apply(
+                            [&](auto&... compileElems)
+                            {
+                                return makeCombinedTuple(
+                                    std::tie(userElems...),
+                                    std::tie(frameElems...),
+                                    std::tie(compileElems...));
+                            },
+                            m_compileTimeTuple);
+                    },
                     userTuneables);
             },
             frameTuneables);
@@ -118,7 +129,12 @@ struct KernelTuningModel
                     {
                         return std::apply(
                             [&](auto const&... compileElems)
-                            { return std::tie(userElems..., frameElems..., compileElems...); },
+                            {
+                                return makeCombinedTuple(
+                                    std::tie(userElems...),
+                                    std::tie(frameElems...),
+                                    std::tie(compileElems...));
+                            },
                             m_compileTimeTuple);
                     },
                     userTuneables);
@@ -261,6 +277,13 @@ struct KernelTuningModel
         std::string hash;
         std::apply([&](auto const&... t) { ((hash += t.toHash()), ...); }, allTuneables());
         return hash;
+    }
+
+private:
+    template<typename... Tuples>
+    static constexpr auto makeCombinedTuple(Tuples&&... packs)
+    {
+        return std::tuple_cat(std::forward<Tuples>(packs)...);
     }
 };
 

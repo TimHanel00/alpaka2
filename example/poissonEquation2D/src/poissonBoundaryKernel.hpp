@@ -92,20 +92,19 @@ struct PoissonBoundaryKernel
         Idx extent_x = extent[1];
         Idx nx = numNodes[1];
         Idx ny = numNodes[0];
-
-        // Left and right boundaries (x = 0 and x = nx-1)
-        for(Idx y = 0; y < extent_y; ++y)
+        for(alpaka::concepts::Dim<1> auto y :
+            alpaka::onAcc::makeIdxMap(acc, alpaka::onAcc::worker::linearThreadsInGrid, alpaka::IdxRange{extent_y}))
         {
-            p[Vec2{y, 0}] = p0;
-            p[Vec2{y, extent_x - 1}] = p0 - alpha * (nx - 1.0) * dx;
+            p[Vec2{y[0], 0}] = 1.0;
+            p[Vec2{y[0], extent_x - 1}] = 0.0;
         }
 
-        // Top and bottom boundaries (y = 0 and y = ny-1)
-        for(Idx x = 0; x < extent_x; ++x)
+        // Neumann BC on top and bottom y-boundaries
+        for(alpaka::concepts::Dim<1> auto x :
+            alpaka::onAcc::makeIdxMap(acc, alpaka::onAcc::worker::linearThreadsInGrid, alpaka::IdxRange{extent_x}))
         {
-            // Apply Dirichlet condition explicitly
-            p[Vec2{0, x}] = p0;
-            p[Vec2{extent_y - 1, x}] = p0;
+            p[Vec2{0, x[0]}] = p[Vec2{1, x[0]}];
+            p[Vec2{extent_y - 1, x[0]}] = p[Vec2{extent_y - 2, x[0]}];
         }
     }
 };
