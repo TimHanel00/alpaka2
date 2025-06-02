@@ -312,8 +312,54 @@ void testKernels(T_Cfg cfg)
      */
     uint32_t elementsPerFrameItem = getNumElemPerThread<DataType>(queue);
 
+    using idxVec = alpaka::Vec<uint32_t, 1u>;
     auto numFrames = divExZero(arraySize, static_cast<Idx>(blockThreadExtentMain) * elementsPerFrameItem);
-    auto dataBlocking = onHost::FrameSpec{numFrames, static_cast<Idx>(blockThreadExtentMain)};
+    auto setFixedNumBlocks_ = devAcc.getDeviceProperties().m_multiProcessorCount;
+    auto mpVec = idxVec{static_cast<Idx>(setFixedNumBlocks_)};
+    static constexpr auto _0T = std::size_t{0};
+    static constexpr std::size_t index0 = 0;
+    auto dataBlocking = onHost::FrameSpec{
+        idxVec{mpVec * idxVec{8u}},
+        idxVec{static_cast<Idx>(idxVec{128 * 32})},
+        idxVec{static_cast<Idx>(setFixedNumBlocks_)}};
+    // alpaka::tune::Tuneable{uVec{56*2}, IdxRange{uVec{56*2}, uVec{dataBlocking.m_numFrames}, uVec{56*2}}})
+    auto tuningSessionDot
+        = tune::TuningBuilder{}
+              .withStrategy(alpaka::tune::strategy::exhaustiveSearch{})
+              .withRunSpecifiers(std::to_string(arraySize))
+              .withFrameExtentTune(tune::Tuneable(idxVec{64}, IdxRange{idxVec{64}, idxVec{128 * 32}, idxVec{64}}))
+              .withNumBlocksTune(tune::Tuneable(mpVec, IdxRange{mpVec, mpVec * idxVec{8u}, mpVec / idxVec{2}}))
+              .template withConstraint<tune::frameTune::numBlocks, tune::frameTune::FrameExtent>(
+                  [arraySize](auto numBlocks, auto frameExtent)
+                  {
+                      auto chunkElements = 1u * frameExtent;
+                      auto calcNumFrames = alpaka::Vec<uint32_t, 1u>{arraySize / chunkElements[0]};
+                      auto frameDataExtent = calcNumFrames * chunkElements;
+                      auto condX = numBlocks[0] <= calcNumFrames[0];
+                      auto condY = frameDataExtent[0] <= arraySize;
+                      std::cout << " chunkElems: " << chunkElements << " arSize: " << arraySize << " numFrames "
+                                << calcNumFrames[0] << " concurrentElements " << 1u << " numBlocks " << numBlocks[0]
+                                << " frameDataExtent " << frameDataExtent[0];
+                      return condX && condY;
+                  })
+              .withConfig("./config/realBabelstreamCPUDot.toml")
+              .build();
+    auto tuningSessionRest
+        = tune::TuningBuilder{}
+              .withStrategy(alpaka::tune::strategy::exhaustiveSearch{})
+              .withRunSpecifiers(std::to_string(arraySize))
+              .withNumBlocksTune(tune::Tuneable(mpVec, IdxRange{mpVec, mpVec * idxVec{8u}, mpVec / idxVec{2}}))
+              .template withConstraint<tune::frameTune::numBlocks>(
+                  [arraySize](auto numBlocks)
+                  {
+                      auto chunkElements = 1u * numBlocks[0];
+                      auto condY = chunkElements <= arraySize;
+
+                      return condY;
+                  })
+              .withConfig("./config/realBabelstreamCPURest.toml")
+              .build();
+
 
     // To record runtime data generated while running the kernels
     RuntimeResults runtimeResults;
@@ -379,7 +425,9 @@ void testKernels(T_Cfg cfg)
             // Test the copy-kernel. Copy A one by one to C.
             measureKernelExec(
                 [&]() {
-                    queue.enqueue(
+                    tuningSessionRest.enqueue(
+                        devAcc,
+                        queue,
                         exec,
                         dataBlocking,
                         KernelBundle{SimdForEachKernel{}, SimdCopyOp{}, bufAccInputA, bufAccOutputC});
@@ -389,14 +437,16 @@ void testKernels(T_Cfg cfg)
             // Test the scaling-kernel. Calculate B=scalar*C. Where C = A.
             measureKernelExec(
                 [&]()
-                { queue.enqueue(exec, dataBlocking, SimdForEachKernel{}, SimdMultOp{}, bufAccInputB, bufAccOutputC); },
+                { tuningSessionRest.enqueue(devAcc,
+                        queue,exec, dataBlocking, KernelBundle{SimdForEachKernel{}, SimdMultOp{}, bufAccInputB, bufAccOutputC}); },
                 "MultKernel");
 
             // Test the addition-kernel. Calculate C=A+B. Where B=scalar*C or B=scalar*A.
             measureKernelExec(
                 [&]()
                 {
-                    queue.enqueue(
+                    tuningSessionRest.enqueue(devAcc,
+                        queue,
                         exec,
                         dataBlocking,
                         KernelBundle{SimdForEachKernel{}, SimdAddOp{}, bufAccInputA, bufAccInputB, bufAccOutputC});
@@ -410,7 +460,8 @@ void testKernels(T_Cfg cfg)
             measureKernelExec(
                 [&]()
                 {
-                    queue.enqueue(
+                    tuningSessionRest.enqueue(devAcc,
+                        queue,
                         exec,
                         dataBlocking,
                         KernelBundle{SimdForEachKernel{}, SimdTriadOp{}, bufAccInputA, bufAccInputB, bufAccOutputC});
@@ -436,11 +487,12 @@ void testKernels(T_Cfg cfg)
                 {
                     // set initial value of the sum to 0
                     onHost::memset(queue, bufAccSumPerBlock, 0);
-                    queue.enqueue(
+                    tuningSessionDot.enqueue(devAcc,
+                        queue,
                         exec,
                         dataBlockingDot,
                         KernelBundle{
-                            DotKernel(), // Dot kernel
+                            DotKernel{}, // Dot kernel
                             bufAccInputA,
                             bufAccInputB,
                             bufAccSumPerBlock,

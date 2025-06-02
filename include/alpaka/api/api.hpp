@@ -12,6 +12,7 @@
 #include "alpaka/core/config.hpp"
 #include "alpaka/meta/filter.hpp"
 #include "alpaka/onHost/trait.hpp"
+#include "alpaka/tune/api.hpp"
 
 #include <algorithm>
 
