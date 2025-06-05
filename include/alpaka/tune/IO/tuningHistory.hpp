@@ -8,6 +8,8 @@
 
 #include <alpaka/tune/IO/storageTypes.hpp>
 
+// #define DEBUG_Hist 0
+
 namespace alpaka::tune
 {
     struct TuningHistory
@@ -65,9 +67,7 @@ namespace alpaka::tune
             std::cout << filename << std::endl;
             try
             {
-                // Parse the TOML file directly from the filename.
                 auto config = toml::parse(filename);
-                // Retrieve the top-level table.
                 auto const& config_table = toml::get<toml::table>(config);
 
                 if(!loadMultiple)
@@ -76,23 +76,29 @@ namespace alpaka::tune
                     m_tuningHistory.clear();
                 }
 
-                // Iterate over all top-level key/value pairs.
                 for(auto const& [key, value] : config_table)
                 {
-                    // Skip if the value is not a table.
                     if(!value.is_table())
                         continue;
-                    auto const& kernelTable = value.as_table();
 
+                    auto const& kernelTable = value.as_table();
                     KernelData kernelData;
-                    // Retrieve string values safely.
-                    // kernelData.device       = kernelTable.at("device");
+
                     kernelData.device = find_str(kernelTable, "device");
                     kernelData.executor = find_str(kernelTable, "executor");
                     kernelData.kernel = find_str(kernelTable, "kernel");
                     kernelData.targetMetric = find_str(kernelTable, "targetMetric");
+
+#ifdef DEBUG_Hist
+                    std::cout << "[DEBUG_Hist] Kernel Key: " << key << std::endl;
+                    std::cout << "  - Device: " << kernelData.device << std::endl;
+                    std::cout << "  - Executor: " << kernelData.executor << std::endl;
+                    std::cout << "  - Kernel: " << kernelData.kernel << std::endl;
+                    std::cout << "  - Target Metric: " << kernelData.targetMetric << std::endl;
+#endif
+
                     std::size_t highestStamp = 0;
-                    // Process the "specifiers" array if it exists.
+
                     if(kernelTable.contains("specifiers"))
                     {
                         try
@@ -108,24 +114,33 @@ namespace alpaka::tune
                         }
                         catch(std::exception const&)
                         {
-                            // Ignore if "specifiers" is not an array
+#ifdef DEBUG_Hist
+                            std::cout << "  - Failed to load specifiers." << std::endl;
+#endif
                         }
                     }
 
-                    // Process the "runs" array if it exists.
                     if(kernelTable.contains("runs"))
                     {
                         try
                         {
                             auto const& runs = kernelTable.at("runs").as_array();
-
                             for(auto const& runValue : runs)
                             {
                                 StorageKernelRun run;
                                 auto const& runTable = runValue.as_table();
+
                                 for(auto const& elem : runTable.at("metric").as_array())
                                 {
                                     run.pushMetric(elem.as_floating());
+                                }
+                                if(!run.metricContainer.empty())
+                                {
+                                    run.state = StorageKernelRun::State::Initialized;
+                                }
+                                if(run.stamp == -1)
+                                {
+                                    run.state = StorageKernelRun::State::Dummy;
                                 }
                                 run.nr_runs = runTable.at("nrRuns").as_integer();
                                 if(runTable.contains("tuneableNames"))
@@ -134,12 +149,15 @@ namespace alpaka::tune
                                     {
                                         run.stamp = static_cast<std::size_t>(runTable.at("stamp").as_integer());
                                         highestStamp = std::max(highestStamp, run.stamp);
+
                                         auto const& tuneablesV = runTable.at("tuneableVals").as_array();
                                         auto const& tuneablesID = runTable.at("tuneableNames").as_array();
+
                                         for(int i = 0; i < tuneablesID.size(); i++)
                                         {
                                             auto tkey = tuneablesID[i].as_string();
                                             auto value_tuneAble = tuneablesV[i].as_string();
+
                                             if(std::string_view(tkey) == getNameFromTag<frameTune::numBlocks>())
                                             {
                                                 run.numBlocksTune
@@ -171,11 +189,14 @@ namespace alpaka::tune
                                                     alpaka::tune::StorageTuneable{tkey, value_tuneAble});
                                             }
                                         }
+#ifdef DEBUG_Hist
+                                        std::cout << "    - Parsed tuneables: " << run.tuneables.size()
+                                                  << ", CTuneables: " << run.Ctuneables.size() << std::endl;
+#endif
                                     }
                                     catch(std::exception const& e)
                                     {
-                                        std::cout << "exception in passing tuneables " << e.what() << std::endl;
-                                        // Ignore if "tuneables" is not an array
+                                        std::cout << "exception in parsing tuneables: " << e.what() << std::endl;
                                     }
                                 }
 
@@ -183,16 +204,22 @@ namespace alpaka::tune
                                 kernelData.nrOfConfigs++;
                                 kernelData.runs[kernelKey] = std::move(run);
                             }
+#ifdef DEBUG_Hist
+                            std::cout << "  - Total runs loaded: " << kernelData.runs.size() << std::endl;
+#endif
                         }
                         catch(std::exception const& e)
                         {
                             std::cout << e.what() << std::endl;
-                            // Ignore if "runs" is not an array
                         }
                     }
+
                     kernelData.highestStamp = highestStamp;
                     std::string dataHash = kernelData.toHash();
                     m_tuningHistory[dataHash] = std::move(kernelData);
+#ifdef DEBUG_Hist
+                    std::cout << "  - KernelData stored with hash: " << dataHash << std::endl;
+#endif
                 }
             }
             catch(std::exception const& e)
@@ -201,14 +228,15 @@ namespace alpaka::tune
                           << std::endl;
                 m_tuningHistory.clear();
             }
-#ifdef DEBUG
-            std::cout << "history size after load: " << m_tuningHistory.size() << std::endl;
+
+#ifdef DEBUG_Hist
+            std::cout << "[DEBUG_Hist] Final history size: " << m_tuningHistory.size() << std::endl;
             for(auto const& [k, v] : m_tuningHistory)
             {
-                std::cout << " runs after history " << v.runs.size() << std::endl;
+                std::cout << "  - Kernel hash: " << k << ", Runs: " << v.runs.size() << std::endl;
                 for(auto const& [k1, v1] : v.runs)
                 {
-                    std::cout << " tuneable Size: " << v1.tuneables.size() << std::endl;
+                    std::cout << "    - Tuneables: " << v1.tuneables.size() << std::endl;
                 }
             }
 #endif
@@ -219,7 +247,6 @@ namespace alpaka::tune
         void storeConfig(std::string const& filename)
         {
             toml::table config;
-            std::cout << " tuning Size: " << m_tuningHistory.size() << std::endl;
             for(auto& [key, kernelData] : m_tuningHistory)
             {
                 toml::table kernelTable;
@@ -252,15 +279,24 @@ namespace alpaka::tune
                 int runIndex = 0;
                 for(auto& run : kernelData.runs)
                 {
+                    StorageKernelRun& storeKernel = run.second;
 #ifdef DEBUG_Hist
                     std::cout << "Processing m_run #" << runIndex << std::endl;
 #endif
 
                     toml::table runTable;
-                    runTable.emplace("nrRuns", run.second.nr_runs);
+                    if(storeKernel.state == StorageKernelRun::State::WarmUp)
+                    {
+                        runTable.emplace("nrRuns", storeKernel.warm_up_runs);
+                    }
+                    else
+                    {
+                        runTable.emplace("nrRuns", storeKernel.nr_runs);
+                    }
+
 
 #ifdef DEBUG_Hist
-                    std::cout << "  - nrRuns: " << m_run.second.nr_runs << std::endl;
+                    std::cout << "  - nrRuns: " << run.second.nr_runs << std::endl;
 #endif
 
                     toml::array metrics;
@@ -274,12 +310,13 @@ namespace alpaka::tune
                     toml::array tuneableNames;
                     toml::array tuneableValues;
 #ifdef DEBUG_Hist
-                    std::cout << "  - Checking tuneables size: " << m_run.second.tuneables.size() << std::endl;
+                    std::cout << "  - Checking tuneables size: " << run.second.tuneables.size() << std::endl;
 #endif
                     for(const auto& tuneable : run.second.view())
                     {
 #ifdef DEBUG_Hist
-                        std::cout << "    - Adding tuneable: " << tuneable.name << " = " << tuneable.value
+
+                        std::cout << "    - Adding tuneable: " << tuneable.get().name << " = " << tuneable.get().value
                                   << std::endl;
 #endif
                         tuneableNames.emplace_back(tuneable.get().name);
@@ -300,7 +337,6 @@ namespace alpaka::tune
 #ifdef DEBUG_Hist
                 std::cout << "Total runs processed: " << runIndex << std::endl;
 #endif
-
                 kernelTable.emplace("runs", runsArray);
                 config.emplace(key, kernelTable);
             }

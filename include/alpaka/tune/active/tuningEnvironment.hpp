@@ -4,6 +4,7 @@
 
 #ifndef KERNELSINGLETON_H
 #define KERNELSINGLETON_H
+#include "../utils/environmentVars.hpp"
 #include "alpaka/core/decay.hpp"
 #include "alpaka/tune/adjust/adjust.hpp"
 
@@ -15,8 +16,18 @@
 #include <any>
 #include <utility>
 
-// #define DEBUG_Singleton
+struct EnvironmentState
+{
+    bool sessionFinished{false};
+    uint32_t numberOfCheckedConfigs{0};
+    uint32_t numValidConfigs{0};
+    uint32_t maxValidEvaluations{0};
+    uint32_t maxConfigsTotal{0};
+    uint32_t stamp{0};
+    StorageKernelRun bestConfig;
+};
 
+// #define DEBUG_Singleton
 template<
     typename T_Device,
     typename T_Exec,
@@ -43,6 +54,7 @@ public:
     T_ActiveKernelRun activeRunPtr;
     T_PtrToHistory ptrToHistory;
     T_SharedParams sharedParams;
+    EnvironmentState environmentState;
     tuningEnvironment(tuningEnvironment const&) = delete;
     tuningEnvironment& operator=(tuningEnvironment const&) = delete;
     tuningEnvironment(tuningEnvironment&&) = delete;
@@ -83,6 +95,7 @@ public:
             history.m_tuningHistory.emplace(tmp.toHash(), std::move(tmp));
             ptrToHistory = history.getKernelFromHistory(device, exec, kernelBundle, sessionSpecifier_);
         }
+        getRunsPerConfig_Env();
         KernelData& h = *ptrToHistory;
         activeRunPtr->m_strategyState.configStamp = h.highestStamp;
         // acts like a guard only valid configs are used for the device
@@ -92,6 +105,15 @@ public:
         alpaka::tune::recalculateMaxRuns(*activeRunPtr);
 
         applyCustomThreadSpec(*activeRunPtr, frameSpec);
+        if(!h.runs.contains(activeRunPtr->toHash()))
+        {
+            h.runs[activeRunPtr->toHash()] = toStore(*activeRunPtr);
+        }
+        environmentState.bestConfig = h.runs[activeRunPtr->toHash()];
+        environmentState.maxConfigsTotal = activeRunPtr->maxRuns;
+        environmentState.maxValidEvaluations = getMaxRuns_Env();
+        std::cout << " maxRuns from kernel: " << activeRunPtr->maxRuns << " max runs from env" << getMaxRuns_Env()
+                  << std::endl;
     }
 
     // Prevent copy/move

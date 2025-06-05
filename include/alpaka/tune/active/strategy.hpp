@@ -12,16 +12,6 @@
 #include <random>
 #include <vector>
 
-template<typename T_history, typename T_kernelRun>
-static bool kernelConfigChecked(T_history& history, T_kernelRun& kernel)
-{
-    if(!history.contains(kernel.toHash()))
-        return false;
-    if(history[kernel.toHash()].size() < getRunsPerConfig() || !history[kernel.toHash()].fullFlag)
-        return false;
-    return true;
-}
-
 namespace alpaka::tune::strategy
 {
     class RNG
@@ -133,7 +123,8 @@ namespace alpaka::tune::strategy
             concepts::MetricInterface auto& metric_interface,
             T_tuneables&& tuneables,
             [[maybe_unused]] T_ActiveKernel& kernelRun,
-            [[maybe_unused]] KernelData& kernel_data) const
+            [[maybe_unused]] KernelData& kernel_data,
+            EnvironmentState& state) const
         {
             for_each(
                 tuneables,
@@ -230,73 +221,6 @@ namespace alpaka::tune::strategy
     {
     };
 
-    //@TODO move to different namespace
-    struct bestRecorded
-    {
-        template<typename T_ActiveKernel>
-        auto operator()(
-            concepts::MetricInterface auto& metricInterface,
-            T_ActiveKernel& kernelRun,
-            KernelData& history)
-        {
-            using T_metricInterface = std::remove_cvref_t<decltype(metricInterface)>;
-            static std::unordered_map<std::string, std::vector<StorageKernelRun>> storeBestResults;
-            static std::unordered_map<std::string, std::string> bestResult;
-            if(bestResult.contains(history.toHash()) && bestResult[history.toHash()] == kernelRun.toHash())
-            {
-                return;
-            }
-            if(!history.runs.empty())
-            {
-                StorageKernelRun best = history.runs.begin()->second;
-
-                for(auto& entry : history.runs)
-                {
-                    StorageKernelRun& run = entry.second;
-                    ::Comparison res = run.compare(best);
-
-                    switch(res)
-                    {
-                    case ::Comparison::Greater:
-                        best = aGTb<T_metricInterface>{}(run, best);
-                        break;
-
-                    case ::Comparison::Less:
-                        best = aLTb<T_metricInterface>{}(run, best);
-                        break;
-
-                    case ::Comparison::Inconclusive:
-                        {
-                            auto runMean = run.getMetric<mean_t>().as<t_ns>();
-                            auto bestMean = best.getMetric<mean_t>().as<t_ns>();
-                            if(runMean < bestMean)
-                            {
-                                best = run;
-                            }
-                            break;
-                        }
-
-                    default:
-                        break;
-                    }
-                }
-                bestResult[history.toHash()] = kernelRun.toHash();
-                storeBestResults[history.toHash()].push_back(best);
-                toActive(kernelRun, best);
-
-                for(auto& entry : history.runs)
-                {
-                    StorageKernelRun& run = entry.second;
-                    ::Comparison res = run.compare(best);
-                    if(res == ::Comparison::Inconclusive)
-                    {
-                        storeBestResults[history.toHash()].push_back(run);
-                    }
-                }
-            }
-        }
-    };
-
     /**
      * extensible compare operator for certain metrics
      * */
@@ -314,8 +238,6 @@ namespace alpaka::tune::strategy
             auto lambda = T_final * std::log(maxRuns + n0); // Tfinal*ln(N+n0)-> lamda is the the scaling
                                                             // factor of the temperature cooling
             auto result = lambda / std::log(static_cast<double_t>(currentRuns_local) * n0);
-            std::cout << "[SA temp]: maxRuns" << maxRuns << " curRuns " << currentRuns_local
-                      << " resulting temperature: " << result << std::endl;
             return result;
         }
 
@@ -346,20 +268,19 @@ namespace alpaka::tune::strategy
             switch(res)
             {
             case ::Comparison::Greater:
-                auto& preferred = aLTb<T_Metric>{}(metricNew, metricOld);
+                auto& preferred = aGTb<T_Metric>{}(metricNew, metricOld);
                 if(&preferred == &metricNew)
                     return true;
                 return acceptWorseSolution<T_Metric>(metricNew, metricOld, temperature);
             case ::Comparison::Less:
-                preferred = aGTb<T_Metric>{}(metricNew, metricOld);
+                preferred = aLTb<T_Metric>{}(metricNew, metricOld);
                 if(&preferred == &metricNew)
                     return true;
                 return acceptWorseSolution<T_Metric>(metricNew, metricOld, temperature);
             case ::Comparison::Inconclusive:
                 return true; // encourage exploration
-            case ::Comparison::Dummy:
-                return false;
-            default:;
+            default:
+                break;
             }
 
 
@@ -378,6 +299,7 @@ namespace alpaka::tune::strategy
         {
             if(acceptanceFunction<T_Metric>(newKernel, oldKernel, temperature))
             {
+                toActive(activeKernel, newKernel);
                 // toActive(activeKernel, newKernel); -> we dont have to do anything since ActiveKernel is already in
                 // the newKernel config
             }
@@ -436,89 +358,122 @@ namespace alpaka::tune::strategy
         }
 
 #define SimA_MaxCachedSteps 300
+        std::string previousValidKernel = "";
+        std::size_t temperature = 0;
+        std::size_t currentRuns = 0;
+
+        template<typename T_KernelRun>
+        inline bool existsInHistory(T_KernelRun& run, KernelData& kernel_data)
+        {
+            if(!kernel_data.runs.contains(run.toHash()))
+                return false;
+            return true;
+        }
+
+        inline bool acceptWorseForEdgeCases(float temperature)
+        {
+            if(temperature <= 0.0f)
+                return false; // never accept worse if temperature is zero or below
+
+            // Generate acceptance probability in [0, 1)
+            double_t probability = std::exp(-1.0 / temperature); // constant "cost" of 1
+
+            std::uniform_real_distribution<double_t> dist(0.0, 1.0);
+            return dist(RNG::get()) < probability;
+        }
+
+        template<typename T_KernelRun>
+        bool handleInvalidCases(
+            StorageKernelRun& current,
+            StorageKernelRun& worse,
+            T_KernelRun& run,
+            float temperature)
+        {
+            if(worse.state == StorageKernelRun::State::Dummy)
+            {
+                if(acceptWorseForEdgeCases(temperature))
+                {
+                    toActive(run, worse);
+                }
+                else
+                {
+                    toActive(run, current);
+                }
+                return true;
+            }
+            if(current.state == StorageKernelRun::State::Dummy)
+            {
+                if(acceptWorseForEdgeCases(temperature))
+                {
+                    toActive(run, current);
+                }
+                else
+                {
+                    toActive(run, worse);
+                }
+                return true;
+            }
+            return false;
+        }
 
         template<typename T_tuneables, typename T_ActiveKernel>
         auto operator()(
             concepts::MetricInterface auto& metricInterface,
             T_tuneables&& tuneables,
             T_ActiveKernel& kernelRun,
-            KernelData& kernel_data)
+            KernelData& kernel_data,
+            EnvironmentState& env_state)
         {
             using T_Metric = std::remove_cvref<decltype(metricInterface)>;
             auto& history = kernel_data.runs;
-            auto& state = kernelRun.m_strategyState;
-            if(state.runs >= std::max(
-                   std::min(kernel_data.maxRuns, static_cast<std::size_t>(SimA_MaxCachedSteps * 20)),
-                   static_cast<std::size_t>(
-                       SimA_MaxCachedSteps))) // clamp steps between
-                                              // SimA_MaxCachedSteps<state.runs<SimA_MaxCachedSteps*20
-            {
-                std::cout << " selecting best config due to SimA steps exceeded" << std::endl;
-                kernelRun.m_strategyState.done = true;
-                return;
-            }
-            state.runs = 0; // reset
-            auto maxRuns = kernel_data.maxRuns;
-            if(!kernelConfigChecked(history, kernelRun))
-            {
-                return;
-                // we havent yet timed this parameter config often enough to make a educated guess on its performance
-                // therefore we return with the  -- this check might be redundant (TODO check if redundant)
-            };
-            // this means we evaluated the kernelRun activeKernel well enough
-            if(!state.oldKernelHash.empty())
-            {
-                acceptNewKernel<T_Metric>(
-                    history[state.oldKernelHash],
-                    history[kernelRun.toHash()],
-                    kernelRun,
-                    state.temperature); // we might switch to the latest config nevertheless
-                // we accept the "new" config always if its better and with a propability of e^(-new+old)/temp)
-                // if its worse (if lower is better)
-            }
+            StorageKernelRun& oldRun = kernel_data[kernelRun.toHash()];
+            std::string oldHash = kernelRun.toHash();
+            currentRuns = 0;
 
-
-            state.temperature = calcTemperature(kernel_data.maxRuns, history.size()); // assign new temperature
-            while(kernelConfigChecked(history, kernelRun) && state.runs < SimA_MaxCachedSteps)
+            while(currentRuns < SimA_MaxCachedSteps)
             {
-                std::string oldKernelHash = kernelRun.toHash();
+                temperature = calcTemperature(SimA_MaxCachedSteps,
+                                              currentRuns); // calculateNewTemperature
+                oldHash = kernelRun.toHash();
                 for_each(
                     tuneables,
-                    [state, this](auto& parameter)
+                    [this](auto& parameter)
                     {
-                        auto newVal = applyProbabilityFunction(parameter.value, parameter.idxRange, state.temperature);
+                        auto newVal = applyProbabilityFunction(parameter.value, parameter.idxRange, temperature);
                         parameter.value = newVal;
                     });
-                if(kernelRun.toHash() != state.oldKernelHash)
+                if(kernelRun.toHash() == oldHash)
                 {
-                    state.oldKernelHash = oldKernelHash;
+                    currentRuns++;
+                    continue;
                 }
-                if(kernelConfigChecked(history, kernelRun))
+                if(!existsInHistory(kernelRun, kernel_data))
                 {
-                    // we m_run in this case if the newly found config was already cached (evaluated enough)
-                    // so we can decide directly if we want to go there
-                    // we accept the new found config always if its better and with a propability of e^(-new+old)/temp)
-                    // if its worse (if lower is better)
-                    acceptNewKernel<T_Metric>(
-                        history[state.oldKernelHash],
-                        history[kernelRun.toHash()],
-                        kernelRun,
-                        state.temperature);
-                    ++state.runs;
-                    // here we also count if we accept equal configs.
-                }
-                else
-                {
-                    // kernel not yet in history, therefore we have no evalutation of the new parameters and take them
+                    std::cout << " new config found! " << std::endl;
                     return;
                 }
+                StorageKernelRun& curRun = kernel_data[kernelRun.toHash()];
+                oldRun = kernel_data.runs[oldHash];
+                if(handleInvalidCases<T_Metric>(curRun, oldRun, kernelRun, temperature))
+                {
+                    currentRuns++;
+                    continue;
+                }
+                // we m_run in this case if the newly found config was already cached (evaluated enough)
+                // so we can decide directly if we want to go there
+                // we accept the new found config always if its better and with a propability of
+                // e^(-new+old)/temp) if its worse (if lower is better)
+                acceptNewKernel<T_Metric>(oldRun, curRun, kernelRun, temperature);
+                ++currentRuns;
+                // here we also count if we accept equal configs.
             }
-
-
-            // if we already have been to that config we still jump there with the propability function but we go to
-            // the next config afterwards
         }
+
+        // if we already have been to that config we still jump there with the propability function but we go to
+        // the next config afterwards
     };
+
+    ;
 
     /**
      *this is a exhaustive search method designed to support asymmetric index ranges and initial values that
@@ -537,7 +492,7 @@ namespace alpaka::tune::strategy
         {
             constexpr std::size_t N = std::tuple_size_v<std::remove_reference_t<Tuple>>;
             auto hash = kernelRun.toHash();
-            if(found || !history.contains(hash) || history[hash].nr_runs < getRunsPerConfig())
+            if(found || !history.contains(hash))
             {
                 found = true;
                 return;
@@ -586,7 +541,8 @@ namespace alpaka::tune::strategy
             concepts::MetricInterface auto& metricInterface,
             T_tuneables&& tuneables,
             T_ActiveKernel& kernelRun,
-            KernelData& kernel_data)
+            KernelData& kernel_data,
+            EnvironmentState& state)
         {
             auto& history = kernel_data.runs;
             if(history.contains(kernelRun.toHash()))
@@ -595,11 +551,11 @@ namespace alpaka::tune::strategy
                 recurse(tuneables, 0, kernelRun, history, found);
                 if(!found)
                 {
-                    std::cout << " did not find any tuneable new tuneable use best recorded run now. " << std::endl;
+                    std::cout << " did not find any new tuneable use best recorded run now. " << std::endl;
+
                     // fallback incase we found no new or still usable config it indicates that we switch to bestConfig
-                    kernel_data.nrOfConfigs = kernelRun.maxRuns;
+                    state.sessionFinished = true;
                 }
-                std::cout << " was valid: " << found << std::endl;
             }
         }
     };
@@ -687,7 +643,8 @@ namespace alpaka::tune::strategy
             concepts::MetricInterface auto& metricInterface,
             auto&& tuneables,
             auto& kernelRun,
-            KernelData& kernel_data)
+            KernelData& kernel_data,
+            EnvironmentState& state)
         {
             exhaustiveSearch{}(metricInterface, tuneables, kernelRun, kernel_data);
 
@@ -701,7 +658,8 @@ namespace alpaka::tune::strategy
             {
                 if(kernel_data.nrOfConfigs + 2 >= kernelRun.maxRuns)
                 {
-                    bestRecorded{}(metricInterface, kernelRun, kernel_data);
+                    StorageKernelRun& best = kernel_data.runs[state.bestConfig.toHash()];
+                    toActive(kernelRun, best);
 
                     std::apply(
                         [&]<typename... T>(T&... t)
@@ -736,7 +694,8 @@ namespace alpaka::tune::strategy
             concepts::MetricInterface auto& metricInterface,
             T_tuneables&& tuneables,
             T_ActiveKernel& kernelRun,
-            KernelData& kernel_data)
+            KernelData& kernel_data,
+            EnvironmentState& state)
         {
             using T_Metric = std::remove_cvref_t<decltype(metricInterface)>;
             auto& history = kernel_data.runs;

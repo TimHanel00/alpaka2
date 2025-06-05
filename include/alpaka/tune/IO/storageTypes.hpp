@@ -227,6 +227,13 @@ public:
         return false;
     }
 
+    void clear()
+    {
+        history.resize(0);
+
+        rebuildFromHistory();
+    }
+
     [[nodiscard]] std::span<double_t const> getAll() const
     {
         return history;
@@ -380,7 +387,7 @@ struct StorageKernelRun;
 // Shared helper to perform Kruskal-Wallis comparison
 enum class Comparison;
 
-Comparison kruskalCompare(StorageKernelRun const& lhs, StorageKernelRun const& rhs);
+Comparison kruskalCompare(StorageKernelRun const& current, StorageKernelRun const& other);
 
 // storage container of a single Run used for history
 struct StorageKernelRun
@@ -400,7 +407,8 @@ struct StorageKernelRun
     std::optional<alpaka::tune::StorageTuneable> numFramesTune{std::nullopt};
     std::optional<alpaka::tune::StorageTuneable> frameExtentTune{std::nullopt};
     timingsContainer metricContainer;
-    std::size_t nr_runs{1};
+    std::size_t nr_runs{0};
+    std::size_t warm_up_runs{0};
     State state{State::Uninitialized};
 
     [[nodiscard]] std::string toHash() const
@@ -488,17 +496,17 @@ enum class Comparison
 };
 
 // Kruskal–Wallis is essentially the non-parametric alternative to one-way ANOVA. (does not assume normality)
-inline Comparison kruskalCompare(StorageKernelRun const& lhs, StorageKernelRun const& rhs)
+inline Comparison kruskalCompare(StorageKernelRun const& current, StorageKernelRun const& other)
 {
-    using T_state = ALPAKA_TYPEOF(lhs.state);
-    if(rhs.state == T_state::Dummy)
+    using T_state = ALPAKA_TYPEOF(current.state);
+    if(other.state == T_state::Dummy)
     {
         return Comparison::Dummy;
     }
-    auto const& lhsVals = lhs.metricContainer.getAll();
-    auto const& rhsVals = rhs.metricContainer.getAll();
+    auto const& lhsVals = current.metricContainer.getAll();
+    auto const& rhsVals = other.metricContainer.getAll();
 
-    if(lhsVals.size() < 5 || rhsVals.size() < 5)
+    if(lhsVals.size() < 1 || rhsVals.size() < 1)
         return Comparison::Inconclusive; // not enough data
 
     std::vector<std::pair<double_t, int>> combined; // (value, group)
@@ -537,15 +545,20 @@ inline Comparison kruskalCompare(StorageKernelRun const& lhs, StorageKernelRun c
     }
 
     double_t H = (12.0 / (N * (N + 1))) * (R0 * R0 / n0 + R1 * R1 / n1) - 3 * (N + 1);
-
-    // Chi-square critical value for df = 1, alpha = 0.05 is 3.841
     constexpr double_t chiSquareCritical = 3.841;
+    std::cout << " H" << H << " vs " << chiSquareCritical << std::endl;
+    // Chi-square critical value for df = 1, alpha = 0.05 is 3.841
+
 
     if(H < chiSquareCritical)
         return Comparison::Inconclusive;
-
-    double_t lhsMedian = lhs.metricContainer.get(median_t{}).value;
-    double_t rhsMedian = rhs.metricContainer.get(median_t{}).value;
+    /*
+    std::cout << " best median: " << current.metricContainer.get(median_t{}).value << " name " << current.toHash()
+              << std::endl;
+    std::cout << " stored median: " << other.metricContainer.get(median_t{}).value << " name " << current.toHash()
+              << std::endl;*/
+    double_t lhsMedian = current.metricContainer.get(median_t{}).as<t_ns>();
+    double_t rhsMedian = other.metricContainer.get(median_t{}).as<t_ns>();
 
     return (lhsMedian < rhsMedian) ? Comparison::Less : Comparison::Greater;
 }

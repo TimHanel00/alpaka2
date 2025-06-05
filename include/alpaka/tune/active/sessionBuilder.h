@@ -72,9 +72,7 @@ namespace alpaka::tune
         template<typename T_objct>
         auto withTuning(T_objct tuningObject) const
         {
-            std::cout << " before with Tuning, " << m_run.toHash() << std::endl;
             auto newRun = appendTuning(m_run, tuningObject);
-            std::cout << " after with Tuning, " << newRun.toHash() << std::endl;
             auto ret = helperCreateNewBuilder<T_Strategy, T_MetricInterface, T_ConstraintTuple>(
                 m_strategy,
                 m_metricInterface,
