@@ -228,8 +228,11 @@ namespace alpaka::tune::strategy
     struct simulatedAnnealing
     {
         using T_propabilityFunction = propabilityFunctions::Exponential;
+        static constexpr double T_init = 100.0;
         static constexpr double T_final
             = 5.0; // magic Number that indicates the lower bound of the temperature used for simulated annealing
+
+        double_t temperature = T_init; // class member
 
         double_t calcTemperature(auto const& maxRuns, auto currentRuns) const
         {
@@ -238,53 +241,48 @@ namespace alpaka::tune::strategy
             auto lambda = T_final * std::log(maxRuns + n0); // Tfinal*ln(N+n0)-> lamda is the the scaling
                                                             // factor of the temperature cooling
             auto result = lambda / std::log(static_cast<double_t>(currentRuns_local) * n0);
-            return result;
+            return std::clamp(result, T_final, T_init);
         }
 
         template<typename T_Metric>
-        bool acceptWorseSolution(StorageKernelRun& metricNew, StorageKernelRun& metricOld, double const& temperature)
+        bool acceptWorseSolution(StorageKernelRun const& cand, StorageKernelRun const& cur, double temperature)
         {
-            double_t probability = std::exp(
-                -(alpaka::tune::strategy::SimulatedAnnealing::costDifference<T_Metric>{}(metricNew, metricOld)
-                  / temperature));
-            std::uniform_int_distribution<std::size_t> dis(0, 1000);
-            auto k = dis(RNG::get());
-            if(k < probability * 1000)
-            {
-                // new solution will be accepted with this propability
-                return true;
-            }
-            return false;
-            // case the new metric is lower
+            double delta = alpaka::tune::strategy::SimulatedAnnealing::costDifference<T_Metric>{}(cand, cur);
+
+            if(delta <= 0.0)
+                return true; // better or equal → accept
+
+            double prob = std::exp(-delta / temperature);
+
+            static thread_local std::mt19937_64 rng{std::random_device{}()};
+            std::uniform_real_distribution<double> dist(0.0, 1.0);
+
+            return dist(rng) < prob;
         }
 
         /*
          *TODO add genericOperator
          */
         template<typename T_Metric>
-        bool acceptanceFunction(StorageKernelRun& metricNew, StorageKernelRun& metricOld, double const& temperature)
+        bool acceptanceFunction(StorageKernelRun const& cand, StorageKernelRun const& cur, double temperature)
         {
-            auto res = metricNew.compare(metricOld);
-            switch(res)
+            switch(cand.compare(cur))
             {
             case ::Comparison::Greater:
-                auto& preferred = aGTb<T_Metric>{}(metricNew, metricOld);
-                if(&preferred == &metricNew)
-                    return true;
-                return acceptWorseSolution<T_Metric>(metricNew, metricOld, temperature);
+                {
+                    auto const& preferred = aGTb<T_Metric>{}(cand, cur);
+                    return (&preferred == &cand) || acceptWorseSolution<T_Metric>(cand, cur, temperature);
+                }
             case ::Comparison::Less:
-                preferred = aLTb<T_Metric>{}(metricNew, metricOld);
-                if(&preferred == &metricNew)
-                    return true;
-                return acceptWorseSolution<T_Metric>(metricNew, metricOld, temperature);
+                {
+                    auto const& preferred = aLTb<T_Metric>{}(cand, cur);
+                    return (&preferred == &cand) || acceptWorseSolution<T_Metric>(cand, cur, temperature);
+                }
             case ::Comparison::Inconclusive:
-                return true; // encourage exploration
+                return true; // always explore
             default:
-                break;
+                return false;
             }
-
-
-            return false;
         }
 
         /*
@@ -359,7 +357,6 @@ namespace alpaka::tune::strategy
 
 #define SimA_MaxCachedSteps 300
         std::string previousValidKernel = "";
-        std::size_t temperature = 0;
         std::size_t currentRuns = 0;
 
         template<typename T_KernelRun>
@@ -376,7 +373,7 @@ namespace alpaka::tune::strategy
                 return false; // never accept worse if temperature is zero or below
 
             // Generate acceptance probability in [0, 1)
-            double_t probability = std::exp(-1.0 / temperature); // constant "cost" of 1
+            double_t probability = std::exp(-4.0 / temperature); // constant "cost" of 1
 
             std::uniform_real_distribution<double_t> dist(0.0, 1.0);
             return dist(RNG::get()) < probability;
@@ -429,11 +426,10 @@ namespace alpaka::tune::strategy
             StorageKernelRun& oldRun = kernel_data[kernelRun.toHash()];
             std::string oldHash = kernelRun.toHash();
             currentRuns = 0;
-
+            temperature = calcTemperature(env_state.maxConfigsTotal, env_state.numberOfCheckedConfigs);
             while(currentRuns < SimA_MaxCachedSteps)
             {
-                temperature = calcTemperature(SimA_MaxCachedSteps,
-                                              currentRuns); // calculateNewTemperature
+                // calculateNewTemperature
                 oldHash = kernelRun.toHash();
                 for_each(
                     tuneables,

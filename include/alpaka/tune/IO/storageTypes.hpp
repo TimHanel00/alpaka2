@@ -480,7 +480,7 @@ struct StorageKernelRun
         return metricContainer.size();
     }
 
-    auto compare(StorageKernelRun& b) const
+    auto compare(StorageKernelRun const& b) const
     {
         return kruskalCompare(*this, b);
     }

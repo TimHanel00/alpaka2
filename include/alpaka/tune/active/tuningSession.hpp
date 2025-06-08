@@ -164,20 +164,19 @@ namespace alpaka::tune::detail::internal
         {
             return false;
         }
-        if(hasRunsPerConfig_Env())
-        {
-            if(stored.nr_runs >= getRunsPerConfig_Env())
-            {
-                if(!stored.fullFlag)
-                {
-                    ++environment.numberOfCheckedConfigs;
-                    ++environment.numValidConfigs;
-                    stored.fullFlag = true;
-                }
 
-                return true;
+        if(stored.nr_runs >= getRunsPerConfig_Env())
+        {
+            if(!stored.fullFlag)
+            {
+                ++environment.numberOfCheckedConfigs;
+                ++environment.numValidConfigs;
+                stored.fullFlag = true;
             }
+
+            return true;
         }
+
         StorageKernelRun& best = environment.bestConfig;
 
         if(best.toHash() == runHash)

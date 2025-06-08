@@ -15,6 +15,8 @@ inline bool hasRunsPerConfig_Env(std::optional<bool> const& hasRunsPerConfig = s
     return hasRunsPerCfg;
 }
 
+#define upperBoundForRunsPerConfig 50
+
 static std::size_t getRunsPerConfig_Env()
 {
     if(char const* var = std::getenv("TunerRunsPerConfig"))
@@ -30,7 +32,7 @@ static std::size_t getRunsPerConfig_Env()
             std::cerr << "Invalid value for TunerReRuns: " << e.what() << std::endl;
         }
     }
-    return 1;
+    return upperBoundForRunsPerConfig;
 }
 
 inline bool hasMaxRuns_Env(std::optional<bool> const& hasRuns = std::nullopt)
