@@ -282,8 +282,9 @@ namespace alpaka::tune
         // Output a fully constructed TuningSession
         auto build() const
         {
-            constexpr auto condA = m_run.hasNumBlocksTune() && m_run.hasNumFramesTune();
-            constexpr auto condB = m_run.hasThreadBlockSizeTune() && m_run.hasFrameExtentTune();
+            using run_BareT=std::remove_cvref_t<decltype(m_run)>;
+            constexpr auto condA = run_BareT::hasNumBlocksTune() && run_BareT::hasNumFramesTune();
+            constexpr auto condB = run_BareT::hasThreadBlockSizeTune() && run_BareT::hasFrameExtentTune();
             if constexpr(condA || condB)
             {
                 if constexpr(condA && condB)

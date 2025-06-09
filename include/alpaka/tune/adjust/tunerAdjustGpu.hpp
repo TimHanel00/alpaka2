@@ -5,7 +5,7 @@
 #ifndef TUNERGPU_H
 #define TUNERGPU_H
 // #define ALPAKA_LANG_CUDA 1
-#if ALPAKA_LANG_CUDA || ALPAKA_LANG_HIP
+#if ALPAKA_LANG_CUDA || ALPAKA_LANG_HIP || ALPAKA_LANG_SYCL
 #    include <alpaka/api/unifiedCudaHip/Device.hpp>
 #    include <alpaka/tune/utils/partitioning.hpp>
 

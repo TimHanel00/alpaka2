@@ -299,12 +299,13 @@ constexpr auto makeActiveKernel(UserTuple userT, FrameT&&... frameArgs)
 template<typename ExistingKernel, typename NewTuning>
 auto appendTuning(ExistingKernel const& kernel, NewTuning const& newTuning)
 {
-    if constexpr(ExistingKernel::template hasFrameTuneable<newTuning.tag>())
+    using NewTuning_bareT = std::remove_cvref_t<NewTuning>;
+    if constexpr(ExistingKernel::template hasFrameTuneable<NewTuning_bareT::tag>())
     {
         std::cout << "TUNER ERROR: tuning already assigned. Skipping.\n";
         return kernel;
     }
-    else if constexpr(std::is_same_v<alpaka::tune::NoTune, std::remove_cvref_t<NewTuning>>)
+    else if constexpr(std::is_same_v<alpaka::tune::NoTune, NewTuning_bareT>)
     {
         return kernel;
     }

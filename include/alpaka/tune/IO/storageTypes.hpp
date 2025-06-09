@@ -686,16 +686,11 @@ StorageKernelRun toStore(KernelTuningModel<T_KernelRunArgs...>& active)
             std::string(active.getThreadBlockSizeTune().name()),
             convertToString(active.getThreadBlockSizeTune().value)};
     }
-
-    // Convert threadBlockSize.
-
-
     // Convert the metric.
     if(!std::isnan(active.metric))
     {
         result.pushMetric(active.metric);
     }
-
     // Convert each tuneable in the tuple
     std::apply(
         [&result](auto&... tuneable)
