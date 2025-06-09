@@ -5,7 +5,6 @@
 #pragma once
 
 #include "alpaka/core/config.hpp"
-
 #if ALPAKA_LANG_ONEAPI
 
 #    include "alpaka/Vec.hpp"
@@ -24,50 +23,55 @@ namespace alpaka::onAcc
     {
         namespace detail
         {
-            /** Pointer lookup table
-             *
-             * Provides a dynamic lookup table to map an unique id to a pointer.
-             */
-            class PtrLookupTable
+            struct MetaData
             {
-                struct MetaData
-                {
-                    //! pointer to allocated data
-                    uint8_t* ptr = nullptr;
-                    //! Unique id if the next data chunk.
-                    size_t id = std::numeric_limits<size_t>::max();
-                };
-
-                static constexpr uint32_t metaDataSize = sizeof(MetaData);
-
-            public:
-#    ifndef NDEBUG
-                PtrLookupTable(std::uint8_t* mem, uint32_t capacity)
-                    : m_mem(reinterpret_cast<MetaData*>(mem))
-                    , m_capacity(capacity / metaDataSize)
-                {
-                    ALPAKA_ASSERT_ACC((m_mem == nullptr) == (m_capacity == 0u));
-                }
-#    else
-                PtrLookupTable(std::uint8_t* mem, uint32_t) : m_mem(reinterpret_cast<MetaData*>(mem))
-                {
-                }
-#    endif
-
-                /** number of bytes required for bookkeeping of maxNumberOfAllocations unique allocations
+                //! pointer to allocated data
+                uint8_t* ptr = nullptr;
+                //! Unique id if the next data chunk.
+                size_t id = std::numeric_limits<size_t>::max();
+            };
+            static constexpr uint32_t metaDataSize = sizeof(MetaData);
+            /** number of bytes required for bookkeeping of maxNumberOfAllocations unique allocations
                  *
                  * @param maxNumUniqueAllocations number of unique allocation a user is allowed to perform
                  * @return bytes required to store lookup meta data
                  */
-                static consteval uint32_t sizeLookupBufferInBytes(uint32_t maxNumUniqueAllocations)
+            static consteval uint32_t sizeLookupBufferInBytes(uint32_t maxNumUniqueAllocations)
+            {
+                return metaDataSize * maxNumUniqueAllocations;
+            }
+
+            /** Pointer lookup table
+             *
+             * Provides a dynamic lookup table to map an unique id to a pointer.
+             */
+            template<auto Dim>
+            class PtrLookupTable
+            {
+
+
+
+
+            public:
+#    ifndef NDEBUG
+                PtrLookupTable(std::uint8_t* mem, uint32_t capacity, sycl::nd_item<Dim> const& item)
+                : m_mem(reinterpret_cast<MetaData*>(mem))
+                , m_capacity(capacity / metaDataSize)
+                , item(item)
                 {
-                    return metaDataSize * maxNumUniqueAllocations;
+                    ALPAKA_ASSERT_ACC((m_mem == nullptr) == (m_capacity == 0u));
                 }
+#    else
+                PtrLookupTable(std::uint8_t* mem, uint32_t,sycl::nd_item<1> const &_item) : m_mem(reinterpret_cast<MetaData*>(mem)),item(_item)
+                {
+                }
+#    endif
+
 
                 template<typename T>
                 T* alloc(size_t id) const
                 {
-                    auto group = sycl::ext::oneapi::this_work_item::get_work_group<1>();
+                    auto group = item.get_group();
                     T* data = sycl::ext::oneapi::group_local_memory_for_overwrite<T>(group);
 
                     MetaData& metaDataEntry = m_mem[m_numEntries];
@@ -107,6 +111,7 @@ namespace alpaka::onAcc
                 }
 
             private:
+                sycl::nd_item<Dim> const & item;
                 //! Number unqiue meta data entries stored
                 mutable uint32_t m_numEntries = 0u;
 
@@ -120,36 +125,26 @@ namespace alpaka::onAcc
 #    endif
             };
         } // namespace detail
-
-        class StaticSharedMemory : private detail::PtrLookupTable
+        template<auto Dim>
+        class StaticSharedMemory : private detail::PtrLookupTable<Dim>
         {
         public:
-            /** number of bytes required for bookkeeping of mayNumberOfAllocations unique allcoations
-             *
-             * @param maxNumUniqueAllocations number of unique allocation a user is allowed to perform
-             * @return bytes required to store lookup meta data
-             */
-            static consteval uint32_t sizeLookupBufferInBytes(uint32_t maxNumUniqueAllocations)
-            {
-                return detail::PtrLookupTable::sizeLookupBufferInBytes(maxNumUniqueAllocations);
-            }
-
             StaticSharedMemory(StaticSharedMemory const&) = delete;
-
+            using Base = detail::PtrLookupTable<Dim>;
             /** Construct shared memory allocator
              * @param accessor local memory accessor to store lookup meta data
              *                 bytes required to store N unique allocation can be calculated with
              * sizeLookupBufferInBytes()
              */
-            StaticSharedMemory(sycl::local_accessor<std::byte> const& accessor)
-                : PtrLookupTable(
+            StaticSharedMemory(sycl::local_accessor<std::byte> const& accessor,sycl::nd_item<Dim> const& item)
+                : Base(
                     reinterpret_cast<std::uint8_t*>(accessor.get_multi_ptr<sycl::access::decorated::no>().get()),
-                    static_cast<uint32_t>(accessor.size()))
+                    static_cast<uint32_t>(accessor.size()),item)
 
             {
             }
 
-            using Base = detail::PtrLookupTable;
+
 
             template<typename T, size_t T_unique>
             T& allocVar()
