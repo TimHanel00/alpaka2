@@ -42,9 +42,19 @@ namespace alpaka::tune
             newTuple,
             run);
     }
-
     template<
-        typename T_Strategy = strategy::randomSearch,
+
+#ifdef strategy_randomSearch
+        typename T_Strategy = alpaka::tune::strategy::randomSearch,
+#elif strategy_exhaustiveSearch
+        typename T_Strategy = alpaka::tune::strategy::exhaustiveSearch,
+#elif strategy_simulatedAnnealing
+        typename T_Strategy = alpaka::tune::strategy::simulatedAnnealing,
+#elif strategy_randomSample
+            typename T_Strategy=alpaka::tune::strategy::randomSample
+#else
+        typename T_Strategy = alpaka::tune::strategy::randomSearch,
+#endif
         typename T_MetricInterface = alpaka::tune::metricInterface::Timing,
         typename T_ConstraintTuple = std::tuple<>,
         typename... T_KernelRunArgs>
@@ -282,7 +292,7 @@ namespace alpaka::tune
         // Output a fully constructed TuningSession
         auto build() const
         {
-            using run_BareT=std::remove_cvref_t<decltype(m_run)>;
+            using run_BareT = std::remove_cvref_t<decltype(m_run)>;
             constexpr auto condA = run_BareT::hasNumBlocksTune() && run_BareT::hasNumFramesTune();
             constexpr auto condB = run_BareT::hasThreadBlockSizeTune() && run_BareT::hasFrameExtentTune();
             if constexpr(condA || condB)

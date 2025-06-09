@@ -532,6 +532,12 @@ namespace alpaka::tune::strategy
                 });
         }
 
+        bool init = false;
+#ifdef ExhaustiveSearchRandomInitialization
+        constexpr bool randomInit = true;
+#else
+        constexpr bool randomInit = false;
+#endif
         template<typename T_tuneables, typename T_ActiveKernel>
         auto operator()(
             concepts::MetricInterface auto& metricInterface,
@@ -541,6 +547,15 @@ namespace alpaka::tune::strategy
             EnvironmentState& state)
         {
             auto& history = kernel_data.runs;
+            if constexpr(randomInit)
+            {
+                if(!init)
+                {
+                    randomSample{}(metricInterface, tuneables, kernelRun, kernel_data, state);
+                    init = true; // only the first time this strategy is called in the current context
+                }
+            }
+
             if(history.contains(kernelRun.toHash()))
             {
                 bool found{false};
