@@ -74,7 +74,6 @@ void clampToSpec_elem(const ValueVec& maxVal, IdxRange& idxRange, bool isThreadB
     const Scalar warpSize = device.getDeviceProperties().m_warpSize;
     const Scalar mpCount = device.getDeviceProperties().m_multiProcessorCount;
     const Scalar maxThreads = device.getDeviceProperties().m_maxThreadsPerBlock;
-
     for (auto i = static_cast<dimType>(0); i < dim; ++i)
     {
         auto& begin = idxRange.m_begin[i];
@@ -85,16 +84,16 @@ void clampToSpec_elem(const ValueVec& maxVal, IdxRange& idxRange, bool isThreadB
         bool adjusted = false;
 
         // Begin or stride too large
-        if (begin >= max || stride >= max)
+        if (begin > max || stride > max)
         {
             adjusted = true;
             if (isThreadBlockTune)
             {
-                begin = primeFactorPartitioning(warpSize, Scalar{});
+                idxRange.m_begin = primeFactorPartitioning(warpSize, ValueVec{});
             }
             else
             {
-                begin = primeFactorPartitioning(mpCount, Scalar{});
+                idxRange.m_stride = primeFactorPartitioning(mpCount, ValueVec{});
             }
             stride = begin;
 
