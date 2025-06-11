@@ -65,40 +65,93 @@ namespace alpaka::tune
         }
     }
 
-    void clampToSpec_elem(auto& value, auto& idxRange)
-    {
-        using rangeType = ALPAKA_TYPEOF(idxRange.m_begin);
-        for(std::size_t i = 0; i < alpaka::getDim(rangeType{}); ++i)
-        {
-            if(idxRange.m_begin[i] <= 0 || idxRange.m_begin[i] >= value[i])
-            {
-                idxRange.m_begin[i] = 1;
-            }
+    template <typename ValueVec, typename IdxRange>
+void clampToSpec_elem(const ValueVec& maxVal, IdxRange& idxRange, bool isThreadBlockTune, auto& device)
+{
+    using Scalar = typename ValueVec::type;
+    constexpr auto dim = ValueVec::dim();
+    using dimType=decltype(dim);
+    const Scalar warpSize = device.getDeviceProperties().m_warpSize;
+    const Scalar mpCount = device.getDeviceProperties().m_multiProcessorCount;
+    const Scalar maxThreads = device.getDeviceProperties().m_maxThreadsPerBlock;
 
-            if(idxRange.m_stride[i] <= 0)
+    for (auto i = static_cast<dimType>(0); i < dim; ++i)
+    {
+        auto& begin = idxRange.m_begin[i];
+        auto& stride = idxRange.m_stride[i];
+        auto& end = idxRange.m_end[i];
+        const auto& max = maxVal[i];
+
+        bool adjusted = false;
+
+        // Begin or stride too large
+        if (begin >= max || stride >= max)
+        {
+            adjusted = true;
+            if (isThreadBlockTune)
             {
-                idxRange.m_stride[i] = 1;
+                begin = primeFactorPartitioning(warpSize, Scalar{});
             }
-            if(idxRange.m_end[i] > value[i] || idxRange.m_end[i] < idxRange.m_begin[i])
+            else
             {
-                auto maxEnd = ((value[i] - idxRange.m_begin[i]) / idxRange.m_stride[i]) * idxRange.m_stride[i]
-                              + idxRange.m_begin[i];
-                idxRange.m_end[i] = (maxEnd > idxRange.m_begin[i]) ? maxEnd : idxRange.m_begin[i];
+                begin = primeFactorPartitioning(mpCount, Scalar{});
+            }
+            stride = begin;
+
+            // If still invalid, fallback
+            if (begin >= max)
+            {
+                begin = 1;
+                stride = 1;
+                end = max;
+                continue;
             }
         }
-    }
 
-    template<typename T_activeKernel>
-    void clampToSpec(auto& frameSpec, T_activeKernel& activeKernel)
+        // End is too high or invalid
+        if (end > max || end < begin)
+        {
+            adjusted = true;
+            Scalar b = (max - begin) / stride;
+            end = begin + b * stride;
+
+            if (end < begin)
+            {
+                end = begin;
+            }
+        }
+
+        // Clamp end for thread block case
+        if (isThreadBlockTune && end > maxThreads)
+        {
+            adjusted = true;
+            end = std::min(end, maxThreads);
+        }
+
+        // Final fallback if clamping failed
+        if (adjusted && (begin >= max || stride >= max))
+        {
+            begin = 1;
+            stride = 1;
+            end = max;
+        }
+    }
+}
+    template<typename T_NumFrames,typename T_NumThreads,typename T_activeKernel>
+    void clampToSpec(auto & device,onHost::FrameSpec<T_NumFrames,T_NumThreads>& frameSpec, T_activeKernel& activeKernel)
     {
         if constexpr(T_activeKernel::hasNumBlocksTune())
         {
-            clampToSpec_elem(frameSpec.m_numFrames, activeKernel.getNumBlocksTune().idxRange);
+            auto countMps=device.getDeviceProperties().m_multiProcessorCount;
+            clampToSpec_elem(frameSpec.m_numFrames, activeKernel.getNumBlocksTune().idxRange, false, device);
             activeKernel.getNumBlocksTune().toRange();
         }
         if constexpr(T_activeKernel::hasThreadBlockSizeTune())
         {
-            clampToSpec_elem(frameSpec.m_frameExtent, activeKernel.getThreadBlockSizeTune().idxRange);
+            auto countWarps=device.getDeviceProperties().m_warpSize;
+            device.getDeviceProperties().m_maxThreadsPerBlock;
+            clampToSpec_elem(frameSpec.m_frameExtent, activeKernel.getThreadBlockSizeTune().idxRange, true, device);
+
             activeKernel.getThreadBlockSizeTune().toRange();
         }
     }

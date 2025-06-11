@@ -21,7 +21,31 @@ struct strategyState
 
 template<typename T>
 inline constexpr bool is_empty_tuple_v = std::is_same_v<std::remove_cv_t<std::remove_reference_t<T>>, std::tuple<>>;
+template <typename Tuple, typename Func, std::size_t... Indices>
+void for_eachTupleDebugImpl(Tuple&& tuple, Func&& func, std::index_sequence<Indices...>) {
+    (func(std::get<Indices>(std::forward<Tuple>(tuple))), ...);
+}
 
+template <typename Tuple, typename Func>
+void for_eachTupleDebug(Tuple&& tuple, Func&& func) {
+    constexpr auto N = std::tuple_size<std::decay_t<Tuple>>::value;
+    for_eachTupleDebugImpl(
+        std::forward<Tuple>(tuple),
+        std::forward<Func>(func),
+        std::make_index_sequence<N>{}
+    );
+}
+template<typename Tuple>
+void outTuple(Tuple &&tuple)
+{
+    for_eachTupleDebug(tuple, [](auto& tuneable)
+    {
+        std::cout<<"[DEBUG] tuneable Name: "<<tuneable.name()<<std::endl;
+        std::cout<<"[DEBUG] Start "<<tuneable.idxRange.m_begin.toString()<<std::endl;
+        std::cout<<"[DEBUG] End "<<tuneable.idxRange.m_end.toString()<<std::endl;
+        std::cout<<"[DEBUG] Stride "<<tuneable.idxRange.m_stride.toString()<<std::endl;
+    });
+}
 // concretely defined m_run for a tuning session stores extracted
 /*
  * this object defines the "core" state of the tuning mechanism, defining type-safe tuning parameters in the form of
@@ -114,6 +138,7 @@ struct KernelTuningModel
             frameTuneables);
     }
 
+
     constexpr auto allTuneables() const&
     {
         return std::apply(
@@ -131,7 +156,10 @@ struct KernelTuningModel
             },
             frameTuneables);
     }
-
+    void printFull()
+    {
+        outTuple(allTuneables());
+    };
     template<typename ConfigTuple>
     void fromConfig(ConfigTuple const& config)
     {

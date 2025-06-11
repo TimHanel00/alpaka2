@@ -45,7 +45,7 @@ namespace alpaka::tune
                 newRun.getNumFramesTune().value = frameSpec.m_numFrames;
                 auto numFramesPartitioned = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
                 auto resultVec = primeFactorPartitioning(NrOfNumFrameConfigs, numFramesPartitioned); //->z.B 2,5,
-                auto stride = alpaka::divCeil(frameSpec.m_numFrames, resultVec);
+                auto stride = frameSpec.m_numFrames/ resultVec;
                 newRun.getNumFramesTune().idxRange = alpaka::IdxRange(stride, frameSpec.m_numFrames, stride);
             }
         }
@@ -56,7 +56,7 @@ namespace alpaka::tune
                 newRun.getFrameExtentTune().value = frameSpec.m_frameExtent;
                 auto numFramesExtentPartitioned = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
                 auto resultVec = primeFactorPartitioning(NrOfFrameExtentConfigs, numFramesExtentPartitioned); //-> 2,5,
-                auto stride = alpaka::divCeil(frameSpec.m_frameExtent, resultVec);
+                auto stride = frameSpec.m_frameExtent/ resultVec;
                 newRun.getFrameExtentTune().idxRange = alpaka::IdxRange(stride, frameSpec.m_frameExtent, stride);
             }
         }

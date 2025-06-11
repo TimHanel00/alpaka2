@@ -713,12 +713,12 @@ namespace alpaka
             auto& sharedParameters)
         {
             using namespace alpaka::tune::detail::internal;
-
-            if(environment_state.config_queue.getRoundRobin().has_value())
+            auto res=environment_state.config_queue.getRoundRobin();
+            if(res.has_value())
             {
-                StorageKernelRun & stored =environment_state.config_queue.getRoundRobin().value();
+                StorageKernelRun & stored =res.value();
                 std::cout<<" stored run: "<<stored.toHash()<<std::endl;
-                toActive(run,environment_state.config_queue.getRoundRobin().value());
+                toActive(run,stored);
             }
             if(configReadyForRun<T_Context, T_MetricInterface>(run, data, environment_state, constraints))
             {
