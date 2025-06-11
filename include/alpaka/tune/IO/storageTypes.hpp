@@ -456,11 +456,48 @@ struct StorageKernelRun
     }
 
     bool fullFlag = false;
-
+#define WarmUpRuns 1
+#define StepsUntilCICheck 10
     void pushMetric(double_t const& m)
     {
-        constexpr std::size_t k = 10;
-        fullFlag = metricContainer.push<k>(m);
+        if(metricContainer.push<StepsUntilCICheck>(m))
+        {
+            fullFlag = true;
+        }
+        switch(this->state)
+        {
+        case State::Uninitialized:
+            this->state = State::WarmUp;
+
+            ++this->warm_up_runs;
+            break;
+        case State::WarmUp:
+            if(this->warm_up_runs < WarmUpRuns)
+            {
+                ++this->warm_up_runs;
+            }
+            else
+            {
+                this->metricContainer.clear();
+                metricContainer.push<StepsUntilCICheck>(m);
+                this->state = State::Initialized;
+                this->nr_runs = 1;
+            }
+
+            break;
+
+        case State::Initialized:
+            ++this->nr_runs;
+            break;
+        case State::Dummy:
+            this->metricContainer.clear();
+            this->stamp=-1;
+            this->fullFlag=true;
+            break;
+        default:
+
+            break;
+        }
     }
 
     template<typename T, std::enable_if_t<is_stat_type_v<T>, int> = 0>
@@ -572,6 +609,7 @@ struct KernelData
     std::string targetMetric;
     std::vector<std::string> specifiers;
     bool exhausted = false;
+    bool histEvaluated=false;
     std::size_t nrOfConfigs{0};
     std::size_t highestStamp{0};
     std::size_t maxRuns{0};
@@ -654,7 +692,7 @@ void toActive(
     updateTuneables(active.m_compileTimeTuple, storeKernel.Ctuneables);
 
     // Update metric by converting the storage string metric to the active kernel's floating type.
-    active.metric = storeKernel.getMetric<median_t>().as<t_ns>();
+    //active.metric = storeKernel.getMetric<median_t>().as<t_ns>();
 }
 
 template<typename... T_KernelRunArgs>
@@ -685,11 +723,6 @@ StorageKernelRun toStore(KernelTuningModel<T_KernelRunArgs...>& active)
         result.threadBlockSize = alpaka::tune::StorageTuneable{
             std::string(active.getThreadBlockSizeTune().name()),
             convertToString(active.getThreadBlockSizeTune().value)};
-    }
-    // Convert the metric.
-    if(!std::isnan(active.metric))
-    {
-        result.pushMetric(active.metric);
     }
     // Convert each tuneable in the tuple
     std::apply(

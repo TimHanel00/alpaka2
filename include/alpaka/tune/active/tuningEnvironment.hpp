@@ -4,6 +4,7 @@
 
 #ifndef KERNELSINGLETON_H
 #define KERNELSINGLETON_H
+#include <alpaka/tune/active/Queue.hpp>
 #include "../utils/environmentVars.hpp"
 #include "alpaka/core/decay.hpp"
 #include "alpaka/tune/adjust/adjust.hpp"
@@ -25,6 +26,7 @@ struct EnvironmentState
     uint32_t maxConfigsTotal{0};
     uint32_t stamp{0};
     StorageKernelRun bestConfig;
+    alpaka::tune::ConfigQueue<StorageKernelRun> config_queue;
 };
 
 // #define DEBUG_Singleton

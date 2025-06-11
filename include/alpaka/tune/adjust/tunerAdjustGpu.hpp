@@ -47,9 +47,11 @@ namespace alpaka::tune
                 if(!newRun.getNumBlocksTune().userDef)
                 {
                     newRun.getNumBlocksTune().idxRange.m_begin = primeFactorPartitioning(
-                        device.getDeviceProperties().m_multiProcessorCount * 16u,
+                        device.getDeviceProperties().m_multiProcessorCount * 4u,
                         T_NumBlocks{});
-                    newRun.getNumBlocksTune().idxRange.m_end = dataBlocking.m_numFrames;
+                    newRun.getNumBlocksTune().idxRange.m_end = primeFactorPartitioning(
+                        device.getDeviceProperties().m_multiProcessorCount * 32u*4u,
+                        T_NumBlocks{});
                     newRun.getNumBlocksTune().idxRange.m_stride = newRun.getNumBlocksTune().idxRange.m_begin;
                 }
             }

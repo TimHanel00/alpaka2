@@ -130,11 +130,7 @@ namespace alpaka::tune
                                 StorageKernelRun run;
                                 auto const& runTable = runValue.as_table();
 
-                                for(auto const& elem : runTable.at("metric").as_array())
-                                {
-                                    run.pushMetric(elem.as_floating());
-                                }
-                                if(!run.metricContainer.empty())
+                                if(!runTable.at("metric").as_array().empty())
                                 {
                                     run.state = StorageKernelRun::State::Initialized;
                                 }
@@ -142,6 +138,12 @@ namespace alpaka::tune
                                 {
                                     run.state = StorageKernelRun::State::Dummy;
                                 }
+                                for(auto const& elem : runTable.at("metric").as_array())
+                                {
+                                    run.pushMetric(elem.as_floating());
+                                }
+
+
                                 run.nr_runs = runTable.at("nrRuns").as_integer();
                                 if(runTable.contains("tuneableNames"))
                                 {
@@ -214,7 +216,7 @@ namespace alpaka::tune
                         }
                     }
 
-                    kernelData.highestStamp = highestStamp;
+                    kernelData.highestStamp = highestStamp+1;
                     std::string dataHash = kernelData.toHash();
                     m_tuningHistory[dataHash] = std::move(kernelData);
 #ifdef DEBUG_Hist
@@ -280,6 +282,10 @@ namespace alpaka::tune
                 for(auto& run : kernelData.runs)
                 {
                     StorageKernelRun& storeKernel = run.second;
+                    if(storeKernel.state == StorageKernelRun::State::Uninitialized)
+                    {
+                        continue;
+                    }
 #ifdef DEBUG_Hist
                     std::cout << "Processing m_run #" << runIndex << std::endl;
 #endif

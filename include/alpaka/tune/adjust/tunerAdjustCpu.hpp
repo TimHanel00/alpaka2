@@ -170,7 +170,7 @@ namespace alpaka::tune
                         device.getDeviceProperties().m_multiProcessorCount,
                         T_NumThreads{});
                     newRun.getNumBlocksTune().idxRange.m_end = primeFactorPartitioning(
-                        device.getDeviceProperties().m_multiProcessorCount,
+                        device.getDeviceProperties().m_multiProcessorCount*2u,
                         T_NumThreads{});
                     newRun.getNumBlocksTune().idxRange.m_stride
                         = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);

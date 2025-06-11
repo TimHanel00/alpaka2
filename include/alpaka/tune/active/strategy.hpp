@@ -534,9 +534,9 @@ namespace alpaka::tune::strategy
 
         bool init = false;
 #ifdef ExhaustiveSearchRandomInitialization
-        constexpr bool randomInit = true;
+        static constexpr bool randomInit = true;
 #else
-        constexpr bool randomInit = false;
+        static constexpr bool randomInit = false;
 #endif
         template<typename T_tuneables, typename T_ActiveKernel>
         auto operator()(
