@@ -471,11 +471,13 @@ void assignBestIfBetter(StorageKernelRun& best, StorageKernelRun& stored)
         case T_state::Uninitialized:
             stored.stamp = data.highestStamp+state.stamp++;
             std::cout<<" assigned stamp: "<<stored.stamp<<std::endl;
+            break;
+        case T_state::Dummy:
+            return;
         default:
             std::cout<<" config has state: "<< runHash<<" state: "<<static_cast<std::size_t>(stored.state)<<std::endl;
             break;
         }
-
         bool flagPre = stored.fullFlag;
         stored.pushMetric(run.metric);
         bool flagPost = stored.fullFlag;
@@ -494,7 +496,11 @@ void assignBestIfBetter(StorageKernelRun& best, StorageKernelRun& stored)
         }
         else
         {
-            if(stored.nr_runs >= getRunsPerConfig_Env()) //this might lead to a failure
+            if(flagPre != flagPost)
+            {
+                stored.fullFlag = false;
+            }
+            if(stored.nr_runs >= getRunsPerConfig_Env())
             {
                 if(!stored.fullFlag)
                 {
@@ -716,6 +722,7 @@ namespace alpaka
             auto res=environment_state.config_queue.getRoundRobin();
             if(res.has_value())
             {
+                //this queue only reads  from a toml file it can be ignored for now
                 StorageKernelRun & stored =res.value();
                 std::cout<<" stored run: "<<stored.toHash()<<std::endl;
                 toActive(run,stored);

@@ -41,18 +41,16 @@ namespace alpaka::tune
                         = newRun.getThreadBlockSizeTune().idxRange.m_begin;
                 }
             }
-
+#define minNumBlocks 10
+#define maxNumBlocks 20
             if constexpr(T_newActiveRunType::hasNumBlocksTune())
             {
                 if(!newRun.getNumBlocksTune().userDef)
                 {
-                    newRun.getNumBlocksTune().idxRange.m_begin = primeFactorPartitioning(
-                        device.getDeviceProperties().m_multiProcessorCount * 4u,
-                        T_NumBlocks{});
-                    newRun.getNumBlocksTune().idxRange.m_end = primeFactorPartitioning(
-                        device.getDeviceProperties().m_multiProcessorCount * 32u*4u,
-                        T_NumBlocks{});
-                    newRun.getNumBlocksTune().idxRange.m_stride = newRun.getNumBlocksTune().idxRange.m_begin;
+                    adaptRangeToNumSteps(
+                        newRun.getNumBlocksTune(),
+                        dataBlocking.m_numFrames,
+                        device.getDeviceProperties().m_multiProcessorCount);
                 }
             }
             return std::make_pair(dataBlocking.getThreadSpec(), newRun);

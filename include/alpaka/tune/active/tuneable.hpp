@@ -64,7 +64,66 @@ namespace alpaka::tune
             active.maxRuns = UINT64_MAX;
         }
     }
+    template<typename Vec>
+bool allTrue(const Vec& v) {
+        for (std::size_t i = 0; i < Vec::dim(); ++i)
+            if (!v[i]) return false;
+        return true;
+    }
+#define defaultMinSteps 16
+#define defaultMaxSteps 32
+    template<typename Tuneable,typename maxVec,typename ScalarPartitioning>
+    void adaptRangeToNumSteps(
+        Tuneable& tuneable, //the tuneable you want to partition
+        const maxVec& maxVal,   //maximum value (ndim vector)
+        ScalarPartitioning partition, //the scalar ressource that has to be partitioned for m_begin and m_stride
+        std::size_t minSteps = defaultMinSteps,
+        std::size_t maxSteps = defaultMaxSteps)
+    {
+        using Vec = decltype(tuneable.idxRange.m_begin);
+        using Scalar = typename Vec::type;
 
+        Vec base = primeFactorPartitioning(
+            partition,
+            Vec{});
+
+        tuneable.idxRange.m_begin = base;
+        tuneable.idxRange.m_stride = base;
+        tuneable.idxRange.m_end = multipleOfPartitioning(
+            maxVal,
+            base);
+
+        tuneable.toRange(); // calculate numSteps
+
+        int steps = tuneable.numSteps();
+
+        // Try scaling base up until steps are in range or we overshoot
+        Scalar scale = 1;
+        Vec current = base;
+
+        while (steps > maxSteps && allTrue(current * Scalar{2} < maxVal)) {
+            current = current * Scalar{2};
+            tuneable.idxRange.m_begin = current;
+            tuneable.idxRange.m_stride = current;
+            tuneable.idxRange.m_end = multipleOfPartitioning(maxVal, current);
+            tuneable.toRange();
+            steps = tuneable.numSteps();
+        }
+
+        // Back off if we overshot
+        while (steps < minSteps && scale > 1) {
+            current = current / Scalar{2};
+            tuneable.idxRange.m_begin = current;
+            tuneable.idxRange.m_stride = current;
+            tuneable.idxRange.m_end = multipleOfPartitioning(maxVal, current);
+            tuneable.toRange();
+            steps = tuneable.numSteps();
+        }
+        if (!allTrue(tuneable.idxRange.m_end > tuneable.idxRange.m_begin)) {
+            // fallback to the smallest valid range
+            tuneable.idxRange.m_end = tuneable.idxRange.m_begin;
+        }
+    }
     template <typename ValueVec, typename IdxRange>
 void clampToSpec_elem(const ValueVec& maxVal, IdxRange& idxRange, bool isThreadBlockTune, auto& device)
 {
