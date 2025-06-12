@@ -12,7 +12,7 @@
 #include <algorithm>
 #include <iterator>
 #include <string>
-
+#include "DotKernelTuneableTrait.hpp"
 using namespace alpaka;
 
 /**
@@ -58,7 +58,6 @@ int main(int argc, char* argv[])
     // Return the result of the tests
     return result;
 }
-
 struct SimdForEachKernel
 {
     //! \param acc The accelerator to be executed on.
@@ -72,10 +71,94 @@ struct SimdForEachKernel
         alpaka::concepts::MdSpan auto const&... args) const
     {
         auto simdGrid = onAcc::SimdAlgo{onAcc::worker::threadsInGrid};
+
         simdGrid.concurrent(acc, arg0.getExtents(), func, arg0, args...);
     }
 };
+template <typename CVec,typename Data>
+struct SimdForEachKernel_Add
+{
+    //! \param acc The accelerator to be executed on.
+    //! \param func functor applied to each SIMD package.
+    //! \param arg0 MdSpan from which the problem size is derived
+    //! \param args MdSpan other spans
+    ALPAKA_FN_ACC void operator()(
+        auto const& acc,
+        auto const& func,
+        alpaka::concepts::MdSpan auto const& arg0,
+        alpaka::concepts::MdSpan auto const&... args) const
+    {
+        auto simdGrid = onAcc::SimdAlgo{onAcc::worker::threadsInGrid};
+        CVec constexpr vec=CVec{};
+        auto constexpr firstElem=vec.x();
 
+        auto constexpr simdBytes=firstElem*sizeof(Data);
+        simdGrid.concurrent<simdBytes>(acc, arg0.getExtents(), func, arg0, args...);
+    }
+};
+template <typename CVec,typename Data>
+struct SimdForEachKernel_Mult
+{
+    //! \param acc The accelerator to be executed on.
+    //! \param func functor applied to each SIMD package.
+    //! \param arg0 MdSpan from which the problem size is derived
+    //! \param args MdSpan other spans
+    ALPAKA_FN_ACC void operator()(
+        auto const& acc,
+        auto const& func,
+        alpaka::concepts::MdSpan auto const& arg0,
+        alpaka::concepts::MdSpan auto const&... args) const
+    {
+        auto simdGrid = onAcc::SimdAlgo{onAcc::worker::threadsInGrid};
+        CVec constexpr vec=CVec{};
+        auto constexpr firstElem=vec.x();
+
+        auto constexpr simdBytes=firstElem*sizeof(Data);
+        simdGrid.concurrent<simdBytes>(acc, arg0.getExtents(), func, arg0, args...);
+    }
+};
+template <typename CVec,typename Data>
+struct SimdForEachKernel_Copy
+{
+    //! \param acc The accelerator to be executed on.
+    //! \param func functor applied to each SIMD package.
+    //! \param arg0 MdSpan from which the problem size is derived
+    //! \param args MdSpan other spans
+    ALPAKA_FN_ACC void operator()(
+        auto const& acc,
+        auto const& func,
+        alpaka::concepts::MdSpan auto const& arg0,
+        alpaka::concepts::MdSpan auto const&... args) const
+    {
+        auto simdGrid = onAcc::SimdAlgo{onAcc::worker::threadsInGrid};
+        CVec constexpr vec=CVec{};
+        auto constexpr firstElem=vec.x();
+
+        auto constexpr simdBytes=firstElem*sizeof(Data);
+        simdGrid.concurrent<simdBytes>(acc, arg0.getExtents(), func, arg0, args...);
+    }
+};
+template <typename CVec,typename Data>
+struct SimdForEachKernel_Triad
+{
+    //! \param acc The accelerator to be executed on.
+    //! \param func functor applied to each SIMD package.
+    //! \param arg0 MdSpan from which the problem size is derived
+    //! \param args MdSpan other spans
+    ALPAKA_FN_ACC void operator()(
+        auto const& acc,
+        auto const& func,
+        alpaka::concepts::MdSpan auto const& arg0,
+        alpaka::concepts::MdSpan auto const&... args) const
+    {
+        auto simdGrid = onAcc::SimdAlgo{onAcc::worker::threadsInGrid};
+        CVec constexpr vec=CVec{};
+        auto constexpr firstElem=vec.x();
+
+        auto constexpr simdBytes=firstElem*sizeof(Data);
+        simdGrid.concurrent<simdBytes>(acc, arg0.getExtents(), func, arg0, args...);
+    }
+};
 struct SimdInitOp
 {
     constexpr void operator()(auto const&, auto a, auto b, auto c) const
@@ -132,9 +215,11 @@ struct SimdNStreamOp
         a = a.load() + b.load() + scalar * c.load();
     }
 };
-
+template<typename T, typename CVec>
+inline constexpr std::uint32_t SimdBytes = CVec{}.x() * sizeof(T);
 //! Dot product of two vectors. The result is not a scalar but a vector of block-level dot products. For the
 //! BabelStream implementation and documentation: https://github.com/UoB-HPC
+template<typename CVec,typename Data>
 struct DotKernel
 {
     //! The kernel entry point
@@ -154,10 +239,23 @@ struct DotKernel
         auto arraySize) const
     {
         using T = trait::GetValueType_t<ALPAKA_TYPEOF(sum)>;
-        auto tbSum = onAcc::declareSharedMdArray<T, uniqueId()>(acc, CVec<uint32_t, blockThreadExtentMain>{});
-#if 1
-        auto numFrames = acc[frame::count];
+        auto sdata = onAcc::getDynSharedMem<T>(acc);
+        CVec constexpr vec=CVec{};
+        auto constexpr firstElem=vec.x();
+
+        std::uint32_t constexpr simdBytes=firstElem*sizeof(Data);
+
         auto frameExtent = acc[frame::extent];
+        auto numElemsPerFrame=firstElem*frameExtent[0];
+        auto numFrames=arraySize/numElemsPerFrame;
+        auto tbSum = alpaka::makeMdSpan(
+            sdata,
+            frameExtent,
+            alpaka::onHost::mem::calculatePitchesFromExtents<T>(frameExtent),
+            Alignment{});
+        //auto tbSum = onAcc::declareSharedMdArray<T, uniqueId()>(acc, CVec<uint32_t, blockThreadExtentMain>{});
+#if 1
+
 
         auto traverseInFrame = onAcc::makeIdxMap(acc, onAcc::worker::threadsInBlock, IdxRange{frameExtent});
         /* init shared memory
@@ -180,7 +278,7 @@ struct DotKernel
             for(auto elemIdxInFrame : traverseInFrame)
             {
                 auto allThreads = onAcc::SimdAlgo{onAcc::WorkerGroup{frameIdx + elemIdxInFrame, frameDataExtent}};
-                auto reducedValue = allThreads.transformReduce(
+                auto reducedValue = allThreads.template transformReduce<simdBytes>(
                     acc,
                     alpaka::Vec{arraySize},
                     T{0},
@@ -226,7 +324,113 @@ struct DotKernel
             onAcc::atomicAdd(acc, &sum[0], tbSum[local_i]);
     }
 };
+template<typename Data_T,typename Exec_T>
+static auto getSessionFromExec(Exec_T const &exec,auto arraySize,auto & devAcc){
+		//default for GPUs
+        using Idx = std::uint32_t;
+    using idxVec = alpaka::Vec<uint32_t, 1u>;
+        std::string data;
+        if(sizeof(Data_T)==sizeof(float)){
+            data="float";
+           }
+          else{
+              data="double";
+              }
+    auto setFixedNumBlocks_ = devAcc.getDeviceProperties().m_multiProcessorCount;
+    auto maxThreads = devAcc.getDeviceProperties().m_maxThreadsPerBlock;
+    std::cout << "max Threads" << maxThreads << std::endl;
+    auto mpVec = idxVec{static_cast<Idx>(setFixedNumBlocks_) * static_cast<Idx>(8u)};
+    static constexpr auto _0T = std::size_t{0};
+    static constexpr std::size_t index0 = 0;
+    // alpaka::tune::Tuneable{uVec{56*2}, IdxRange{uVec{56*2}, uVec{dataBlocking.m_numFrames}, uVec{56*2}}})
+    auto tuningSessionDot
+        = tune::TuningBuilder{}
+              .withStrategy(tune::strategy::exhaustiveSearch{})
+              .withRunSpecifiers(std::to_string(arraySize))
+              .withFrameExtentTune(tune::Tuneable(idxVec{64}, IdxRange{idxVec{64}, idxVec{64 * 16}, idxVec{64}}))
+              .withBlockSizeTune(tune::Tuneable(idxVec{64}, IdxRange{idxVec{64}, idxVec{maxThreads}, idxVec{64}}))
+              .withNumBlocksTune(tune::Tuneable(mpVec, IdxRange{mpVec, mpVec * idxVec{16u}, mpVec}))
+              .template withConstraint<tune::frameTune::numBlocks, tune::frameTune::FrameExtent, _0T>(
+                  [arraySize](auto numBlocks, auto frameExtent, auto concurrentElements)
+                  {
+                      auto chunkElements = concurrentElements * frameExtent;
+                      auto condZ = arraySize % concurrentElements[0] == decltype(arraySize){0};
+                      auto calcNumFrames = alpaka::Vec<uint32_t, 1u>{arraySize / chunkElements[0]};
+                      auto frameDataExtent = calcNumFrames * chunkElements;
+                      auto condX = numBlocks[0] <= calcNumFrames[0];
+                      auto condY = frameDataExtent[0] <= arraySize;
+                      std::cout << " chunkElems: " << chunkElements << " arSize: " << arraySize << " numFrames "
+                                << calcNumFrames[0] << " concurrentElements " << concurrentElements[0] << " numBlocks "
+                                << numBlocks[0] << " frameDataExtent " << frameDataExtent[0];
+                      return condX && condY && condZ;
+                  })
+              .withConfig("./config/realBabelstreamGPU "+alpaka::tune::strategy::detail::getName()+"_"+data+".toml")
+              .build();
+    auto tuningSessionRest
+        = tune::TuningBuilder{}
+              .withStrategy(alpaka::tune::strategy::exhaustiveSearch{})
+              .withRunSpecifiers(std::to_string(arraySize))
+              .withBlockSizeTune(tune::Tuneable(idxVec{64}, IdxRange{idxVec{64}, idxVec{maxThreads}, idxVec{64}}))
+              .withNumBlocksTune(tune::Tuneable(mpVec, IdxRange{mpVec, mpVec * idxVec{16u}, mpVec}))
+              .template withConstraint<tune::frameTune::numBlocks, tune::frameTune::ThreadBlock, _0T>(
+                  [arraySize](auto numBlocks, auto numThreads, auto concurrentElements)
+                  {
+                      auto gridElems = concurrentElements[0] * numBlocks[0] * numThreads[0];
+                      auto condX = (arraySize % (concurrentElements[0] * numThreads[0])) == decltype(arraySize){0};
+                      auto condY = gridElems <= arraySize;
 
+                      return condX && condY;
+                  })
+              .withConfig("./config/realBabelstreamGPU "+alpaka::tune::strategy::detail::getName()+"_"+data+".toml")
+              .build();
+		return std::make_tuple(tuningSessionDot,tuningSessionRest);
+    };
+template<typename Data_T>
+static auto getSessionFromExec(alpaka::exec::CpuOmpBlocks const &exec, auto arraySize, auto &devAcc) {
+    // specialization implementation
+using Idx = std::uint32_t;
+    using idxVec = alpaka::Vec<uint32_t, 1u>;
+ std::string data;
+        if(sizeof(Data_T)==sizeof(float)){
+            data="float";
+           }
+          else{
+              data="double";
+              }
+	std::cout<<" selected for cpu omp blocks"<<std::endl;
+	const auto setFixedNumBlocks_ = devAcc.getDeviceProperties().m_multiProcessorCount;
+    auto mpVec = idxVec{static_cast<Idx>(setFixedNumBlocks_)};
+    static auto constexpr _0T=static_cast<std::size_t>(0);
+	static auto sessionDot=tune::TuningBuilder{}
+              .withRunSpecifiers(std::to_string(arraySize),data)
+              .withFrameExtentTune(tune::Tuneable(idxVec{64}, IdxRange{idxVec{64}, idxVec{128 * 32}, idxVec{64}}))
+              .withNumBlocksTune(tune::Tuneable(mpVec, IdxRange{mpVec, mpVec * idxVec{8u}, mpVec / idxVec{2}}))
+    .withConfig("./config/babelstream_OMPBlocks_Dot_"+alpaka::tune::strategy::detail::getName()+"_"+data+".toml")
+              .template withConstraint<_0T>([](auto concurrentElems){
+                                                bool divBy2=concurrentElems[0]%static_cast<Idx>(2)==static_cast<Idx>(0);
+                                                bool one=concurrentElems[0]==static_cast<Idx>(1);
+                                                return divBy2||one;
+                                                }).build();
+		static auto sessionRest= tune::TuningBuilder{}
+              .withRunSpecifiers(std::to_string(arraySize),data)
+              .withNumBlocksTune(tune::Tuneable(mpVec, IdxRange{mpVec, mpVec * idxVec{8u}, mpVec / idxVec{2}}))
+              .template withConstraint<_0T>([](auto concurrentElems){
+                                                bool divBy2=concurrentElems[0]%static_cast<Idx>(2)==static_cast<Idx>(0);
+                                                bool one=concurrentElems[0]==static_cast<Idx>(1);
+                                                return divBy2||one;
+                                                })
+              .template withConstraint<tune::frameTune::numBlocks, _0T>(
+                  [arraySize](auto numBlocks, auto concurrentElements)
+                  {
+                      auto chunkElements = concurrentElements[0] * numBlocks[0];
+                      auto condY = chunkElements <= arraySize;
+
+                      return condY;
+                  })
+              .withConfig("./config/babelstream_OMPBlocks_Rest_"+alpaka::tune::strategy::detail::getName()+"_"+data+".toml")
+              .build();
+		return std::make_tuple(sessionDot,sessionRest);
+}
 //! \brief The Function for testing babelstream kernels for given Acc type and data type.
 //! \tparam TAcc the accelerator type
 //! \tparam DataType The data type to differentiate single or double data type based tests.
@@ -260,7 +464,7 @@ void testKernels(T_Cfg cfg)
                       << "\n";
             std::cout << "Skip benchmark.\n";
             std::cout << "For Intel Arc GPUs, use the environemnt variables `IGC_EnableDPEmulation=1 "
-                         "OverrideDefaultFP64Settings=1` to emulate double precision support.\n";
+                         "wDefaultFP64Settings=1` to emulate double precision support.\n";
             return;
         }
     }
@@ -290,6 +494,7 @@ void testKernels(T_Cfg cfg)
 
     // Create vectors
     using Idx = std::uint32_t;
+    using idxVec = alpaka::Vec<uint32_t, 1u>;
     auto arraySize = static_cast<Idx>(arraySizeMain);
 
     // Acc buffers
@@ -312,53 +517,22 @@ void testKernels(T_Cfg cfg)
      */
     uint32_t elementsPerFrameItem = getNumElemPerThread<DataType>(queue);
 
-    using idxVec = alpaka::Vec<uint32_t, 1u>;
-    auto numFrames = divExZero(arraySize, static_cast<Idx>(blockThreadExtentMain) * elementsPerFrameItem);
-    auto setFixedNumBlocks_ = devAcc.getDeviceProperties().m_multiProcessorCount;
-    auto mpVec = idxVec{static_cast<Idx>(setFixedNumBlocks_)};
-    static constexpr auto _0T = std::size_t{0};
-    static constexpr std::size_t index0 = 0;
-    auto dataBlocking = onHost::FrameSpec{
-        idxVec{mpVec * idxVec{8u}},
-        idxVec{static_cast<Idx>(idxVec{128 * 32})},
-        idxVec{static_cast<Idx>(setFixedNumBlocks_)}};
-    // alpaka::tune::Tuneable{uVec{56*2}, IdxRange{uVec{56*2}, uVec{dataBlocking.m_numFrames}, uVec{56*2}}})
-    auto tuningSessionDot
-        = tune::TuningBuilder{}
-              .withStrategy(alpaka::tune::strategy::exhaustiveSearch{})
-              .withRunSpecifiers(std::to_string(arraySize))
-              .withFrameExtentTune(tune::Tuneable(idxVec{64}, IdxRange{idxVec{64}, idxVec{128 * 32}, idxVec{64}}))
-              .withNumBlocksTune(tune::Tuneable(mpVec, IdxRange{mpVec, mpVec * idxVec{8u}, mpVec / idxVec{2}}))
-              .template withConstraint<tune::frameTune::numBlocks, tune::frameTune::FrameExtent>(
-                  [arraySize](auto numBlocks, auto frameExtent)
-                  {
-                      auto chunkElements = 1u * frameExtent;
-                      auto calcNumFrames = alpaka::Vec<uint32_t, 1u>{arraySize / chunkElements[0]};
-                      auto frameDataExtent = calcNumFrames * chunkElements;
-                      auto condX = numBlocks[0] <= calcNumFrames[0];
-                      auto condY = frameDataExtent[0] <= arraySize;
-                      std::cout << " chunkElems: " << chunkElements << " arSize: " << arraySize << " numFrames "
-                                << calcNumFrames[0] << " concurrentElements " << 1u << " numBlocks " << numBlocks[0]
-                                << " frameDataExtent " << frameDataExtent[0];
-                      return condX && condY;
-                  })
-              .withConfig("./config/realBabelstreamCPUDot.toml")
-              .build();
-    auto tuningSessionRest
-        = tune::TuningBuilder{}
-              .withStrategy(alpaka::tune::strategy::exhaustiveSearch{})
-              .withRunSpecifiers(std::to_string(arraySize))
-              .withNumBlocksTune(tune::Tuneable(mpVec, IdxRange{mpVec, mpVec * idxVec{8u}, mpVec / idxVec{2}}))
-              .template withConstraint<tune::frameTune::numBlocks>(
-                  [arraySize](auto numBlocks)
-                  {
-                      auto chunkElements = 1u * numBlocks[0];
-                      auto condY = chunkElements <= arraySize;
 
-                      return condY;
-                  })
-              .withConfig("./config/realBabelstreamCPURest.toml")
-              .build();
+    auto numFrames = divExZero(arraySize, static_cast<Idx>(blockThreadExtentMain) * elementsPerFrameItem);
+    auto dataBlockingInit=onHost::FrameSpec{
+        numFrames,
+        static_cast<Idx>(blockThreadExtentMain)};
+    auto dataBlocking = onHost::FrameSpec{
+        idxVec{static_cast<Idx>(arraySize)},
+        idxVec{static_cast<Idx>(arraySize)}}; //doesnt matter since we adjust it anyway
+    // alpaka::tune::Tuneable{uVec{56*2}, IdxRange{uVec{56*2}, uVec{dataBlocking.m_numFrames}, uVec{56*2}}})
+    auto tuningSessions
+        = getSessionFromExec<DataType>(exec,arraySize,devAcc);
+    using TuningSessionDotType = decltype(std::get<0>(tuningSessions));
+    using TuningSessionRestType = decltype(std::get<1>(tuningSessions));
+
+    TuningSessionDotType tuningSessionDot = std::get<0>(tuningSessions);
+	TuningSessionRestType tuningSessionRest = std::get<1>(tuningSessions);
 
 
     // To record runtime data generated while running the kernels
@@ -406,7 +580,7 @@ void testKernels(T_Cfg cfg)
         {
             queue.enqueue(
                 exec,
-                dataBlocking,
+                dataBlockingInit,
                 KernelBundle{SimdForEachKernel{}, SimdInitOp{}, bufAccInputA, bufAccInputB, bufAccOutputC});
         },
         "InitKernel");
@@ -430,7 +604,7 @@ void testKernels(T_Cfg cfg)
                         queue,
                         exec,
                         dataBlocking,
-                        KernelBundle{SimdForEachKernel{}, SimdCopyOp{}, bufAccInputA, bufAccOutputC});
+                        KernelBundle{SimdForEachKernel_Copy<CVec<std::uint32_t, 1>,DataType>{}, SimdCopyOp{}, bufAccInputA, bufAccOutputC});
                 },
                 "CopyKernel");
 
@@ -438,7 +612,7 @@ void testKernels(T_Cfg cfg)
             measureKernelExec(
                 [&]()
                 { tuningSessionRest.enqueue(devAcc,
-                        queue,exec, dataBlocking, KernelBundle{SimdForEachKernel{}, SimdMultOp{}, bufAccInputB, bufAccOutputC}); },
+                        queue,exec, dataBlocking, KernelBundle{SimdForEachKernel_Mult<CVec<std::uint32_t, 1>,DataType>{}, SimdMultOp{}, bufAccInputB, bufAccOutputC}); },
                 "MultKernel");
 
             // Test the addition-kernel. Calculate C=A+B. Where B=scalar*C or B=scalar*A.
@@ -449,7 +623,7 @@ void testKernels(T_Cfg cfg)
                         queue,
                         exec,
                         dataBlocking,
-                        KernelBundle{SimdForEachKernel{}, SimdAddOp{}, bufAccInputA, bufAccInputB, bufAccOutputC});
+                        KernelBundle{SimdForEachKernel_Add<CVec<std::uint32_t, 1>,DataType>{}, SimdAddOp{}, bufAccInputA, bufAccInputB, bufAccOutputC});
                 },
                 "AddKernel");
         }
@@ -464,18 +638,14 @@ void testKernels(T_Cfg cfg)
                         queue,
                         exec,
                         dataBlocking,
-                        KernelBundle{SimdForEachKernel{}, SimdTriadOp{}, bufAccInputA, bufAccInputB, bufAccOutputC});
+                        KernelBundle{SimdForEachKernel_Triad<CVec<std::uint32_t, 1>,DataType>{}, SimdTriadOp{}, bufAccInputA, bufAccInputB, bufAccOutputC});
                 },
                 "TriadKernel");
         }
         if(kernelsToBeExecuted == KernelsToRun::All)
         {
             uint32_t elementsPerFrameItem = getNumElemPerThread<DataType>(queue);
-            auto numFrames = std::min(
-                static_cast<Idx>(dotGridBlockExtent),
-                alpaka::divExZero(arraySize, (static_cast<Idx>(blockThreadExtentMain) * elementsPerFrameItem)));
 
-            auto dataBlockingDot = onHost::FrameSpec{numFrames, static_cast<Idx>(blockThreadExtentMain)};
 
             // Vector of sums of each block
             auto bufAccSumPerBlock = onHost::alloc<DataType>(devAcc, 1u);
@@ -490,9 +660,9 @@ void testKernels(T_Cfg cfg)
                     tuningSessionDot.enqueue(devAcc,
                         queue,
                         exec,
-                        dataBlockingDot,
+                        dataBlocking,
                         KernelBundle{
-                            DotKernel{}, // Dot kernel
+                            DotKernel<CVec<std::uint32_t, 1>,DataType>{}, // Dot kernel
                             bufAccInputA,
                             bufAccInputB,
                             bufAccSumPerBlock,
@@ -504,7 +674,7 @@ void testKernels(T_Cfg cfg)
                 "DotKernel");
 
             // Add workdiv to the list of workdivs to print later
-            metaData.setItem(BMInfoDataType::WorkDivDot, dataBlockingDot);
+            metaData.setItem(BMInfoDataType::WorkDivDot, dataBlocking);
         }
         // NStream kernel is run only for one command line argument
         if(kernelsToBeExecuted == KernelsToRun::NStream)

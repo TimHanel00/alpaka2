@@ -137,7 +137,6 @@ auto example(T_Cfg const& cfg) -> int
     assert(
         numNodes[0] % chunkSize[0] == 0 && numNodes[1] % chunkSize[1] == 0
         && "Domain must be divisible by chunk size");
-
     auto sharedMemExtents = CVec<uint32_t, ySize + halo, xSize + halo>{};
     StencilKernel2 stencilKernel;
     BoundaryKernel2 boundaryKernel;
@@ -169,8 +168,7 @@ auto example(T_Cfg const& cfg) -> int
                                 IdxRange{setnumThreads_, toRTime.m_frameExtent * fVec{4, 4}, fVec{2, 2}}))
                   */
               .withFrameExtentTune(tune::Tuneable(IdxRange{fVec{4, 8}, toRTime.m_frameExtent, fVec{4, 8}}))
-              .withNumBlocksTune(
-                  tune::Tuneable(IdxRange{setFixedNumBlocks_, toRTime.m_numFrames * uVec{2, 2}, setFixedNumBlocks_}))
+              .withNumBlocksTune()
               .withBlockSizeTune(tune::Tuneable(IdxRange{fVec{4, 8}, toRTime.m_frameExtent, fVec{4, 8}}))
               .template withConstraint<tune::frameTune::numBlocks, tune::frameTune::FrameExtent>(
                   [numNodes](auto numBlocks, auto numElementsPerChunk)
@@ -201,7 +199,7 @@ auto example(T_Cfg const& cfg) -> int
                       auto condU = ((setFixedNumBlocks_.x() * frameExtent.x()) <= numNodes.x())
                                    && (setFixedNumBlocks_.y() * frameExtent.y()) <= numNodes.y();
                       return condX && condY && condZ && condU;
-                  }) /*
+                  })
                .template withConstraint<tune::frameTune::FrameExtent, tune::frameTune::ThreadBlock>(
                    [](auto a, auto b)
                    {

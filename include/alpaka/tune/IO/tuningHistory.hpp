@@ -97,7 +97,7 @@ namespace alpaka::tune
                     std::cout << "  - Target Metric: " << kernelData.targetMetric << std::endl;
 #endif
 
-                    std::size_t highestStamp = 0;
+                    long long int highestStamp = 0;
 
                     if(kernelTable.contains("specifiers"))
                     {
@@ -149,7 +149,7 @@ namespace alpaka::tune
                                 {
                                     try
                                     {
-                                        run.stamp = static_cast<std::size_t>(runTable.at("stamp").as_integer());
+                                        run.stamp = static_cast<long long int>(runTable.at("stamp").as_integer());
                                         highestStamp = std::max(highestStamp, run.stamp);
 
                                         auto const& tuneablesV = runTable.at("tuneableVals").as_array();

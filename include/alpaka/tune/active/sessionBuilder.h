@@ -42,6 +42,25 @@ namespace alpaka::tune
             newTuple,
             run);
     }
+
+    namespace strategy::detail
+    {
+#ifdef strategy_randomSearch
+        inline std::string strat_name = "randomSearch";
+#elif strategy_exhaustiveSearch
+        inline std::string strat_name = "exhaustiveSearch";
+#elif strategy_simulatedAnnealing
+        inline std::string strat_name = "simulatedAnnealing";
+#elif strategy_randomSample
+        inline std::string strat_name = "randomSample";
+#else
+        inline std::string strat_name = "randomSearch";
+#endif
+        static auto getName()
+        {
+            return strat_name;
+        }
+    } // namespace strategy::detail
     template<
 
 #ifdef strategy_randomSearch
@@ -53,7 +72,7 @@ namespace alpaka::tune
 #elif strategy_randomSample
             typename T_Strategy=alpaka::tune::strategy::randomSample
 #else
-        typename T_Strategy = alpaka::tune::strategy::randomSearch,
+        typename T_Strategy = alpaka::tune::strategy::exhaustiveSearch,
 #endif
         typename T_MetricInterface = alpaka::tune::metricInterface::Timing,
         typename T_ConstraintTuple = std::tuple<>,
@@ -306,7 +325,7 @@ namespace alpaka::tune
                                 using T = T0;
                                 bool allTrue = true;
                                 for(int i = 0; i < T::dim(); i++)
-                                    allTrue = allTrue && a[i] >= b[i];
+                                    allTrue = allTrue && (a[i] >= b[i]);
                                 return allTrue;
                             });
                     auto threadsSmallerExtentCondition
@@ -316,7 +335,7 @@ namespace alpaka::tune
                                 using T = T0;
                                 bool allTrue = true;
                                 for(int i = 0; i < T::dim(); i++)
-                                    allTrue = allTrue && a[i] >= b[i];
+                                    allTrue = allTrue && (a[i] >= b[i]);
                                 return allTrue;
                             });
 
@@ -343,7 +362,7 @@ namespace alpaka::tune
                                 using T = T0;
                                 bool allTrue = true;
                                 for(int i = 0; i < T::dim(); i++)
-                                    allTrue = allTrue && a[i] >= b[i];
+                                    allTrue = allTrue && (a[i] >= b[i]);
                                 return allTrue;
                             });
                     auto newTuple = std::tuple_cat(m_constraintTuple, std::make_tuple(framesSmallerBlocksCondition));
@@ -359,14 +378,17 @@ namespace alpaka::tune
                 }
                 else
                 {
+                    std::cout<<" check frameExtent bigger condition"<<std::endl;
                     auto threadsSmallerExtentCondition
                         = this->template constraintHelper<frameTune::FrameExtent, frameTune::ThreadBlock>(
                             []<typename T0>(T0 a, auto b)
                             {
+
                                 using T = T0;
                                 bool allTrue = true;
                                 for(int i = 0; i < T::dim(); i++)
-                                    allTrue = allTrue && a[i] >= b[i];
+                                    allTrue = allTrue && (a[i] >= b[i]);
+                                std::cout<<" evaluate frame extent bigger than blocks" <<a.x() <<" vs " <<b.x()<< allTrue<<std::endl;
                                 return allTrue;
                             });
                     auto newTuple = std::tuple_cat(m_constraintTuple, std::make_tuple(threadsSmallerExtentCondition));

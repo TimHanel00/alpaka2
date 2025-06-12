@@ -31,7 +31,7 @@ namespace
     [[maybe_unused]] constexpr double scalarVal = 0.4;
 
     // Block thread extent for DotKernel test work division parameters.
-    [[maybe_unused]] constexpr auto blockThreadExtentMain = 512;
+    [[maybe_unused]] constexpr auto blockThreadExtentMain = 1024;
     // If we use to many blocks the single precision result will be wrong due to the long summation with atomics per
     // thread block.
     [[maybe_unused]] constexpr auto dotGridBlockExtent = 1024;

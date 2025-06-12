@@ -247,7 +247,21 @@ namespace alpaka::tune
             };
             template<std::size_t N>
             struct debug_print;
+            template<typename A, typename B, bool = IsCVector<A>::value && IsCVector<B>::value>
+            struct CVectorCompatible
+            {
+                static constexpr bool typeMatches = false;
+                static constexpr bool dimensionMatches = false;
+                static constexpr bool value = false;
+            };
 
+            template<typename A, typename B>
+            struct CVectorCompatible<A, B, true>
+            {
+                static constexpr bool typeMatches = std::is_same_v<typename A::type, typename B::type>;
+                static constexpr bool dimensionMatches = (::alpaka::getDim(A{}) == ::alpaka::getDim(B{}));
+                static constexpr bool value = typeMatches && dimensionMatches;
+            };
             template<
                 typename Tuple,
                 typename Indices,
@@ -259,57 +273,57 @@ namespace alpaka::tune
             struct rebuild_tuple_impl;
 
             template<
-                typename Tuple,
-                typename Indices,
-                typename Replacements,
-                std::size_t CurrentKernelIndex,
-                std::size_t NumberOfKernelArgs,
-                typename... Result>
-            struct rebuild_tuple_impl<
-                Tuple,
-                Indices,
-                Replacements,
-                CurrentKernelIndex,
-                NumberOfKernelArgs,
-                false,
-                Result...>
+             typename Tuple,
+             typename Indices,
+             typename Replacements,
+             std::size_t CurrentKernelIndex,
+             std::size_t NumberOfKernelArgs,
+             typename... Result>
+         struct rebuild_tuple_impl<
+             Tuple,
+             Indices,
+             Replacements,
+             CurrentKernelIndex,
+             NumberOfKernelArgs,
+             false,
+             Result...>
             {
-                using current = std::tuple_element_t<CurrentKernelIndex, Tuple>;
+                using current_T = std::tuple_element_t<CurrentKernelIndex, Tuple>;
                 using index_in_T = index_in<CurrentKernelIndex, std::remove_cvref_t<Indices>>;
-                // static_assert(std::is_same_v<index_in_T, void()>);
-                static constexpr std::size_t indexWhereCurrentKernelIndexWasFound
-                    = (index_in_T::index == static_cast<std::size_t>(-1)) ? 0 : index_in_T::index;
-                using replacement = std::tuple_element_t<indexWhereCurrentKernelIndexWasFound, Replacements>;
-                static constexpr bool typeMatches = std::is_same_v<typename replacement::type, typename current::type>;
 
-                static constexpr bool dimensionMatches
-                    = ::alpaka::getDim(current{}) == ::alpaka::getDim(replacement{});
-                static_assert(!index_in_T::value || typeMatches, " not type convertible");
-                static_assert(
-                    !index_in_T::value || (index_in_T::value && typeMatches && dimensionMatches),
-                    " Template arguments of your Kernel definition do not match the corresponding compile time "
-                    "tuneable definition (check types and dimensions)");
-                static constexpr bool typeReturned = index_in_T::value && typeMatches && dimensionMatches;
+                static constexpr std::size_t indexWhereCurrentKernelIndexWasFound =
+                    (index_in_T::index == static_cast<std::size_t>(-1)) ? 0 : index_in_T::index;
+
+                using replacement = std::tuple_element_t<indexWhereCurrentKernelIndexWasFound, Replacements>;
+                // Check type and dimension if both are CVec
+                static constexpr bool typeMatches = CVectorCompatible<replacement, current_T>::value;
+
+
+                static constexpr bool shouldReplace =
+                    index_in_T::value && typeMatches;
+
+                static constexpr bool isDone = (CurrentKernelIndex + 1 >= NumberOfKernelArgs);
+
                 using type = typename std::conditional_t<
-                    typeReturned,
+                    shouldReplace,
                     rebuild_tuple_impl<
                         Tuple,
                         Indices,
                         Replacements,
                         CurrentKernelIndex + 1,
                         NumberOfKernelArgs,
-                        (CurrentKernelIndex + 1 >= NumberOfKernelArgs),
+                        isDone,
                         Result...,
-                        std::tuple_element_t<indexWhereCurrentKernelIndexWasFound, Replacements>>,
+                        replacement>,
                     rebuild_tuple_impl<
                         Tuple,
                         Indices,
                         Replacements,
                         CurrentKernelIndex + 1,
                         NumberOfKernelArgs,
-                        (CurrentKernelIndex + 1 >= NumberOfKernelArgs),
+                        isDone,
                         Result...,
-                        current>>::type;
+                        current_T>>::type;
             };
 
             template<

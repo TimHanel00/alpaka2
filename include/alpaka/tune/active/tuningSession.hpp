@@ -41,7 +41,7 @@ namespace alpaka
 namespace alpaka::tune::detail::internal
 {
     template<typename T_MetricInterface>
-void assignBestIfBetter(StorageKernelRun& best, StorageKernelRun& stored)
+    void assignBestIfBetter(StorageKernelRun& best, StorageKernelRun& stored)
     {
         assert(!stored.metricContainer.empty());
         if(best.metricContainer.empty() && !stored.metricContainer.empty())
@@ -58,9 +58,11 @@ void assignBestIfBetter(StorageKernelRun& best, StorageKernelRun& stored)
         }
         best = aGTb<T_MetricInterface>{}(stored, best);
     }
-#define allowPrematureConfigSkip false
+
+#    define allowPrematureConfigSkip false
+
     template<typename T_MetricInterface>
-    bool enoughEvaluationsForConfig(StorageKernelRun &stored, EnvironmentState& environment)
+    bool enoughEvaluationsForConfig(StorageKernelRun& stored, EnvironmentState& environment)
     {
         if(stored.fullFlag || stored.state == StorageKernelRun::State::Dummy)
         {
@@ -245,10 +247,12 @@ void assignBestIfBetter(StorageKernelRun& best, StorageKernelRun& stored)
             data.histEvaluated = true;
             EnvironmentState& environment_state = kernelptr->environmentState;
             bool bestEvaluated
-                = enoughEvaluationsForConfig<T_MetricInterface>(environment_state.bestConfig, environment_state)&&(environment_state.bestConfig.state!=StorageKernelRun::State::Dummy);
+                = enoughEvaluationsForConfig<T_MetricInterface>(environment_state.bestConfig, environment_state)
+                  && (environment_state.bestConfig.state != StorageKernelRun::State::Dummy);
             for(auto& run : data.runs)
             {
-                if(run.second.state==StorageKernelRun::State::Dummy)continue;
+                if(run.second.state == StorageKernelRun::State::Dummy)
+                    continue;
                 StorageKernelRun& stored = run.second;
 
                 bool enough = enoughEvaluationsForConfig<T_MetricInterface>(stored, environment_state);
@@ -261,7 +265,8 @@ void assignBestIfBetter(StorageKernelRun& best, StorageKernelRun& stored)
                         continue;
                     }
                     environment_state.bestConfig = stored;
-                }else
+                }
+                else
                 {
                     environment_state.config_queue.push_back(stored);
                 }
@@ -272,12 +277,11 @@ void assignBestIfBetter(StorageKernelRun& best, StorageKernelRun& stored)
         return kernelptr;
     }
 
-
     template<typename T_Context, typename T_Constraints, typename Run, typename Data>
     bool violatesConstraint(Run& run, Data& data, T_Constraints& constraint, EnvironmentState& state)
     {
         auto runHash = run.toHash();
-        auto const& stored = data.runs.at(runHash);
+        auto& stored = data.runs.at(runHash);
         if(stored.state == StorageKernelRun::State::Dummy)
         {
             return true;
@@ -290,11 +294,11 @@ void assignBestIfBetter(StorageKernelRun& best, StorageKernelRun& stored)
             {
                 auto constraintValid = constraint.template operator()<T_Context>(run);
                 valid = valid && constraintValid;
+                std::cout << " constraint" << std::endl;
             });
         if(!valid)
         {
-            data.runs[runHash] = toStore(run);
-            auto& stored = data.runs[runHash];
+            std::cout << " constraint violated for : " << runHash << std::endl;
             using T_state = ALPAKA_TYPEOF(stored.state);
             ++state.numberOfCheckedConfigs;
             stored.metricContainer.clear();
@@ -319,16 +323,22 @@ void assignBestIfBetter(StorageKernelRun& best, StorageKernelRun& stored)
         if(!data.runs.contains(config.toHash()))
         {
             data.runs[config.toHash()] = toStore(config);
+            bool violatesConstraint_ = violatesConstraint<T_Context>(config, data, constraints, environment);
+            if(violatesConstraint_)
+                return false;
             return true;
         }
         StorageKernelRun& stored = data.runs[config.toHash()];
-        bool enoughEvalutations = enoughEvaluationsForConfig<T_MetricInterface>(stored, environment);
-
         bool violatesConstraint_ = violatesConstraint<T_Context>(config, data, constraints, environment);
-        return !enoughEvalutations && !violatesConstraint_;
+        if(violatesConstraint_)
+            return false; // shortcut long evaluation
+        bool enoughEvalutations = enoughEvaluationsForConfig<T_MetricInterface>(stored, environment);
+        if(enoughEvalutations)
+            return false;
+        return true;
     }
 
-#    define maxConsecutiveStrategyRuns 100
+#    define maxConsecutiveStrategyRuns 40000
 
     // Check if a m_strategy should be applied and config should be skipped
     template<
@@ -355,28 +365,30 @@ void assignBestIfBetter(StorageKernelRun& best, StorageKernelRun& stored)
             strategy(metric_interface, sharedParams, run, data, environment);
 
             std::string newHash = run.toHash();
-            std::cout<<oldHash<<"  new vs old"<<newHash<<std::endl;
+            std::cout << oldHash << "  old vs new" << newHash << std::endl;
             if(newHash != oldHash
                && configReadyForRun<T_Context, T_MetricInterface>(run, data, environment, constraints))
             {
+                std::cout << " somehow this config is read to run" << newHash << std::endl;
                 return true;
             }
             if(newHash != oldHash)
             {
-                std::cout<<" newHash: "<<newHash<<std::endl;
-                std::cout<<" oldHash: "<<oldHash<<std::endl;
-                std::cout<<" was rejected "<<std::endl;
+                std::cout << " newHash: " << newHash << std::endl;
+                std::cout << " oldHash: " << oldHash << std::endl;
+                std::cout << " was rejected " << std::endl;
             }
             if(environment.sessionFinished)
             {
-                std::cout<<" environment is already finished "<<std::endl;
+                std::cout << " environment is already finished " << std::endl;
                 return false;
             }
         }
         environment.sessionFinished = true;
-        //KernelTuningModel<> run;
-        auto &tuneableRange=std::get<0>(run.allTuneables()).idxRange;
-        std::cout<<" begin: "<<tuneableRange.m_begin<<" end: "<<tuneableRange.m_end<<" stride: "<<tuneableRange.m_stride<<std::endl;
+        // KernelTuningModel<> run;
+        auto& tuneableRange = std::get<0>(run.allTuneables()).idxRange;
+        std::cout << " begin: " << tuneableRange.m_begin << " end: " << tuneableRange.m_end
+                  << " stride: " << tuneableRange.m_stride << std::endl;
         std::cout << " Did not find a suitable new config in " << maxConsecutiveStrategyRuns
                   << " iterations using the currently selected Strategy using best Config now: "
                   << environment.bestConfig.toHash() << std::endl;
@@ -412,7 +424,7 @@ void assignBestIfBetter(StorageKernelRun& best, StorageKernelRun& stored)
         // KernelBundle Definition
         trait::callPreProcessing(run, spec, interface, kernelBundle);
         using KernelFn = typename getTypeFrom<std::decay_t<decltype(kernelBundle)>>::type;
-
+        std::cout << " try to launch kernel with " << run.toHash() << std::endl;
         if constexpr(!trait::hasUserDefinedCTuneable<KernelFn>::value)
         {
             interface.start(run, spec);
@@ -469,19 +481,19 @@ void assignBestIfBetter(StorageKernelRun& best, StorageKernelRun& stored)
         switch(stored.state)
         {
         case T_state::Uninitialized:
-            stored.stamp = data.highestStamp+state.stamp++;
-            std::cout<<" assigned stamp: "<<stored.stamp<<std::endl;
+            stored.stamp = data.highestStamp + state.stamp++;
+            std::cout << " assigned stamp: " << stored.stamp << std::endl;
             break;
         case T_state::Dummy:
             return;
         default:
-            std::cout<<" config has state: "<< runHash<<" state: "<<static_cast<std::size_t>(stored.state)<<std::endl;
+            std::cout << " config has state: " << runHash << " state: " << static_cast<std::size_t>(stored.state)
+                      << std::endl;
             break;
         }
         bool flagPre = stored.fullFlag;
         stored.pushMetric(run.metric);
         bool flagPost = stored.fullFlag;
-
 
 
         // update stopping criteria
@@ -517,6 +529,7 @@ void assignBestIfBetter(StorageKernelRun& best, StorageKernelRun& stored)
 namespace alpaka
 {
 
+#    define MeasureBestRuns 50 // how many runs after we have the best config will get messured (from the best config)
 
     template<
         typename T_Config,
@@ -537,18 +550,29 @@ namespace alpaka
         T_Spec& spec,
         T_MetricInterface& metric_interface)
     {
+        static int runCount = 0;
         static bool write = true;
+
         StorageKernelRun& stored = data.runs[state.bestConfig.toHash()];
-        if(write)
-        {
-            toActive(config, stored);
-            history.storeConfig(configfile);
-            write = false;
-        }
+        toActive(config, stored);
+
         std::cout << " run with best config: " << config.toHash() << " median timings. "
                   << stored.metricContainer.get(median_t{}).template as<t_ns>() << std::endl;
+
         tune::detail::internal::applyConfigAndExecuteKernel(queue, exec, kernelBundle, spec, metric_interface, config);
         onHost::wait(queue);
+
+        if(runCount < MeasureBestRuns)
+        {
+            stored.pushMetric(config.metric);
+            ++runCount;
+
+            if(write && runCount == MeasureBestRuns)
+            {
+                history.storeConfig(configfile);
+                write = false;
+            }
+        }
     }
 
 #    define MetricUndefined std::numeric_limits<float>::quiet_NaN()
@@ -719,13 +743,13 @@ namespace alpaka
             auto& sharedParameters)
         {
             using namespace alpaka::tune::detail::internal;
-            auto res=environment_state.config_queue.getRoundRobin();
+            auto res = environment_state.config_queue.getRoundRobin();
             if(res.has_value())
             {
-                //this queue only reads  from a toml file it can be ignored for now
-                StorageKernelRun & stored =res.value();
-                std::cout<<" stored run: "<<stored.toHash()<<std::endl;
-                toActive(run,stored);
+                // this queue only reads  from a toml file it can be ignored for now
+                StorageKernelRun& stored = res.value();
+                std::cout << " stored run: " << stored.toHash() << std::endl;
+                toActive(run, stored);
             }
             if(configReadyForRun<T_Context, T_MetricInterface>(run, data, environment_state, constraints))
             {

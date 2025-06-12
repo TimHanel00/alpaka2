@@ -721,8 +721,7 @@ namespace alpaka::tune::strategy
                      ...);
                 },
                 tuneables);*/
-            std::cout << "before " << kernelRun.toHash() << std::endl;
-            randomSample{}(metricInterface, tuneables, kernelRun, kernel_data);
+            randomSample{}(metricInterface, tuneables, kernelRun, kernel_data, state);
             /*
             std::cout << " after random Sample: " << std::endl;
             std::apply(
@@ -736,10 +735,9 @@ namespace alpaka::tune::strategy
                 tuneables);
             std::cout << " finish " << std::endl;
             */
-            std::cout << "after " << kernelRun.toHash() << std::endl;
             if(history.contains(kernelRun.toHash()))
             {
-                exhaustiveSearch{}(metricInterface, tuneables, kernelRun, kernel_data);
+                exhaustiveSearch{}(metricInterface, tuneables, kernelRun, kernel_data, state);
             }
         };
     };

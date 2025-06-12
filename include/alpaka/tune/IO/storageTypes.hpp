@@ -399,7 +399,7 @@ struct StorageKernelRun
         Initialized,
         Dummy
     };
-    std::size_t stamp; // indicates this is the nth configuration found for a kernel.
+    long long int stamp; // indicates this is the nth configuration found for a kernel.
     std::vector<alpaka::tune::StorageTuneable> tuneables;
     std::vector<alpaka::tune::StorageTuneable> Ctuneables;
     std::optional<alpaka::tune::StorageTuneable> numBlocksTune{std::nullopt};
@@ -611,7 +611,7 @@ struct KernelData
     bool exhausted = false;
     bool histEvaluated=false;
     std::size_t nrOfConfigs{0};
-    std::size_t highestStamp{0};
+    long long int highestStamp{0};
     std::size_t maxRuns{0};
 
     std::string toHash()

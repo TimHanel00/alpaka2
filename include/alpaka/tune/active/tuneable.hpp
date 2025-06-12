@@ -64,34 +64,35 @@ namespace alpaka::tune
             active.maxRuns = UINT64_MAX;
         }
     }
+
     template<typename Vec>
-bool allTrue(const Vec& v) {
-        for (std::size_t i = 0; i < Vec::dim(); ++i)
-            if (!v[i]) return false;
+    bool allTrue(Vec const& v)
+    {
+        for(std::size_t i = 0; i < Vec::dim(); ++i)
+            if(!v[i])
+                return false;
         return true;
     }
+
 #define defaultMinSteps 16
 #define defaultMaxSteps 32
-    template<typename Tuneable,typename maxVec,typename ScalarPartitioning>
+
+    template<typename Tuneable, typename maxVec, typename ScalarPartitioning>
     void adaptRangeToNumSteps(
-        Tuneable& tuneable, //the tuneable you want to partition
-        const maxVec& maxVal,   //maximum value (ndim vector)
-        ScalarPartitioning partition, //the scalar ressource that has to be partitioned for m_begin and m_stride
+        Tuneable& tuneable, // the tuneable you want to partition
+        const maxVec& maxVal, // maximum value (ndim vector)
+        ScalarPartitioning partition, // the scalar ressource that has to be partitioned for m_begin and m_stride
         std::size_t minSteps = defaultMinSteps,
         std::size_t maxSteps = defaultMaxSteps)
     {
         using Vec = decltype(tuneable.idxRange.m_begin);
         using Scalar = typename Vec::type;
 
-        Vec base = primeFactorPartitioning(
-            partition,
-            Vec{});
+        Vec base = primeFactorPartitioning(partition, Vec{});
 
         tuneable.idxRange.m_begin = base;
         tuneable.idxRange.m_stride = base;
-        tuneable.idxRange.m_end = multipleOfPartitioning(
-            maxVal,
-            base);
+        tuneable.idxRange.m_end = multipleOfPartitioning(maxVal, base);
 
         tuneable.toRange(); // calculate numSteps
 
@@ -101,7 +102,8 @@ bool allTrue(const Vec& v) {
         Scalar scale = 1;
         Vec current = base;
 
-        while (steps > maxSteps && allTrue(current * Scalar{2} < maxVal)) {
+        while(steps > maxSteps && allTrue(current * Scalar{2} < maxVal))
+        {
             current = current * Scalar{2};
             tuneable.idxRange.m_begin = current;
             tuneable.idxRange.m_stride = current;
@@ -111,7 +113,8 @@ bool allTrue(const Vec& v) {
         }
 
         // Back off if we overshot
-        while (steps < minSteps && scale > 1) {
+        while(steps < minSteps && scale > 1)
+        {
             current = current / Scalar{2};
             tuneable.idxRange.m_begin = current;
             tuneable.idxRange.m_stride = current;
@@ -119,95 +122,100 @@ bool allTrue(const Vec& v) {
             tuneable.toRange();
             steps = tuneable.numSteps();
         }
-        if (!allTrue(tuneable.idxRange.m_end > tuneable.idxRange.m_begin)) {
+        if(!allTrue(tuneable.idxRange.m_end > tuneable.idxRange.m_begin))
+        {
             // fallback to the smallest valid range
             tuneable.idxRange.m_end = tuneable.idxRange.m_begin;
         }
     }
-    template <typename ValueVec, typename IdxRange>
-void clampToSpec_elem(const ValueVec& maxVal, IdxRange& idxRange, bool isThreadBlockTune, auto& device)
-{
-    using Scalar = typename ValueVec::type;
-    constexpr auto dim = ValueVec::dim();
-    using dimType=decltype(dim);
-    const Scalar warpSize = device.getDeviceProperties().m_warpSize;
-    const Scalar mpCount = device.getDeviceProperties().m_multiProcessorCount;
-    const Scalar maxThreads = device.getDeviceProperties().m_maxThreadsPerBlock;
-    for (auto i = static_cast<dimType>(0); i < dim; ++i)
+
+    template<typename ValueVec, typename IdxRange>
+    void clampToSpec_elem(ValueVec const& maxVal, IdxRange& idxRange, bool isThreadBlockTune, auto& device)
     {
-        auto& begin = idxRange.m_begin[i];
-        auto& stride = idxRange.m_stride[i];
-        auto& end = idxRange.m_end[i];
-        const auto& max = maxVal[i];
-
-        bool adjusted = false;
-
-        // Begin or stride too large
-        if (begin > max || stride > max)
+        using Scalar = typename ValueVec::type;
+        constexpr auto dim = ValueVec::dim();
+        using dimType = decltype(dim);
+        Scalar const warpSize = device.getDeviceProperties().m_warpSize;
+        Scalar const mpCount = device.getDeviceProperties().m_multiProcessorCount;
+        Scalar const maxThreads = device.getDeviceProperties().m_maxThreadsPerBlock;
+        for(auto i = static_cast<dimType>(0); i < dim; ++i)
         {
-            adjusted = true;
-            if (isThreadBlockTune)
-            {
-                idxRange.m_begin = primeFactorPartitioning(warpSize, ValueVec{});
-            }
-            else
-            {
-                idxRange.m_stride = primeFactorPartitioning(mpCount, ValueVec{});
-            }
-            stride = begin;
+            auto& begin = idxRange.m_begin[i];
+            auto& stride = idxRange.m_stride[i];
+            auto& end = idxRange.m_end[i];
+            auto const& max = maxVal[i];
 
-            // If still invalid, fallback
-            if (begin >= max)
+            bool adjusted = false;
+
+            // Begin or stride too large
+            if(begin > max || stride > max)
+            {
+                adjusted = true;
+                if(isThreadBlockTune)
+                {
+                    idxRange.m_begin = primeFactorPartitioning(warpSize, ValueVec{});
+                }
+                else
+                {
+                    idxRange.m_stride = primeFactorPartitioning(mpCount, ValueVec{});
+                }
+                stride = begin;
+
+                // If still invalid, fallback
+                if(begin >= max)
+                {
+                    begin = 1;
+                    stride = 1;
+                    end = max;
+                    continue;
+                }
+            }
+
+            // End is too high or invalid
+            if(end > max || end < begin)
+            {
+                adjusted = true;
+                Scalar b = (max - begin) / stride;
+                end = begin + b * stride;
+
+                if(end < begin)
+                {
+                    end = begin;
+                }
+            }
+
+            // Clamp end for thread block case
+            if(isThreadBlockTune && end > maxThreads)
+            {
+                adjusted = true;
+                end = std::min(end, maxThreads);
+            }
+
+            // Final fallback if clamping failed
+            if(adjusted && (begin >= max || stride >= max))
             {
                 begin = 1;
                 stride = 1;
                 end = max;
-                continue;
             }
-        }
-
-        // End is too high or invalid
-        if (end > max || end < begin)
-        {
-            adjusted = true;
-            Scalar b = (max - begin) / stride;
-            end = begin + b * stride;
-
-            if (end < begin)
-            {
-                end = begin;
-            }
-        }
-
-        // Clamp end for thread block case
-        if (isThreadBlockTune && end > maxThreads)
-        {
-            adjusted = true;
-            end = std::min(end, maxThreads);
-        }
-
-        // Final fallback if clamping failed
-        if (adjusted && (begin >= max || stride >= max))
-        {
-            begin = 1;
-            stride = 1;
-            end = max;
         }
     }
-}
-    template<typename T_NumFrames,typename T_NumThreads,typename T_activeKernel>
-    void clampToSpec(auto & device,onHost::FrameSpec<T_NumFrames,T_NumThreads>& frameSpec, T_activeKernel& activeKernel)
+
+    template<typename T_NumFrames, typename T_NumThreads, typename T_activeKernel>
+    void clampToSpec(
+        auto& device,
+        onHost::FrameSpec<T_NumFrames, T_NumThreads>& frameSpec,
+        T_activeKernel& activeKernel)
     {
         if constexpr(T_activeKernel::hasNumBlocksTune())
         {
-            auto countMps=device.getDeviceProperties().m_multiProcessorCount;
+            auto countMps = device.getDeviceProperties().m_multiProcessorCount;
             clampToSpec_elem(frameSpec.m_numFrames, activeKernel.getNumBlocksTune().idxRange, false, device);
             activeKernel.getNumBlocksTune().toRange();
         }
         if constexpr(T_activeKernel::hasThreadBlockSizeTune())
         {
-            auto countWarps=device.getDeviceProperties().m_warpSize;
-            device.getDeviceProperties().m_maxThreadsPerBlock;
+            auto countWarps = device.getDeviceProperties().m_warpSize;
             clampToSpec_elem(frameSpec.m_frameExtent, activeKernel.getThreadBlockSizeTune().idxRange, true, device);
 
             activeKernel.getThreadBlockSizeTune().toRange();
