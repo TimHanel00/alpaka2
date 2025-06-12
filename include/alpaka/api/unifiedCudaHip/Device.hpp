@@ -8,6 +8,7 @@
 
 #if ALPAKA_LANG_CUDA || ALPAKA_LANG_HIP
 #    include "alpaka/api/unifiedCudaHip/Queue.hpp"
+#    include "alpaka/api/util.hpp"
 #    include "alpaka/core/UniformCudaHip.hpp"
 #    include "alpaka/onHost/mem/ManagedView.hpp"
 
@@ -209,7 +210,7 @@ namespace alpaka::onHost
                 return device.m_properties;
             }
         };
-#    if 0
+
         template<
             typename T_Platform,
             typename T_Mapping,
@@ -225,7 +226,17 @@ namespace alpaka::onHost
                 FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
                 T_KernelBundle const& kernelBundle) const requires alpaka::concepts::CVector<T_NumThreads>
             {
-                return dataBlocking.getThreadSpec();
+                auto numThreads = dataBlocking.getThreadSpec().m_numThreads;
+
+                /** All modern NVIDIA and AMD GPUs support at least 1014 threads.
+                 * @attention: Due to lmem, shared memory or register usage the limit could be lower. In this case the
+                 * kernel call will vail at runtime with invalid kernel configuration. We can not avoid this at compile
+                 * time.
+                 */
+                constexpr typename ALPAKA_TYPEOF(numThreads)::type hardwareLimitThreadsPerBlock = 1024u;
+
+                constexpr auto result = api::util::adjustToLimit<hardwareLimitThreadsPerBlock, 0u, 1u>(numThreads);
+                return ThreadSpec{dataBlocking.getThreadSpec().m_numBlocks, result};
             }
 
             auto operator()(
@@ -234,30 +245,13 @@ namespace alpaka::onHost
                 FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
                 T_KernelBundle const& kernelBundle) const
             {
-                auto numThreadBlocks = dataBlocking.getThreadSpec().m_numBlocks;
-#        if 0
-                using IdxType = typename T_NumBlocks::type;
-                // @todo get this number from device properties
-                static auto const maxBlocks = device.m_properties.m_multiProcessorCount * 16u;
+                auto numThreadsPerBlocks = dataBlocking.getThreadSpec().m_numThreads;
+                auto const maxThreadsPerBlock = device.m_properties.m_maxThreadsPerBlock;
 
-                while(numThreadBlocks.product() > maxBlocks)
-                {
-                    uint32_t maxIdx = 0u;
-                    auto maxValue = numThreadBlocks[0];
-                    for(auto i = 0u; i < T_NumBlocks::dim(); ++i)
-                        if(maxValue < numThreadBlocks[i])
-                        {
-                            maxIdx = i;
-                            maxValue = numThreadBlocks[i];
-                        }
-                    if(numThreadBlocks.product() > maxBlocks)
-                        numThreadBlocks[maxIdx] = divCeil(numThreadBlocks[maxIdx], IdxType{2u});
-                }
-#        endif
-                return ThreadSpec{numThreadBlocks, dataBlocking.getThreadSpec().m_numThreads};
+                auto result = api::util::adjustToLimit(numThreadsPerBlocks, maxThreadsPerBlock);
+                return ThreadSpec{dataBlocking.getThreadSpec().m_numBlocks, result};
             }
         };
-#    endif
     } // namespace internal
 } // namespace alpaka::onHost
 
