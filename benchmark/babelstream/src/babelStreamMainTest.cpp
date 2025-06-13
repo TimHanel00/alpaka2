@@ -518,13 +518,14 @@ void testKernels(T_Cfg cfg)
     uint32_t elementsPerFrameItem = getNumElemPerThread<DataType>(queue);
 
 
-    auto numFrames = arraySize/ (static_cast<Idx>(blockThreadExtentMain) * 1);
+    auto numFramesInit = arraySize/ (static_cast<Idx>(blockThreadExtentMain) * elementsPerFrameItem);
     auto dataBlockingInit=onHost::FrameSpec{
-        idxVec{static_cast<Idx>(numFrames)},
+        idxVec{static_cast<Idx>(numFramesInit)},
         idxVec{static_cast<Idx>(blockThreadExtentMain)}};
+    auto numFrames = arraySize/ (static_cast<Idx>(blockThreadExtentMain) * 1);
     auto dataBlocking = onHost::FrameSpec{
         idxVec{static_cast<Idx>(numFrames)},
-        idxVec{static_cast<Idx>(blockThreadExtentMain)}}; //doesnt matter since we adjust it anyway
+        idxVec{static_cast<Idx>(blockThreadExtentMain)}};
     auto dataBlockingDot = onHost::FrameSpec{
         idxVec{static_cast<Idx>(arraySize/ (static_cast<Idx>(blockThreadExtentMain) * 2))},
         idxVec{static_cast<Idx>(blockThreadExtentMain)}};

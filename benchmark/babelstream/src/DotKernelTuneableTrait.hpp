@@ -17,7 +17,7 @@ template<typename CTuneable,typename Data>
 struct SimdForEachKernel_Triad;
 namespace alpaka::tune::trait
 {
-
+	/*
     template<typename CTuneable,typename Data>
     struct CompileTimeTuneableTrait<DotKernel<CTuneable,Data>>
     {
@@ -102,7 +102,7 @@ namespace alpaka::tune::trait
             // constexpr auto tune2 = tune::CTunable<CVec<int, 3, 3>, CVec<int, 6, 6>, CVec<int, 1, 1>>{};
             return std::tuple{tune1}; // empty tuple, no tunables
         }
-    };
+    };*/
 
 } // namespace alpaka::tune::trait
 //- -- > make dynamicSharedMem trait for DotKernel
