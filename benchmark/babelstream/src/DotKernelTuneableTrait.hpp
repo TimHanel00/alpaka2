@@ -17,6 +17,7 @@ template<typename CTuneable,typename Data>
 struct SimdForEachKernel_Triad;
 namespace alpaka::tune::trait
 {
+
     template<typename CTuneable,typename Data>
     struct CompileTimeTuneableTrait<DotKernel<CTuneable,Data>>
     {
@@ -146,6 +147,7 @@ namespace alpaka::onHost::trait
         {
             auto frameSpec = accessFrameSpec<T_NumFrames, T_NumThreads>();
             auto extent = frameSpec.m_frameExtent;
+            std::cout<<" returning shared mem" <<static_cast<uint32_t>(extent[0] * sizeof(Data))<<std::endl;
             return static_cast<uint32_t>(extent[0] * sizeof(Data));
         }
     };

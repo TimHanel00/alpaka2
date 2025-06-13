@@ -349,15 +349,15 @@ static auto getSessionFromExec(Exec_T const &exec,auto arraySize,auto & devAcc){
               .withRunSpecifiers(std::to_string(arraySize))
               .withFrameExtentTune(tune::Tuneable(idxVec{64}, IdxRange{idxVec{64}, idxVec{64 * 16}, idxVec{64}}))
               .withBlockSizeTune(tune::Tuneable(idxVec{64}, IdxRange{idxVec{64}, idxVec{maxThreads}, idxVec{64}}))
-              .withNumBlocksTune(tune::Tuneable(mpVec, IdxRange{mpVec, mpVec * idxVec{16u}, mpVec}))
+              .withNumBlocksTune()
               .template withConstraint<tune::frameTune::numBlocks, tune::frameTune::FrameExtent, _0T>(
                   [arraySize](auto numBlocks, auto frameExtent, auto concurrentElements)
                   {
                       auto chunkElements = concurrentElements * frameExtent;
-                      auto condZ = arraySize % concurrentElements[0] == decltype(arraySize){0};
+                      auto condZ = arraySize % chunkElements[0] == decltype(arraySize){0};
                       auto calcNumFrames = alpaka::Vec<uint32_t, 1u>{arraySize / chunkElements[0]};
                       auto frameDataExtent = calcNumFrames * chunkElements;
-                      auto condX = numBlocks[0] <= calcNumFrames[0];
+                      auto condX = numBlocks[0] <= calcNumFrames[0]; //also covers cases where numFrames is 0 (if chunkElements[0] < arraySize )
                       auto condY = frameDataExtent[0] <= arraySize;
                       std::cout << " chunkElems: " << chunkElements << " arSize: " << arraySize << " numFrames "
                                 << calcNumFrames[0] << " concurrentElements " << concurrentElements[0] << " numBlocks "
@@ -371,7 +371,7 @@ static auto getSessionFromExec(Exec_T const &exec,auto arraySize,auto & devAcc){
               .withStrategy(alpaka::tune::strategy::exhaustiveSearch{})
               .withRunSpecifiers(std::to_string(arraySize))
               .withBlockSizeTune(tune::Tuneable(idxVec{64}, IdxRange{idxVec{64}, idxVec{maxThreads}, idxVec{64}}))
-              .withNumBlocksTune(tune::Tuneable(mpVec, IdxRange{mpVec, mpVec * idxVec{16u}, mpVec}))
+              .withNumBlocksTune()
               .template withConstraint<tune::frameTune::numBlocks, tune::frameTune::ThreadBlock, _0T>(
                   [arraySize](auto numBlocks, auto numThreads, auto concurrentElements)
                   {
@@ -518,13 +518,16 @@ void testKernels(T_Cfg cfg)
     uint32_t elementsPerFrameItem = getNumElemPerThread<DataType>(queue);
 
 
-    auto numFrames = divExZero(arraySize, static_cast<Idx>(blockThreadExtentMain) * elementsPerFrameItem);
+    auto numFrames = arraySize/ (static_cast<Idx>(blockThreadExtentMain) * 1);
     auto dataBlockingInit=onHost::FrameSpec{
-        numFrames,
-        static_cast<Idx>(blockThreadExtentMain)};
+        idxVec{static_cast<Idx>(numFrames)},
+        idxVec{static_cast<Idx>(blockThreadExtentMain)}};
     auto dataBlocking = onHost::FrameSpec{
-        idxVec{static_cast<Idx>(arraySize)},
-        idxVec{static_cast<Idx>(arraySize)}}; //doesnt matter since we adjust it anyway
+        idxVec{static_cast<Idx>(numFrames)},
+        idxVec{static_cast<Idx>(blockThreadExtentMain)}}; //doesnt matter since we adjust it anyway
+    auto dataBlockingDot = onHost::FrameSpec{
+        idxVec{static_cast<Idx>(arraySize/ (static_cast<Idx>(blockThreadExtentMain) * 2))},
+        idxVec{static_cast<Idx>(blockThreadExtentMain)}};
     // alpaka::tune::Tuneable{uVec{56*2}, IdxRange{uVec{56*2}, uVec{dataBlocking.m_numFrames}, uVec{56*2}}})
     auto tuningSessions
         = getSessionFromExec<DataType>(exec,arraySize,devAcc);
@@ -660,7 +663,7 @@ void testKernels(T_Cfg cfg)
                     tuningSessionDot.enqueue(devAcc,
                         queue,
                         exec,
-                        dataBlocking,
+                        dataBlockingDot,
                         KernelBundle{
                             DotKernel<CVec<std::uint32_t, 1>,DataType>{}, // Dot kernel
                             bufAccInputA,
@@ -674,7 +677,7 @@ void testKernels(T_Cfg cfg)
                 "DotKernel");
 
             // Add workdiv to the list of workdivs to print later
-            metaData.setItem(BMInfoDataType::WorkDivDot, dataBlocking);
+            metaData.setItem(BMInfoDataType::WorkDivDot, dataBlockingDot);
         }
         // NStream kernel is run only for one command line argument
         if(kernelsToBeExecuted == KernelsToRun::NStream)

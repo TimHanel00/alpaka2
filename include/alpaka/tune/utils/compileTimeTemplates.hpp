@@ -247,6 +247,7 @@ namespace alpaka::tune
             };
             template<std::size_t N>
             struct debug_print;
+
             template<typename A, typename B, bool = IsCVector<A>::value && IsCVector<B>::value>
             struct CVectorCompatible
             {
@@ -273,34 +274,33 @@ namespace alpaka::tune
             struct rebuild_tuple_impl;
 
             template<
-             typename Tuple,
-             typename Indices,
-             typename Replacements,
-             std::size_t CurrentKernelIndex,
-             std::size_t NumberOfKernelArgs,
-             typename... Result>
-         struct rebuild_tuple_impl<
-             Tuple,
-             Indices,
-             Replacements,
-             CurrentKernelIndex,
-             NumberOfKernelArgs,
-             false,
-             Result...>
+                typename Tuple,
+                typename Indices,
+                typename Replacements,
+                std::size_t CurrentKernelIndex,
+                std::size_t NumberOfKernelArgs,
+                typename... Result>
+            struct rebuild_tuple_impl<
+                Tuple,
+                Indices,
+                Replacements,
+                CurrentKernelIndex,
+                NumberOfKernelArgs,
+                false,
+                Result...>
             {
                 using current_T = std::tuple_element_t<CurrentKernelIndex, Tuple>;
                 using index_in_T = index_in<CurrentKernelIndex, std::remove_cvref_t<Indices>>;
 
-                static constexpr std::size_t indexWhereCurrentKernelIndexWasFound =
-                    (index_in_T::index == static_cast<std::size_t>(-1)) ? 0 : index_in_T::index;
+                static constexpr std::size_t indexWhereCurrentKernelIndexWasFound
+                    = (index_in_T::index == static_cast<std::size_t>(-1)) ? 0 : index_in_T::index;
 
                 using replacement = std::tuple_element_t<indexWhereCurrentKernelIndexWasFound, Replacements>;
                 // Check type and dimension if both are CVec
                 static constexpr bool typeMatches = CVectorCompatible<replacement, current_T>::value;
 
 
-                static constexpr bool shouldReplace =
-                    index_in_T::value && typeMatches;
+                static constexpr bool shouldReplace = index_in_T::value && typeMatches;
 
                 static constexpr bool isDone = (CurrentKernelIndex + 1 >= NumberOfKernelArgs);
 
@@ -531,7 +531,8 @@ namespace alpaka::tune
             {
                 constexpr auto ctune = trait::registeredCTuneables<KernelFn>();
                 constexpr auto& definitions = decltype(ctune)::tuneAbleDefinitions;
-                constexpr auto& KernelInitialValues = decltype(ctune)::KernelInitialValues;
+                using KernelInitialValues_t = decltype(decltype(ctune)::KernelInitialValues);
+                constexpr KernelInitialValues_t KernelInitialValues = decltype(ctune)::KernelInitialValues;
 
                 constexpr std::size_t N = std::tuple_size_v<std::decay_t<decltype(definitions)>>;
                 // use index sequence to access each tuple element
