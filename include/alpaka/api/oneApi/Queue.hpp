@@ -186,7 +186,7 @@ namespace alpaka::onHost::internal
             ThreadSpec<T_NumBlocks, T_NumThreads> const& threadBlocking,
             T_KernelBundle const& kernelBundle) const
         {
-            constexpr auto st_shared_mem_bytes = onAcc::oneApi::detail::sizeLookupBufferInBytes(
+            constexpr auto st_shared_mem_bytes = onAcc::oneApi::StaticSharedMemory::sizeLookupBufferInBytes(
                 ALPAKA_SYCL_NUM_MAX_SHARED_MEMORY_ALLOCATIONS);
             // allocate dynamic shared memory -- needs at least 1 byte to make the Xilinx Runtime happy
             u_int32_t blockDynSharedMemBytes
@@ -216,7 +216,7 @@ namespace alpaka::onHost::internal
                         [optimizedThreadSpec, st_shared_accessor, dyn_shared_accessor, kernelBundle](
                             sycl::nd_item<syclDim> work_item)
                         {
-                            onAcc::oneApi::StaticSharedMemory ssm(st_shared_accessor,work_item);
+                            onAcc::oneApi::StaticSharedMemory ssm(st_shared_accessor);
                             onAcc::syclGeneric::DynamicSharedMemory dsm(dyn_shared_accessor);
 
                             static_assert(syclDim > 0);
@@ -258,9 +258,9 @@ namespace alpaka::onHost::internal
             T_KernelBundle const& kernelBundle) const
         {
             auto const threadBlocking
-                = internal::adjustThreadSpec(queue.m_device.get(), executor, frameSpec, kernelBundle);
+                = internal::adjustThreadSpec(*queue.m_device.get(), executor, frameSpec, kernelBundle);
 
-            constexpr auto st_shared_mem_bytes = onAcc::oneApi::detail::sizeLookupBufferInBytes(
+            constexpr auto st_shared_mem_bytes = onAcc::oneApi::StaticSharedMemory::sizeLookupBufferInBytes(
                 ALPAKA_SYCL_NUM_MAX_SHARED_MEMORY_ALLOCATIONS);
 
             // allocate dynamic shared memory -- needs at least 1 byte to make the Xilinx Runtime happy
@@ -290,7 +290,7 @@ namespace alpaka::onHost::internal
                         [optimizedThreadSpec, frameSpec, st_shared_accessor, dyn_shared_accessor, kernelBundle](
                             sycl::nd_item<syclDim> work_item)
                         {
-                            onAcc::oneApi::StaticSharedMemory ssm(st_shared_accessor,work_item);
+                            onAcc::oneApi::StaticSharedMemory ssm(st_shared_accessor);
                             onAcc::syclGeneric::DynamicSharedMemory dsm(dyn_shared_accessor);
 
                             static_assert(syclDim > 0);
