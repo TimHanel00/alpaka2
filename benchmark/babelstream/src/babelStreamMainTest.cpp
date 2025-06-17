@@ -403,32 +403,33 @@ using Idx = std::uint32_t;
     static auto constexpr _0T=static_cast<std::size_t>(0);
 	static auto sessionDot=tune::TuningBuilder{}
               .withRunSpecifiers(std::to_string(arraySize),data)
-              .withFrameExtentTune(tune::Tuneable(idxVec{64}, IdxRange{idxVec{64}, idxVec{128 * 32}, idxVec{64}}))
-              .withNumBlocksTune(tune::Tuneable(mpVec, IdxRange{mpVec, mpVec * idxVec{8u}, mpVec / idxVec{2}}))
-    .withConfig("./config/babelstream_OMPBlocks_Dot_"+alpaka::tune::strategy::detail::getName()+"_"+data+".toml")
-              .template withConstraint<_0T>([](auto concurrentElems){
-                                                bool divBy2=concurrentElems[0]%static_cast<Idx>(2)==static_cast<Idx>(0);
-                                                bool one=concurrentElems[0]==static_cast<Idx>(1);
-                                                return divBy2||one;
-                                                }).build();
-		static auto sessionRest= tune::TuningBuilder{}
-              .withRunSpecifiers(std::to_string(arraySize),data)
-              .withNumBlocksTune(tune::Tuneable(mpVec, IdxRange{mpVec, mpVec * idxVec{8u}, mpVec / idxVec{2}}))
-              .template withConstraint<_0T>([](auto concurrentElems){
-                                                bool divBy2=concurrentElems[0]%static_cast<Idx>(2)==static_cast<Idx>(0);
-                                                bool one=concurrentElems[0]==static_cast<Idx>(1);
-                                                return divBy2||one;
-                                                })
-              .template withConstraint<tune::frameTune::numBlocks, _0T>(
+              .withFrameExtentTune(tune::Tuneable(idxVec{64}, IdxRange{idxVec{64}, idxVec{64 * 16}, idxVec{64}}))
+                                 .template withConstraint<tune::frameTune::numBlocks, _0T>(
                   [arraySize](auto numBlocks, auto concurrentElements)
                   {
                       auto chunkElements = concurrentElements[0] * numBlocks[0];
+                      auto condX = (arraySize % concurrentElements[0])== decltype(arraySize){0};
                       auto condY = chunkElements <= arraySize;
 
-                      return condY;
+                      return condY&&condX;
                   })
-              .withConfig("./config/babelstream_OMPBlocks_Rest_"+alpaka::tune::strategy::detail::getName()+"_"+data+".toml")
-              .build();
+              .withNumBlocksTune()
+    .withConfig("./config/babelstream_OMPBlocks_Dot_"+alpaka::tune::strategy::detail::getName()+"_"+data+".toml").build();
+	static auto sessionRest= tune::TuningBuilder{}
+          .withRunSpecifiers(std::to_string(arraySize),data)
+          .withNumBlocksTune()
+          .template withConstraint<tune::frameTune::numBlocks, _0T>(
+              [arraySize](auto numBlocks, auto concurrentElements)
+              {
+                  auto chunkElements = concurrentElements[0] * numBlocks[0];
+                  auto condX = (arraySize % concurrentElements[0])== decltype(arraySize){0};
+                  auto condY = chunkElements <= arraySize;
+
+                  return condY&&condX;
+              })
+          .withConfig("./config/babelstream_OMPBlocks_Rest_"+alpaka::tune::strategy::detail::getName()+"_"+data+".toml")
+          .build();
+
 		return std::make_tuple(sessionDot,sessionRest);
 }
 //! \brief The Function for testing babelstream kernels for given Acc type and data type.

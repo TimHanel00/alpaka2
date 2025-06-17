@@ -45,7 +45,7 @@ namespace alpaka::tune
                 newRun.getNumFramesTune().value = frameSpec.m_numFrames;
                 auto numFramesPartitioned = Vec<typename T_NumBlocks::type, T_NumBlocks::dim()>::all(1);
                 auto resultVec = primeFactorPartitioning(NrOfNumFrameConfigs, numFramesPartitioned); //->z.B 2,5,
-                auto stride = frameSpec.m_numFrames/ resultVec;
+                auto stride = frameSpec.m_numFrames / resultVec;
                 newRun.getNumFramesTune().idxRange = alpaka::IdxRange(stride, frameSpec.m_numFrames, stride);
             }
         }
@@ -56,7 +56,7 @@ namespace alpaka::tune
                 newRun.getFrameExtentTune().value = frameSpec.m_frameExtent;
                 auto numFramesExtentPartitioned = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
                 auto resultVec = primeFactorPartitioning(NrOfFrameExtentConfigs, numFramesExtentPartitioned); //-> 2,5,
-                auto stride = frameSpec.m_frameExtent/ resultVec;
+                auto stride = frameSpec.m_frameExtent / resultVec;
                 newRun.getFrameExtentTune().idxRange = alpaka::IdxRange(stride, frameSpec.m_frameExtent, stride);
             }
         }
@@ -74,10 +74,11 @@ namespace alpaka::tune
                 spec.m_numThreads),
             kernel);
     }
-    //this is the default tunerAdjust
+
+    // this is the default tunerAdjust
     //-> it is currenlty designed to fail by default to prevent the compiler from picking no specialization
-    // if you want to prevent this behaviour for a
-    // not yet implemented backend specializtation simply remove the static asserts on the top of the class
+    //  if you want to prevent this behaviour for a
+    //  not yet implemented backend specializtation simply remove the static asserts on the top of the class
     struct tunerAdjust
     {
         template<typename T_Device, typename T_Exec, typename T_FrameSpec, typename T_KernelRun>
@@ -86,18 +87,16 @@ namespace alpaka::tune
             static_assert(
                 !std::is_same_v<T_Device, T_Device>, // always false
                 "Debug static_assert: Template parameters:\n"
-                "T_Device, T_Exec, T_FrameSpec, T_KernelRun"
-            );
+                "T_Device, T_Exec, T_FrameSpec, T_KernelRun");
             static_assert(
                 !std::is_same_v<T_Exec, T_Exec>, // always false
                 "Debug static_assert: Template parameters:\n"
-                "T_Device, T_Exec, T_FrameSpec, T_KernelRun"
-            );
+                "T_Device, T_Exec, T_FrameSpec, T_KernelRun");
             static_assert(
                 !std::is_same_v<T_FrameSpec, T_FrameSpec>, // always false
                 "Debug static_assert: Template parameters:\n"
-                "T_Device, T_Exec, T_FrameSpec, T_KernelRun"
-            );
+                "T_Device, T_Exec, T_FrameSpec, T_KernelRun");
+
             auto operator()(
                 T_Device& device,
                 T_Exec const& exec,
@@ -114,15 +113,16 @@ namespace alpaka::tune
     };
 
     // serial
-    template<typename T_Platform, typename T_Kind, typename T_NumBlocks,typename T_NumThreads,typename T_KernelRun>
+    template<typename T_Platform, typename T_Kind, typename T_NumBlocks, typename T_NumThreads, typename T_KernelRun>
     struct tunerAdjust::Op<
         alpaka::onHost::Device<T_Platform, T_Kind>,
         alpaka::exec::CpuSerial,
-        alpaka::onHost::FrameSpec<T_NumBlocks,T_NumThreads>,
+        alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads>,
         T_KernelRun>
     {
         auto operator()(
-            alpaka::onHost::Device<T_Platform, T_Kind>& device, //@TODO fix this its a bug with that extra wrapped layer
+            alpaka::onHost::Device<T_Platform, T_Kind>&
+                device, //@TODO fix this its a bug with that extra wrapped layer
             alpaka::exec::CpuSerial const& executor,
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
             T_KernelRun& kernelRun)
@@ -140,7 +140,7 @@ namespace alpaka::tune
     };
 
     // ompBlocks
-    template<typename T_Platform, typename T_Kind, typename T_NumBlocks,typename T_NumThreads,typename T_KernelRun>
+    template<typename T_Platform, typename T_Kind, typename T_NumBlocks, typename T_NumThreads, typename T_KernelRun>
     struct tunerAdjust::Op<
         alpaka::onHost::Device<T_Platform, T_Kind>,
         alpaka::exec::CpuOmpBlocks,
@@ -148,7 +148,8 @@ namespace alpaka::tune
         T_KernelRun>
     {
         auto operator()(
-            alpaka::onHost::Device<T_Platform, T_Kind>& device, //@TODO fix this its a bug with that extra wrapped layer
+            alpaka::onHost::Device<T_Platform, T_Kind>&
+                device, //@TODO fix this its a bug with that extra wrapped layer
             alpaka::exec::CpuOmpBlocks const& executor,
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
             T_KernelRun& kernelRun)
@@ -166,14 +167,14 @@ namespace alpaka::tune
             {
                 if(!newRun.getNumBlocksTune().userDef)
                 {
-                    newRun.getNumBlocksTune().idxRange.m_begin = primeFactorPartitioning(
-                        device.getDeviceProperties().m_multiProcessorCount,
-                        T_NumThreads{});
+                    newRun.getNumBlocksTune().idxRange.m_begin
+                        = primeFactorPartitioning(device.getDeviceProperties().m_multiProcessorCount, T_NumThreads{});
                     newRun.getNumBlocksTune().idxRange.m_end = primeFactorPartitioning(
-                        device.getDeviceProperties().m_multiProcessorCount*2u,
+                        device.getDeviceProperties().m_multiProcessorCount * 4u,
                         T_NumThreads{});
-                    newRun.getNumBlocksTune().idxRange.m_stride
-                        = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
+                    newRun.getNumBlocksTune().idxRange.m_stride = primeFactorPartitioning(
+                        device.getDeviceProperties().m_multiProcessorCount / 2,
+                        T_NumThreads{});
                     newRun.getNumBlocksTune().toRange();
                 }
             }
@@ -185,7 +186,7 @@ namespace alpaka::tune
     };
 
     // ompBlocksAndThreads
-    template<typename T_Platform, typename T_Kind, typename T_NumBlocks,typename T_NumThreads,typename T_KernelRun>
+    template<typename T_Platform, typename T_Kind, typename T_NumBlocks, typename T_NumThreads, typename T_KernelRun>
     struct tunerAdjust::Op<
         alpaka::onHost::Device<T_Platform, T_Kind>,
         exec::CpuOmpBlocksAndThreads,
@@ -207,9 +208,8 @@ namespace alpaka::tune
                 {
                     newRun.getThreadBlockSizeTune().idxRange.m_begin
                         = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
-                    newRun.getThreadBlockSizeTune().idxRange.m_end = primeFactorPartitioning(
-                        device.getDeviceProperties().m_multiProcessorCount,
-                        T_NumThreads{});
+                    newRun.getThreadBlockSizeTune().idxRange.m_end
+                        = primeFactorPartitioning(device.getDeviceProperties().m_multiProcessorCount, T_NumThreads{});
                     newRun.getThreadBlockSizeTune().idxRange.m_stride
                         = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
                     newRun.getThreadBlockSizeTune().toRange();
@@ -232,6 +232,7 @@ namespace alpaka::tune
             return std::make_pair(dataBlocking.getThreadSpec(), newRun);
         }
     };
+
     template<typename T_NumBlocks, typename T_NumThreads, typename T_KernelRun>
     static auto adjustThreadSpec(
         auto& deviceHandle,
