@@ -45,6 +45,98 @@ struct BlockDynSharedMemBytes<StencilKernel2, alpaka::onHost::FrameSpec<T_numFra
     alpaka::onHost::FrameSpec<T_numFrames, T_numThreads> spec_;
 };
 */
+template<typename Exec_T>
+static auto getSessionFromExec(Exec_T const& exec, auto frameSpec, auto& devAcc, auto numNodes)
+{
+    using namespace alpaka;
+    using fVec = ALPAKA_TYPEOF(frameSpec.m_frameExtent);
+    using uVec = ALPAKA_TYPEOF(frameSpec.m_numFrames);
+    auto tuningSession
+        = tune::TuningBuilder{}
+              .withFrameExtentTune(tune::Tuneable(IdxRange{fVec{4, 8}, frameSpec.m_frameExtent, fVec{4, 8}}))
+              .withNumBlocksTune()
+              .withBlockSizeTune(tune::Tuneable(IdxRange{fVec{4, 8}, frameSpec.m_frameExtent, fVec{4, 8}}))
+              .template withConstraint<tune::frameTune::numBlocks, tune::frameTune::FrameExtent>(
+                  [numNodes](auto numBlocks, auto numElementsPerChunk)
+                  {
+                      bool XinBounds = numBlocks.x() * numElementsPerChunk.x() <= numNodes.x();
+                      bool YinBounds = numBlocks.y() * numElementsPerChunk.y() <= numNodes.y();
+                      return XinBounds && YinBounds;
+                  })
+
+              .template withConstraint<tune::frameTune::FrameExtent>(
+                  [numNodes](auto a)
+                  {
+                      using type = std::remove_cvref_t<decltype(a.x())>;
+                      auto condX = (numNodes.x() % a.x()) == type{0};
+                      auto condY = (numNodes.y() % a.y()) == type{0};
+
+                      return condX && condY;
+                  })
+              .withStrategy(alpaka::tune::strategy::exhaustiveSearch{})
+              /*
+              .template withConstraint<tune::frameTune::NumFrames, tune::frameTune::FrameExtent>(
+              [toRTime, numNodes](auto a, auto b) { return numNodes > (a * b); })*/
+              .withConfig("./config/heatEquation_GPU.toml")
+              .build();
+    return tuningSession;
+};
+
+static auto getSessionFromExec(alpaka::exec::CpuOmpBlocks const& exec, auto frameSpec, auto& devAcc, auto numNodes)
+{
+    using namespace alpaka;
+    using fVec = ALPAKA_TYPEOF(frameSpec.m_frameExtent);
+    using uVec = ALPAKA_TYPEOF(frameSpec.m_numFrames);
+    auto tuningSession
+        = tune::TuningBuilder{}
+              .withFrameExtentTune(tune::Tuneable(IdxRange{fVec{4, 4}, frameSpec.m_frameExtent, fVec{4, 4}}))
+              .withNumBlocksTune()
+              .withBlockSizeTune(tune::Tuneable(IdxRange{fVec{4, 4}, frameSpec.m_frameExtent, fVec{4, 4}}))
+              .template withConstraint<tune::frameTune::numBlocks, tune::frameTune::FrameExtent>(
+                  [numNodes](auto numBlocks, auto numElementsPerChunk)
+                  {
+                      bool XinBounds = numBlocks.x() * numElementsPerChunk.x() <= numNodes.x();
+                      bool YinBounds = numBlocks.y() * numElementsPerChunk.y() <= numNodes.y();
+                      return XinBounds && YinBounds;
+                  })
+
+              .template withConstraint<tune::frameTune::FrameExtent>(
+                  [numNodes](auto a)
+                  {
+                      using type = std::remove_cvref_t<decltype(a.x())>;
+                      auto condX = (numNodes.x() % a.x()) == type{0};
+                      auto condY = (numNodes.y() % a.y()) == type{0};
+
+                      return condX && condY;
+                  })
+              .withStrategy(alpaka::tune::strategy::exhaustiveSearch{})
+              /*
+              .template withConstraint<tune::frameTune::NumFrames, tune::frameTune::FrameExtent>(
+              [toRTime, numNodes](auto a, auto b) { return numNodes > (a * b); })*/
+
+
+              .withConfig("./config/heatEquation_CPU.toml")
+              .build();
+    return tuningSession;
+};
+
+template<typename T_Exec>
+constexpr auto getNumNodes(T_Exec const& exec)
+{
+    using Idx = uint32_t;
+    using IdxVec = alpaka::Vec<Idx, 2u>;
+    constexpr IdxVec numNodes{16 * 1024, 16 * 1024};
+    return numNodes;
+}
+
+constexpr auto getNumNodes(alpaka::exec::CpuOmpBlocks const& exec)
+{
+    using Idx = uint32_t;
+    using IdxVec = alpaka::Vec<Idx, 2u>;
+    constexpr IdxVec numNodes{16 * 1024, 16 * 1024};
+    return numNodes;
+}
+
 // namespace alpaka::onHost::trait
 //! Each kernel computes the next step for one point.
 //! Therefore the number of threads should be equal to numNodesX.
@@ -76,7 +168,7 @@ auto example(T_Cfg const& cfg) -> int
     // fVec{108}}}). withGridSizeTune(tune::GridSizeTune{fVec{22}, IdxRange{fVec{22}, fVec{32},
     // fVec{1}}}).//#cpu
 
-    constexpr IdxVec numNodes{16 * 1024, 16 * 1024};
+    constexpr IdxVec numNodes = getNumNodes(exec);
     constexpr IdxVec haloSize{2, 2};
     constexpr IdxVec extent = numNodes + haloSize;
 
@@ -130,6 +222,7 @@ auto example(T_Cfg const& cfg) -> int
     constexpr auto chunkSize = CVec<Idx, ySize, xSize>{};
     constexpr auto numNodesWithHalo = numNodes + halo;
 
+
     constexpr IdxVec numChunks{
         divCeil(numNodes, IdxVec{xSize, ySize}),
     };
@@ -146,76 +239,8 @@ auto example(T_Cfg const& cfg) -> int
     auto toRTime = FrameSpec{
         alpaka::Vec{dataBlockingStencil.m_numFrames.x(), dataBlockingStencil.m_numFrames.y()},
         Vec{dataBlockingStencil.m_frameExtent.x(), dataBlockingStencil.m_frameExtent.y()}};
-    using fVec = ALPAKA_TYPEOF(toRTime.m_frameExtent);
-    using uVec = ALPAKA_TYPEOF(toRTime.m_numFrames);
-    auto setFixedNumBlocks_
-        = tune::primeFactorPartitioning(devAcc.getDeviceProperties().m_multiProcessorCount * 16u, uVec{});
-    auto setnumThreads_ = fVec{4, 8};
-    auto frameSpec = FrameSpec{toRTime.m_numFrames, toRTime.m_frameExtent, toRTime.m_numFrames, toRTime.m_frameExtent};
-    std::cout << " original numFrames " << frameSpec.m_numFrames.toString() << std::endl;
-    auto tuningSession
-        = tune::TuningBuilder{} //.withBlockSizeTune()
+    auto tuningSession = getSessionFromExec(exec, toRTime, devAcc, numNodes);
 
-              //.withNumFramesTune(
-              // tune::Tuneable(uVec{64, 64}, setFixedNumBlocks_, toRTime.m_numFrames, setFixedNumBlocks_))
-              //.withFrameExtentTune(tune::Tuneable(fVec{8, 4}, toRTime.m_frameExtent, fVec{8, 4}))
-              //.withNumBlocksTune(setFixedNumBlocks_,IdxRange{fVec{4, 8}, toRTime.m_frameExtent * fVec{4, 4}, fVec{4,
-              // 8}})
-              /*
-                        .withFrameExtentTune(
-                            tune::Tuneable(
-                                setnumThreads_,
-                                IdxRange{setnumThreads_, toRTime.m_frameExtent * fVec{4, 4}, fVec{2, 2}}))
-                  */
-              .withFrameExtentTune(tune::Tuneable(IdxRange{fVec{4, 8}, toRTime.m_frameExtent, fVec{4, 8}}))
-              .withNumBlocksTune()
-              .withBlockSizeTune(tune::Tuneable(IdxRange{fVec{4, 8}, toRTime.m_frameExtent, fVec{4, 8}}))
-              .template withConstraint<tune::frameTune::numBlocks, tune::frameTune::FrameExtent>(
-                  [numNodes](auto numBlocks, auto numElementsPerChunk)
-                  {
-                      bool XinBounds = numBlocks.x() * numElementsPerChunk.x() <= numNodes.x();
-                      bool YinBounds = numBlocks.y() * numElementsPerChunk.y() <= numNodes.y();
-                      return XinBounds && YinBounds;
-                  })
-
-              .template withConstraint<tune::frameTune::FrameExtent>(
-                  [numNodes](auto a)
-                  {
-                      using type = std::remove_cvref_t<decltype(a.x())>;
-                      auto condX = (numNodes.x() % a.x()) == type{0};
-                      auto condY = (numNodes.y() % a.y()) == type{0};
-
-                      return condX && condY;
-                  })
-              /*
-              .template withConstraint<tune::frameTune::FrameExtent, tune::frameTune::ThreadBlock>(
-                  [numNodes, setFixedNumBlocks_](auto frameExtent, auto threadBlockExtent)
-                  {
-                      using type = std::remove_cvref_t<decltype(frameExtent.x())>;
-                      auto condX = (numNodes.x() % frameExtent.x()) == type{0};
-                      auto condY = (numNodes.y() % frameExtent.y()) == type{0};
-                      auto condZ
-                          = frameExtent.x() >= threadBlockExtent.x() && frameExtent.y() >= threadBlockExtent.y();
-                      auto condU = ((setFixedNumBlocks_.x() * frameExtent.x()) <= numNodes.x())
-                                   && (setFixedNumBlocks_.y() * frameExtent.y()) <= numNodes.y();
-                      return condX && condY && condZ && condU;
-                  })
-               .template withConstraint<tune::frameTune::FrameExtent, tune::frameTune::ThreadBlock>(
-                   [](auto a, auto b)
-                   {
-                       using type = std::remove_cvref_t<decltype(a.x())>;
-                       auto condZ = (a.x() >= b.x() & a.y() >= b.y());
-
-                       return condZ;
-                   })*/
-              .withStrategy(alpaka::tune::strategy::exhaustiveSearch{})
-              /*
-              .template withConstraint<tune::frameTune::NumFrames, tune::frameTune::FrameExtent>(
-              [toRTime, numNodes](auto a, auto b) { return numNodes > (a * b); })*/
-
-
-              .withConfig("./config/babelstream.toml")
-              .build();
     auto startTime = std::chrono::high_resolution_clock::now();
 
     // Simulate
@@ -241,7 +266,7 @@ auto example(T_Cfg const& cfg) -> int
             devAcc,
             computeQueue,
             exec,
-            frameSpec,
+            toRTime,
             KernelBundle{stencilKernel, uCurrBufAcc.getMdSpan(), uNextBufAcc.getMdSpan(), numNodes, dx, dy, dt});
         // Apply boundaries
         computeQueue.enqueue(

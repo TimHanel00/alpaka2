@@ -181,7 +181,7 @@ namespace alpaka::tune::strategy
     {
         struct Exponential
         {
-            auto operator()(std::size_t distance, double_t temperature) const
+            double_t operator()(std::size_t distance, double_t temperature) const
             {
                 return std::exp(-static_cast<double_t>(distance) / temperature);
             }
@@ -189,7 +189,7 @@ namespace alpaka::tune::strategy
 
         struct Normal
         {
-            auto operator()(std::size_t distance, double_t temperature) const
+            double_t operator()(std::size_t distance, double_t temperature) const
             {
                 double_t d = static_cast<double_t>(distance);
                 return (1.0 / std::sqrt(2.0 * M_PI * temperature)) * std::exp(-d * d / (2.0 * temperature));
@@ -198,7 +198,7 @@ namespace alpaka::tune::strategy
 
         struct Cauchy
         {
-            auto operator()(std::size_t distance, double_t temperature) const
+            double_t operator()(std::size_t distance, double_t temperature) const
             {
                 double_t d = static_cast<double_t>(distance);
                 return (1.0 / M_PI) * (temperature / (d * d + temperature * temperature));
@@ -207,7 +207,7 @@ namespace alpaka::tune::strategy
 
         struct StableHalf
         {
-            auto operator()(std::size_t distance, double_t temperature) const
+            double_t operator()(std::size_t distance, double_t temperature) const
             {
                 double_t d = static_cast<double_t>(distance);
                 if(d == 0.0)

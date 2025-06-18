@@ -52,8 +52,7 @@ namespace alpaka
     struct Simd;
 
     template<typename T_Type, uint32_t T_dim, concepts::Alignment T_Alignment, typename T_Storage>
-    struct alignas(
-        alpaka::detail::optimalAlignment<T_Type, T_Alignment, static_cast<uint32_t>(sizeof(T_Type) * T_dim)>()) Simd
+    struct alignas(detail::optimalAlignment<T_Type, T_Alignment, static_cast<uint32_t>(sizeof(T_Type) * T_dim)>()) Simd
         : private T_Storage
     {
         using Storage = T_Storage;
