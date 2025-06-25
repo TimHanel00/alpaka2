@@ -37,46 +37,29 @@ namespace alpaka::tune::strategy
     constexpr bool is_signed_type = std::is_signed_v<T>;
 
     template<typename T>
-    auto randomIdx(IdxRangeHandle<T> const& range, auto& value)
+    auto randomIdx(std::vector<T> const& valueList)
     {
-        typename utils::toRTime<T>::get result;
-
-        // Get the range values.
-        auto minVal = range.m_begin;
-        auto maxVal = range.m_end;
-        auto step = range.m_stride;
-        // std::cout << "[DEBUG]  maxVal" << maxVal.toString() << std::endl;
-        // std::cout << "[DEBUG]  value" << value.toString() << std::endl;
-        //  Step-by-step debug output
-        auto diff = maxVal - value;
-        // std::cout << "[DEBUG] (maxVal - value): " << diff.toString() << std::endl;
-
-        auto absStep = utils::abs(step);
-        // std::cout << "[DEBUG] utils::abs(step): " << absStep.toString() << std::endl;
-
-        auto div = diff / absStep;
-        // std::cout << "[DEBUG] (maxVal - value) / utils::abs(step): " << div.toString() << std::endl;
-
-        auto numStepsUp = utils::min_element(div);
-        // std::cout << "[DEBUG] utils::min_element((maxVal - value) / utils::abs(step)): " << numStepsUp << std::endl;
-
-        auto numStepsDown = utils::min_element((value - minVal) / utils::abs(step));
-        std::uniform_int_distribution<typename T::type> dis(0, numStepsUp + numStepsDown);
-        auto k = dis(RNG::get());
-
-        if(k > numStepsUp)
+        if(valueList.empty())
         {
-            std::uniform_int_distribution<typename T::type> disD(0, numStepsDown);
-            auto numStep = disD(RNG::get());
-            result = value - (numStep * step);
-        }
-        else
-        {
-            std::uniform_int_distribution<typename T::type> disU(0, numStepsUp);
-            auto numStep = disU(RNG::get());
-            result = value + (numStep * step);
+            throw std::runtime_error("randomIdx: valueList is empty");
         }
 
+        std::uniform_int_distribution<std::size_t> dis(0, valueList.size() - 1);
+        return T{valueList[dis(RNG::get())]};
+    }
+
+    template<typename VecT>
+    auto randomIdx(std::array<std::vector<typename VecT::type>, VecT::dim()> const& valueLists)
+    {
+        VecT result;
+        for(std::size_t d = 0; d < VecT::dim(); ++d)
+        {
+            if(valueLists[d].empty())
+                throw std::runtime_error("randomIdx: empty valueList in dimension " + std::to_string(d));
+
+            std::uniform_int_distribution<std::size_t> dis(0, valueLists[d].size() - 1);
+            result[d] = valueLists[d][dis(RNG::get())];
+        }
         return result;
     }
 
@@ -130,26 +113,23 @@ namespace alpaka::tune::strategy
                 tuneables,
                 [](auto& parameter)
                 {
-                    auto val = randomIdx(parameter.idxRange, parameter.value);
+                    auto val = randomIdx(parameter.getValues());
                     parameter.value = val;
                 });
         };
     };
 
-    template<std::size_t I = 0, typename Func, typename Tuple>
-    inline void for_each_enumerate(std::size_t idx, Tuple& tuple, Func&& f)
+    template<typename Tuple, typename F, std::size_t... Is>
+    void for_each_enumerate_impl(Tuple&& tup, F&& f, std::index_sequence<Is...>)
     {
-        if constexpr(I < std::tuple_size_v<std::remove_reference_t<Tuple>>)
-        {
-            if(idx == I)
-            {
-                f(std::get<I>(tuple));
-            }
-            else
-            {
-                for_each_enumerate<I + 1>(idx, tuple, std::forward<Func>(f));
-            }
-        }
+        (f(std::get<Is>(tup), Is), ...);
+    }
+
+    template<typename Tuple, typename F>
+    void for_each_enumerate(Tuple&& tup, F&& f)
+    {
+        constexpr std::size_t N = std::tuple_size_v<std::remove_reference_t<Tuple>>;
+        for_each_enumerate_impl(std::forward<Tuple>(tup), std::forward<F>(f), std::make_index_sequence<N>{});
     }
 
     template<typename T_range, typename T_value>
@@ -471,6 +451,15 @@ namespace alpaka::tune::strategy
 
     ;
 
+    template<std::size_t N>
+    alpaka::Vec<std::size_t, N> convertVec(std::vector<std::size_t> const& v)
+    {
+        alpaka::Vec<std::size_t, N> out;
+        for(std::size_t i = 0; i < N; ++i)
+            out[i] = v[i];
+        return out;
+    }
+
     /**
      *this is a exhaustive search method designed to support asymmetric index ranges and initial values that
      *might not even be on the range (meaning: (value-begin)%stride!=0 && (end-value)%stride!=0)
@@ -478,61 +467,70 @@ namespace alpaka::tune::strategy
      * */
     struct exhaustiveSearch
     {
-        template<typename Tuple, typename T_ActiveKernel, typename StorageKernel>
-        void recurse(
-            Tuple& tuneables,
-            std::size_t dim,
-            T_ActiveKernel& kernelRun,
-            std::unordered_map<std::string, StorageKernel>& history,
-            bool& found)
+        template<typename T_tuneables>
+        auto computeValueIndices(T_tuneables& tuneables, auto& kernelRun)
         {
-            constexpr std::size_t N = std::tuple_size_v<std::remove_reference_t<Tuple>>;
-            auto hash = kernelRun.toHash();
-            if(found || !history.contains(hash))
-            {
-                found = true;
-                return;
-            }
-            // new tuneable found
-            if(dim == N)
-            {
-                return;
-            }
+            constexpr std::size_t N = std::tuple_size_v<std::remove_reference_t<T_tuneables>>;
+            using VecT = alpaka::Vec<std::size_t, N>;
+            VecT idx;
 
             for_each_enumerate(
-                dim,
                 tuneables,
-                [&](auto& param)
+                [&](auto& t, std::size_t i)
                 {
-                    auto oldValue = utils::toRT(param.value); // creates a temporary vector from a RefStorage Vector
+                    auto& values = t.getValues();
+                    using ValueT = std::decay_t<decltype(values[0])>;
+                    if constexpr(std::is_arithmetic_v<ValueT>)
+                    {
+                        std::cout << std::endl;
+                        auto it = std::find(values.begin(), values.end(), t.value[0]);
+                        if(it == values.end())
+                        {
+                            std::cerr << "[ERROR] Value not found in candidate list for Tuneable[" << i << "]\n";
+                            // there are for sure edge cases where this failsafe introduces some form of inaccurate
+                            // global state but atleast this is caught in the outer scope via a finite loop for
+                            // strategy calls
 
-                    // Try all values in the index range for this parameter
-                    {
-                        bool valid = true;
-                        auto value = utils::toRT(param.value);
-                        while(valid && !found)
-                        {
-                            param.value = value;
-                            recurse(tuneables, dim + 1, kernelRun, history, found);
-                            value = getNextUpper(value, param.idxRange, valid);
+                            it = values.begin();
                         }
+                        idx[i] = std::distance(values.begin(), it);
                     }
+                    else if constexpr(alpaka::concepts::Vector<std::decay_t<ValueT>>)
                     {
-                        bool valid = true;
-                        auto value = getNextLower(oldValue, param.idxRange, valid);
-                        while(valid && !found)
+                        auto it = std::find_if(
+                            values.begin(),
+                            values.end(),
+                            [&](auto const& v)
+                            {
+                                auto cmp = v == t.value;
+                                bool match = allTrue(cmp);
+                                return match;
+                            });
+
+                        if(it == values.end())
                         {
-                            param.value = value;
-                            recurse(tuneables, dim + 1, kernelRun, history, found);
-                            value = getNextLower(value, param.idxRange, valid);
+                            std::cerr << "[ERROR] No matching vector found for Tuneable[" << i << "]\n";
+                            it = values.begin();
+                            // there are for sure edge cases where this failsafe introduces some form of inaccurate
+                            // global state but atleast this is caught in the outer scope via a finite loop for
+                            // strategy calls
                         }
+
+                        idx[i] = std::distance(values.begin(), it);
                     }
-                    if(!found)
-                        param.value = oldValue;
+                    else
+                    {
+                        static_assert(!std::is_same_v<ValueT, ValueT>, "Unsupported value type in exhaustive search.");
+                    }
                 });
+            return idx;
         }
 
+        std::vector<std::size_t> dimsVec;
+        std::size_t total = 1;
+        std::size_t stateCount = 0;
         bool init = false;
+#define ExhaustiveSearchRandomInitialization
 #ifdef ExhaustiveSearchRandomInitialization
         static constexpr bool randomInit = true;
 #else
@@ -546,28 +544,51 @@ namespace alpaka::tune::strategy
             KernelData& kernel_data,
             EnvironmentState& state)
         {
-            auto& history = kernel_data.runs;
-            if constexpr(randomInit)
+            constexpr std::size_t N = std::tuple_size<std::remove_reference_t<T_tuneables>>::value;
+            using VecT = alpaka::Vec<std::size_t, N>;
+            if(!init)
             {
-                if(!init)
+                if constexpr(randomInit)
                 {
                     randomSample{}(metricInterface, tuneables, kernelRun, kernel_data, state);
-                    init = true; // only the first time this strategy is called in the current context
                 }
+
+                dimsVec.clear();
+                total = 1;
+                for_each_enumerate(
+                    tuneables,
+                    [&](auto& t, std::size_t i)
+                    {
+                        std::size_t sz = t.getValues().size();
+                        dimsVec.push_back(sz);
+                        total *= sz;
+                    });
+
+                VecT idx = computeValueIndices(tuneables, kernelRun);
+                VecT dimsVecAsVec = convertVec<N>(dimsVec);
+                stateCount = linearize(dimsVecAsVec, idx) + 1;
+                init = true;
+                return;
             }
 
-            if(history.contains(kernelRun.toHash()))
+            if(stateCount >= total)
             {
-                bool found{false};
-                recurse(tuneables, 0, kernelRun, history, found);
-                if(!found)
-                {
-                    std::cout << " did not find any new tuneable use best recorded run now. " << std::endl;
-
-                    // fallback incase we found no new or still usable config it indicates that we switch to bestConfig
-                    state.sessionFinished = true;
-                }
+                state.sessionFinished = true;
+                return;
             }
+            VecT nd = alpaka::mapToND(convertVec<N>(dimsVec), stateCount++);
+
+            for_each_enumerate(
+                tuneables,
+                [&](auto& t, std::size_t i)
+                {
+                    auto& vals = t.getValues();
+                    if(nd[i] >= vals.size())
+                    {
+                        std::abort(); // Stop immediately
+                    }
+                    t.value = vals[nd[i]];
+                });
         }
     };
 
@@ -710,31 +731,8 @@ namespace alpaka::tune::strategy
         {
             using T_Metric = std::remove_cvref_t<decltype(metricInterface)>;
             auto& history = kernel_data.runs;
-            /*
-            std::cout << " before random Sample: " << std::endl;
-            std::apply(
-                [](auto&... elem)
-                {
-                    ((std::cout << " value: " << elem.value.toString() << " begin: "
-                                << elem.idxRange.m_begin.toString() << " end: " << elem.idxRange.m_end.toString()
-                                << " stride: " << elem.idxRange.m_stride.toString() << std::endl),
-                     ...);
-                },
-                tuneables);*/
             randomSample{}(metricInterface, tuneables, kernelRun, kernel_data, state);
-            /*
-            std::cout << " after random Sample: " << std::endl;
-            std::apply(
-                [](auto&... elem)
-                {
-                    ((std::cout << " value: " << elem.value.toString() << " begin: "
-                                << elem.idxRange.m_begin.toString() << " end: " << elem.idxRange.m_end.toString()
-                                << " stride: " << elem.idxRange.m_stride.toString() << std::endl),
-                     ...);
-                },
-                tuneables);
-            std::cout << " finish " << std::endl;
-            */
+
             if(history.contains(kernelRun.toHash()))
             {
                 exhaustiveSearch{}(metricInterface, tuneables, kernelRun, kernel_data, state);

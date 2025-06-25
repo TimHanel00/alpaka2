@@ -69,18 +69,31 @@ namespace alpaka::tune
     bool allTrue(Vec const& v)
     {
         for(std::size_t i = 0; i < Vec::dim(); ++i)
+        {
             if(!v[i])
                 return false;
+        }
         return true;
+    }
+
+    // Scalar bool overload
+    inline bool allTrue(bool const& v)
+    {
+        return v;
     }
 
 #define defaultMinSteps 16
 #define defaultMaxSteps 32
 
+    auto calcNumStepsFromRange(auto const& tuneable)
+    {
+        return ((tuneable.idxRange.m_end - tuneable.idxRange.m_begin) / tuneable.idxRange.m_stride).product() + 1;
+    }
+
     template<typename Tuneable, typename maxVec, typename ScalarPartitioning>
     void adaptRangeToNumSteps(
         Tuneable& tuneable, // the tuneable we want to partition
-        const maxVec& maxVal, // maximum value (ndim vector)
+        maxVec const& maxVal, // maximum value (ndim vector)
         ScalarPartitioning partition, // the scalar ressource that has to be partitioned for m_begin and m_stride
         std::size_t minSteps = defaultMinSteps,
         std::size_t maxSteps = defaultMaxSteps)
@@ -96,7 +109,7 @@ namespace alpaka::tune
 
         tuneable.toRange(); // calculate numSteps
 
-        int steps = tuneable.numSteps();
+        int steps = calcNumStepsFromRange(tuneable);
 
         // Try scaling base up until steps are in range or we overshoot
         Scalar scale = 1;
@@ -109,7 +122,7 @@ namespace alpaka::tune
             tuneable.idxRange.m_stride = current;
             tuneable.idxRange.m_end = multipleOfPartitioning(maxVal, current);
             tuneable.toRange();
-            steps = tuneable.numSteps();
+            steps = calcNumStepsFromRange(tuneable);
         }
 
         // Back off if we overshot
@@ -120,7 +133,7 @@ namespace alpaka::tune
             tuneable.idxRange.m_stride = current;
             tuneable.idxRange.m_end = multipleOfPartitioning(maxVal, current);
             tuneable.toRange();
-            steps = tuneable.numSteps();
+            steps = calcNumStepsFromRange(tuneable);
         }
         if(!allTrue(tuneable.idxRange.m_end > tuneable.idxRange.m_begin))
         {
@@ -344,21 +357,28 @@ namespace alpaka::tune
     {
         std::string name;
         bool userDef;
+
         using T_Storage = RefStorage<typename T::type, alpaka::getDim(T{})>;
         using T_Vec = Vec<typename T::type, alpaka::getDim(T{}), T_Storage>;
-        static constexpr auto dim = ::alpaka::getDim(T{});
-        IdxRangeHandle<T_Vec> idxRange;
-        std::vector<T> valList;
+        static constexpr auto dim = alpaka::getDim(T{});
 
-        TuneableHandle(T& val, std::string n, bool u, T& b, T& e, T& s)
-            : value(T_Storage(val))
-            , name(std::move(n))
-            , userDef(u)
-            , idxRange(b, e, s)
+        IdxRangeHandle<T_Vec> idxRange;
+        std::reference_wrapper<std::vector<T>> valList;
+        T_Vec value;
+
+        auto& getValues()
         {
+            return valList.get();
         }
 
-        T_Vec value;
+        TuneableHandle(T& val, std::string n, bool u, std::reference_wrapper<std::vector<T>> vec, T& b, T& e, T& s)
+            : name(std::move(n))
+            , userDef(u)
+            , idxRange(b, e, s)
+            , valList(vec)
+            , value(T_Storage(val)) // moved last for safe order
+        {
+        }
     };
 
     template<typename T>
@@ -370,17 +390,22 @@ namespace alpaka::tune
         using T_Vec = Vec<T, 1, T_Storage>;
         static constexpr auto dim = 1;
         IdxRangeHandle<T_Vec> idxRange;
-        std::vector<T> valList;
+        std::reference_wrapper<std::vector<T>> valList;
+        T_Vec value;
 
-        TuneableHandle(T& val, std::string n, bool u, T& b, T& e, T& s)
-            : value(T_Vec(T_Storage(val)))
-            , name(std::move(n))
-            , userDef(u)
-            , idxRange(b, e, s)
+        auto& getValues()
         {
+            return valList.get();
         }
 
-        T_Vec value;
+        TuneableHandle(T& val, std::string n, bool u, std::reference_wrapper<std::vector<T>> vec, T& b, T& e, T& s)
+            : name(std::move(n))
+            , userDef(u)
+            , idxRange(b, e, s)
+            , valList(vec)
+            , value(T_Vec(T_Storage(val))) // moved to the end
+        {
+        }
     };
 
     /**
@@ -550,6 +575,21 @@ namespace alpaka::tune
         using T_Stride = Stride;
         static constexpr std::size_t tag = ID;
     };
+    template<typename T, typename Policy>
+    struct ValueListType;
+
+    template<typename T>
+    struct ValueListType<T, DimensionsDependent>
+    {
+        using type = std::vector<T>;
+    };
+
+    template<typename T>
+    struct ValueListType<T, DimensionsIndependent>
+    {
+        static constexpr std::size_t Dim = alpaka::getDim(T{});
+        using type = std::array<std::vector<typename T::type>, Dim>;
+    };
 
     //--------------------------------------
     // 3. Tuneable
@@ -559,11 +599,13 @@ namespace alpaka::tune
         std::size_t ID = static_cast<std::size_t>(SpecialTuneableID::userDef),
         typename dimensionTraversePolicy = DimensionsIndependent>
     struct Tuneable
+
     {
         using ValueType = T;
         using dimensionTraversePolicy_type = dimensionTraversePolicy;
         T value;
         bool userDef;
+        bool hasRange = true;
         static constexpr std::size_t tag = ID;
         IdxRange<T, T, T> idxRange;
         using index_type = typename T::index_type;
@@ -581,6 +623,8 @@ namespace alpaka::tune
         DimensionTraversePolicy policy;
         template<typename TuneableA, typename TuneableB>
         friend constexpr bool isSameTuneable(TuneableA const& a, TuneableB const& b);
+        using ValueList = typename ValueListType<T, dimensionTraversePolicy>::type;
+        ValueList valueList;
 
         std::string name() const
         {
@@ -704,12 +748,19 @@ namespace alpaka::tune
 
         [[nodiscard]] std::size_t numSteps() const
         {
-            std::size_t numSteps = 1;
-            for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
+            if constexpr(std::is_same_v<dimensionTraversePolicy, DimensionsDependent>)
             {
-                numSteps *= ((idxRange.m_end[i] - idxRange.m_begin[i]) / idxRange.m_stride[i]) + 1;
+                return valueList.size(); // valueList is std::vector<T>
             }
-            return numSteps;
+            else if constexpr(std::is_same_v<dimensionTraversePolicy, DimensionsIndependent>)
+            {
+                std::size_t total = 1;
+                for(std::size_t i = 0; i < vecDim; ++i)
+                {
+                    total *= valueList[i].size(); // valueList is std::array<std::vector<...>, vecDim>
+                }
+                return total;
+            }
         }
 
         [[nodiscard]] std::string toHash() const
@@ -738,18 +789,19 @@ namespace alpaka::tune
     auto Tuneable<T, ID, dimensionTraversePolicy>::makeList() -> std::vector<T>
     {
         std::vector<T> dependentList;
-        if(inputList.empty())
+        if(hasRange)
         {
             for(auto i = idxRange.m_begin; allTrue(i <= idxRange.m_end); i += idxRange.m_stride)
             {
                 dependentList.emplace_back(i);
             }
         }
-        else
+        for(T const& v : inputList)
         {
-            return inputList;
+            dependentList.push_back(v);
         }
-        return dependentList; // <== you forgot this in original
+        valueList = dependentList;
+        return dependentList;
     }
 
     template<typename T, std::size_t ID, typename dimensionTraversePolicy>
@@ -757,33 +809,73 @@ namespace alpaka::tune
     auto Tuneable<T, ID, dimensionTraversePolicy>::makeList()
         -> std::array<std::vector<typename T::type>, Tuneable<T, ID, dimensionTraversePolicy>::vecDim>
     {
-        std::array<std::vector<typename T::type>, vecDim> independentLists;
-        if(inputList.empty())
+        using Scalar = typename T::type;
+        constexpr std::size_t D = vecDim;
+        std::array<std::vector<Scalar>, D> independentLists;
+
+        std::cerr << "[DEBUG] makeList() called for DimensionsIndependent\n";
+        std::cerr << "[DEBUG] vecDim = " << D << "\n";
+
+        if(hasRange)
         {
-            for(std::size_t dim = 0; dim < vecDim; ++dim)
+            std::cerr << "[DEBUG] Generating from idxRange: \n";
+            for(std::size_t dim = 0; dim < D; ++dim)
             {
-                for(auto val = idxRange.m_begin[dim]; val <= idxRange.m_end[dim]; val += idxRange.m_stride[dim])
+                auto begin = idxRange.m_begin[dim];
+                auto end = idxRange.m_end[dim];
+                auto stride = idxRange.m_stride[dim];
+
+                std::cerr << "  [DEBUG] dim[" << dim << "]: begin=" << begin << ", end=" << end
+                          << ", stride=" << stride << "\n";
+
+                if(stride == 0)
+                {
+                    std::cerr << "[ERROR] Zero stride in dimension " << dim << " — skipping\n";
+                    continue;
+                }
+
+                for(auto val = begin; val <= end; val += stride)
                 {
                     independentLists[dim].push_back(val);
+                    std::cerr << "    [DEBUG] pushed val = " << val << "\n";
                 }
             }
+        }
+
+        if(inputList.empty())
+        {
+            std::cerr << "[DEBUG] inputList is empty\n";
         }
         else
         {
-            for(T const& v : inputList)
-            {
-                for(std::size_t dim = 0; dim < vecDim; ++dim)
-                {
-                    independentLists[dim].push_back(v[dim]);
-                }
-            }
+            std::cerr << "[DEBUG] Processing inputList with " << inputList.size() << " entries\n";
+        }
 
-            for(auto& list : independentLists)
+        for(T const& v : inputList)
+        {
+            for(std::size_t dim = 0; dim < D; ++dim)
             {
-                std::sort(list.begin(), list.end());
-                list.erase(std::unique(list.begin(), list.end()), list.end());
+                auto val = v[dim];
+                independentLists[dim].push_back(val);
+                std::cerr << "  [DEBUG] From inputList: v[" << dim << "] = " << val << "\n";
             }
         }
+
+        std::cerr << "[DEBUG] Sorting and deduplicating...\n";
+        for(std::size_t dim = 0; dim < D; ++dim)
+        {
+            auto& list = independentLists[dim];
+            std::sort(list.begin(), list.end());
+            list.erase(std::unique(list.begin(), list.end()), list.end());
+
+            std::cerr << "  [DEBUG] Final list[" << dim << "] = { ";
+            for(auto val : list)
+                std::cerr << val << " ";
+            std::cerr << "}\n";
+        }
+
+        valueList = independentLists;
+        std::cerr << "[DEBUG] makeList() completed successfully\n";
         return independentLists;
     }
 

@@ -85,12 +85,12 @@ auto flattenImpl(TuneableType& tune, std::index_sequence<I...>)
 {
     using VecType = std::remove_reference_t<decltype(tune.value)>;
     using ElementType = typename VecType::type;
-    auto valList = tune.makeList();
     return std::make_tuple(
         alpaka::tune::TuneableHandle<ElementType>(
             tune.value[I],
             std::string(tune.name()) + "_" + std::to_string(I),
             tune.userDef,
+            std::reference_wrapper{tune.valueList[I]},
             tune.idxRange.m_begin[I],
             tune.idxRange.m_end[I],
             tune.idxRange.m_stride[I])...);
@@ -195,7 +195,6 @@ auto makeNonOwningTuneableTuple(alpaka::tune::Tuneable<T_Vec, ID, alpaka::tune::
     using elementType = ALPAKA_TYPEOF(t.value);
     using TuneableType = alpaka::tune::Tuneable<T_Vec, ID, alpaka::tune::DimensionsDependent>;
     auto& newTune = const_cast<std::remove_cv_t<TuneableType>&>(t);
-    auto valList = newTune.makeList();
     if constexpr(alpaka::isVector_v<elementType>)
     {
         // flatten() needs non-const access — cast safely
@@ -204,6 +203,7 @@ auto makeNonOwningTuneableTuple(alpaka::tune::Tuneable<T_Vec, ID, alpaka::tune::
                 newTune.value,
                 std::string(newTune.name()),
                 newTune.userDef,
+                std::reference_wrapper{newTune.valueList},
                 newTune.idxRange.m_begin,
                 newTune.idxRange.m_end,
                 newTune.idxRange.m_stride));

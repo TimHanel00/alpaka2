@@ -102,9 +102,6 @@ namespace alpaka::tune
                 T_FrameSpec const& dataBlocking,
                 T_KernelRun& kernelRun)
             {
-                std::cout << " Device: " << typeid(T_Device).name() << std::endl;
-                std::cout << " Device: " << alpaka::core::demangledName<T_Device>(device) << std::endl;
-                std::cout << "Exec: " << alpaka::core::demangledName<T_Exec>(exec) << std::endl;
                 // we can not modify kernelRun or dataBlocking since we need to change their signature
                 return std::make_pair(dataBlocking.getThreadSpec, kernelRun);
             }
@@ -166,15 +163,10 @@ namespace alpaka::tune
             {
                 if(!newRun.getNumBlocksTune().userDef)
                 {
-                    newRun.getNumBlocksTune().idxRange.m_begin
-                        = primeFactorPartitioning(device.getDeviceProperties().m_multiProcessorCount, T_NumBlocks{});
-                    newRun.getNumBlocksTune().idxRange.m_end = primeFactorPartitioning(
-                        device.getDeviceProperties().m_multiProcessorCount * 4u,
-                        T_NumBlocks{});
-                    newRun.getNumBlocksTune().idxRange.m_stride = primeFactorPartitioning(
-                        device.getDeviceProperties().m_multiProcessorCount / 2,
-                        T_NumBlocks{});
-                    newRun.getNumBlocksTune().toRange();
+                    adaptRangeToNumSteps(
+                        newRun.getNumBlocksTune(),
+                        dataBlocking.m_numFrames,
+                        device.getDeviceProperties().m_multiProcessorCount);
                 }
             }
 

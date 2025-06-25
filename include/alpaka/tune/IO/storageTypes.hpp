@@ -323,7 +323,6 @@ public:
         double_t ciWidth = ciHigh - ciLow;
         double_t allowedRange = tolerance * median;
         // Check if 99% CI width is within 5% of the median
-        std::cout << " boundary " << (ciWidth / median) << " tolerance: " << tolerance << std::endl;
         return (ciWidth / median) <= tolerance;
     }
 
@@ -458,6 +457,7 @@ struct StorageKernelRun
     bool fullFlag = false;
 #define WarmUpRuns 1
 #define StepsUntilCICheck 10
+
     void pushMetric(double_t const& m)
     {
         if(metricContainer.push<StepsUntilCICheck>(m))
@@ -491,8 +491,8 @@ struct StorageKernelRun
             break;
         case State::Dummy:
             this->metricContainer.clear();
-            this->stamp=-1;
-            this->fullFlag=true;
+            this->stamp = -1;
+            this->fullFlag = true;
             break;
         default:
 
@@ -609,7 +609,7 @@ struct KernelData
     std::string targetMetric;
     std::vector<std::string> specifiers;
     bool exhausted = false;
-    bool histEvaluated=false;
+    bool histEvaluated = false;
     std::size_t nrOfConfigs{0};
     long long int highestStamp{0};
     std::size_t maxRuns{0};
@@ -692,7 +692,7 @@ void toActive(
     updateTuneables(active.m_compileTimeTuple, storeKernel.Ctuneables);
 
     // Update metric by converting the storage string metric to the active kernel's floating type.
-    //active.metric = storeKernel.getMetric<median_t>().as<t_ns>();
+    // active.metric = storeKernel.getMetric<median_t>().as<t_ns>();
 }
 
 template<typename... T_KernelRunArgs>

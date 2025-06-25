@@ -40,34 +40,24 @@ namespace alpaka
      *returns wether any part of the frameSpec was larger than the specified idxRange of the tuneable
      **/
     template<typename T_FrameSpec, typename... T_Args>
-    static bool specToRun(KernelTuningModel<T_Args...>& kernelRun, T_FrameSpec& spec)
+    static void addSpecToRun(KernelTuningModel<T_Args...>& kernelRun, T_FrameSpec& spec)
     {
-        bool frameSmaller = false, extentSmaller = false, numBlockSmaller = false, numBlockExtentSmaller = false;
         if constexpr(KernelTuningModel<T_Args...>::hasNumFramesTune())
         {
-            kernelRun.getNumFramesTune().value = spec.m_numFrames;
-            if(anyTrue(kernelRun.getNumFramesTune().idxRange.m_end < spec.m_numFrames))
-                frameSmaller = true;
+            kernelRun.getNumFramesTune().inputList.push_back(spec.m_numFrames);
         }
         if constexpr(KernelTuningModel<T_Args...>::hasFrameExtentTune())
         {
-            kernelRun.getFrameExtentTune().value = spec.m_frameExtent;
-            if(anyTrue(kernelRun.getFrameExtentTune().idxRange.m_end < spec.m_frameExtent))
-                extentSmaller = true;
+            kernelRun.getFrameExtentTune().inputList.push_back(spec.m_frameExtent);
         }
         if constexpr(KernelTuningModel<T_Args...>::hasNumBlocksTune())
         {
-            kernelRun.getNumBlocksTune().value = spec.m_threadSpec.m_numBlocks;
-            if(anyTrue(kernelRun.getNumBlocksTune().idxRange.m_end < spec.m_threadSpec.m_numBlocks))
-                numBlockSmaller = true;
+            kernelRun.getNumBlocksTune().inputList.push_back(spec.m_threadSpec.m_numBlocks);
         }
         if constexpr(KernelTuningModel<T_Args...>::hasThreadBlockSizeTune())
         {
-            kernelRun.getThreadBlockSizeTune().value = spec.m_threadSpec.m_numThreads;
-            if(anyTrue(kernelRun.getThreadBlockSizeTune().idxRange.m_end < spec.m_threadSpec.m_numThreads))
-                numBlockExtentSmaller = true;
+            kernelRun.getThreadBlockSizeTune().inputList.push_back(spec.m_threadSpec.m_numThreads);
         }
-        return (frameSmaller || extentSmaller || numBlockSmaller || numBlockExtentSmaller);
     }
 
     template<typename T_FrameSpec, typename... T_Args>
@@ -350,7 +340,6 @@ namespace alpaka::tune::detail::internal
             {
                 auto constraintValid = constraint.template operator()<T_Context>(run);
                 valid = valid && constraintValid;
-                std::cout << " constraint" << std::endl;
             });
         if(!valid)
         {
@@ -425,14 +414,7 @@ namespace alpaka::tune::detail::internal
             if(newHash != oldHash
                && configReadyForRun<T_Context, T_MetricInterface>(run, data, environment, constraints))
             {
-                std::cout << " somehow this config is read to run" << newHash << std::endl;
                 return true;
-            }
-            if(newHash != oldHash)
-            {
-                std::cout << " newHash: " << newHash << std::endl;
-                std::cout << " oldHash: " << oldHash << std::endl;
-                std::cout << " was rejected " << std::endl;
             }
             if(environment.sessionFinished)
             {
@@ -805,7 +787,6 @@ namespace alpaka
             {
                 // this queue only reads  from a toml file it can be ignored for now
                 StorageKernelRun& stored = res.value();
-                std::cout << " stored run: " << stored.toHash() << std::endl;
                 toActive(run, stored);
             }
             if(configReadyForRun<T_Context, T_MetricInterface>(run, data, environment_state, constraints))

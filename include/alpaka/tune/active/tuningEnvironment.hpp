@@ -29,6 +29,19 @@ struct EnvironmentState
     alpaka::tune::ConfigQueue<StorageKernelRun> config_queue;
 };
 
+template<typename... Tuneables>
+void makeListsForAllTuneables(std::tuple<Tuneables...>&& allTuneables)
+{
+    std::apply(
+        [](auto&... tuns)
+        {
+            (void) std::initializer_list<int>{
+                (tuns.valueList = tuns.makeList(), 0)... // discard result
+            };
+        },
+        allTuneables);
+}
+
 // #define DEBUG_Singleton
 template<
     typename T_Device,
@@ -97,21 +110,13 @@ public:
             history.m_tuningHistory.emplace(tmp.toHash(), std::move(tmp));
             ptrToHistory = history.getKernelFromHistory(device, exec, kernelBundle, sessionSpecifier_);
         }
-        getRunsPerConfig_Env();
         KernelData& h = *ptrToHistory;
         // acts like a guard only valid configs are used for the device
-        std::cout << " Kernel: " << h.toHash() << std::endl;
-        std::cout << "[DEBUG] before clamp to Spec " << std::endl;
-        activeRunPtr->printFull();
         alpaka::tune::clampToSpec(device, frameSpec, *activeRunPtr);
+        addSpecToRun(*activeRunPtr, frameSpec);
+        makeListsForAllTuneables(activeRunPtr->allTuneables());
 
         alpaka::tune::recalculateMaxRuns(*activeRunPtr);
-        std::cout << "[DEBUG] after clamp to Spec " << std::endl;
-        activeRunPtr->printFull();
-        bool specWasLarger
-            = specToRun(*activeRunPtr, frameSpec); // values of the KernelTuningModel initially set to the frameSpec.
-        if(specWasLarger)
-            activeRunPtr->maxRuns += 1;
         // applyCustomThreadSpec(*activeRunPtr, frameSpec);
         if(!h.runs.contains(activeRunPtr->toHash()))
         {
@@ -120,8 +125,6 @@ public:
         environmentState.bestConfig = h.runs[activeRunPtr->toHash()];
         environmentState.maxConfigsTotal = activeRunPtr->maxRuns;
         environmentState.maxValidEvaluations = getMaxRuns_Env();
-        std::cout << " maxRuns from kernel: " << activeRunPtr->maxRuns << " max runs from env" << getMaxRuns_Env()
-                  << std::endl;
     }
 
     // Prevent copy/move
@@ -160,7 +163,6 @@ auto makeConformToTVec(T_Vec const& vec, T_Tuneable& tuneable)
             auto ret
                 = alpaka::tune::Tuneable<T_Vec, tuneable_ID, T_traversePolicy>(vec, alpaka::IdxRange{ones, vec, ones});
             ret.userDef = false;
-            std::cout << " created vector for conformity " << ret.toHash() << std::endl;
             return ret;
         }
         std::string s = std::string(tuneable.name());
@@ -235,10 +237,7 @@ auto createTuningEnvironment(
     T_History& history)
 {
     auto activeRun = makeConformToFrameSpec(spec, run);
-    std::cout << "[DEBUG] before apply HW " << std::endl;
-    run.printFull();
     auto retPair = alpaka::tune::applyHwConstraints(device, exec, spec, activeRun);
-    std::cout << "[DEBUG] after apply HW " << std::endl;
     retPair.second.printFull();
     auto CTuneableBundle = alpaka::tune::trait::constructRuntimeCtuneablesForActivKernel(bundle);
     auto newFrameSpec = retPair.first;
