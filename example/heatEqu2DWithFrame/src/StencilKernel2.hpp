@@ -41,6 +41,8 @@ struct StencilKernel2
         auto frameDomain = numFrames * frameExtent;
         auto _0Vec = ALPAKA_TYPEOF(frameExtent){0u, 0u};
         auto traverseOverFrames = onAcc::makeIdxMap(acc, onAcc::worker::blocksInGrid, IdxRange{_0Vec, numFrames});
+
+
         using _2Vec = alpaka::Vec<u_int32_t, 2u>;
 
         auto const blockCount = acc[layer::thread].count();
@@ -60,10 +62,8 @@ struct StencilKernel2
             frameExtent,
             alpaka::onHost::mem::calculatePitchesFromExtents<double>(frameExtent),
             Alignment<sizeof(double)>{});
-        for(auto bufStartIdx : onAcc::makeIdxMap(
-                acc,
-                onAcc::WorkerGroup{onAcc::worker::blocksInGrid},
-                IdxRange{_0Vec, numNodes, frameExtent}))
+        for(auto bufStartIdx :
+            onAcc::makeIdxMap(acc, onAcc::worker::blocksInGrid, IdxRange{_0Vec, numNodes, frameExtent}))
         {
             onAcc::syncBlockThreads(acc);
 

@@ -79,7 +79,7 @@ namespace alpaka::tune
 
     template<typename Tuneable, typename maxVec, typename ScalarPartitioning>
     void adaptRangeToNumSteps(
-        Tuneable& tuneable, // the tuneable you want to partition
+        Tuneable& tuneable, // the tuneable we want to partition
         const maxVec& maxVal, // maximum value (ndim vector)
         ScalarPartitioning partition, // the scalar ressource that has to be partitioned for m_begin and m_stride
         std::size_t minSteps = defaultMinSteps,
@@ -348,6 +348,7 @@ namespace alpaka::tune
         using T_Vec = Vec<typename T::type, alpaka::getDim(T{}), T_Storage>;
         static constexpr auto dim = ::alpaka::getDim(T{});
         IdxRangeHandle<T_Vec> idxRange;
+        std::vector<T> valList;
 
         TuneableHandle(T& val, std::string n, bool u, T& b, T& e, T& s)
             : value(T_Storage(val))
@@ -369,6 +370,7 @@ namespace alpaka::tune
         using T_Vec = Vec<T, 1, T_Storage>;
         static constexpr auto dim = 1;
         IdxRangeHandle<T_Vec> idxRange;
+        std::vector<T> valList;
 
         TuneableHandle(T& val, std::string n, bool u, T& b, T& e, T& s)
             : value(T_Vec(T_Storage(val)))
@@ -564,6 +566,17 @@ namespace alpaka::tune
         bool userDef;
         static constexpr std::size_t tag = ID;
         IdxRange<T, T, T> idxRange;
+        using index_type = typename T::index_type;
+        static constexpr auto vecDim = alpaka::getDim(T{});
+        std::vector<T> inputList;
+        template<
+            typename U = dimensionTraversePolicy,
+            std::enable_if_t<std::is_same_v<U, DimensionsDependent>, int> = 0>
+        auto makeList() -> std::vector<T>;
+        template<
+            typename U = dimensionTraversePolicy,
+            std::enable_if_t<std::is_same_v<U, DimensionsIndependent>, int> = 0>
+        auto makeList() -> std::array<std::vector<typename T::type>, vecDim>;
         std::string m_name = getNameFromTag<ID>();
         DimensionTraversePolicy policy;
         template<typename TuneableA, typename TuneableB>
@@ -719,6 +732,60 @@ namespace alpaka::tune
     // no name supplied: fallback to macro for unique names
     // Specialized tunables
     inline constexpr alpaka::tune::NoTune noTune{};
+
+    template<typename T, std::size_t ID, typename dimensionTraversePolicy>
+    template<typename U, std::enable_if_t<std::is_same_v<U, DimensionsDependent>, int>>
+    auto Tuneable<T, ID, dimensionTraversePolicy>::makeList() -> std::vector<T>
+    {
+        std::vector<T> dependentList;
+        if(inputList.empty())
+        {
+            for(auto i = idxRange.m_begin; allTrue(i <= idxRange.m_end); i += idxRange.m_stride)
+            {
+                dependentList.emplace_back(i);
+            }
+        }
+        else
+        {
+            return inputList;
+        }
+        return dependentList; // <== you forgot this in original
+    }
+
+    template<typename T, std::size_t ID, typename dimensionTraversePolicy>
+    template<typename U, std::enable_if_t<std::is_same_v<U, DimensionsIndependent>, int>>
+    auto Tuneable<T, ID, dimensionTraversePolicy>::makeList()
+        -> std::array<std::vector<typename T::type>, Tuneable<T, ID, dimensionTraversePolicy>::vecDim>
+    {
+        std::array<std::vector<typename T::type>, vecDim> independentLists;
+        if(inputList.empty())
+        {
+            for(std::size_t dim = 0; dim < vecDim; ++dim)
+            {
+                for(auto val = idxRange.m_begin[dim]; val <= idxRange.m_end[dim]; val += idxRange.m_stride[dim])
+                {
+                    independentLists[dim].push_back(val);
+                }
+            }
+        }
+        else
+        {
+            for(T const& v : inputList)
+            {
+                for(std::size_t dim = 0; dim < vecDim; ++dim)
+                {
+                    independentLists[dim].push_back(v[dim]);
+                }
+            }
+
+            for(auto& list : independentLists)
+            {
+                std::sort(list.begin(), list.end());
+                list.erase(std::unique(list.begin(), list.end()), list.end());
+            }
+        }
+        return independentLists;
+    }
 
 
 } // namespace alpaka::tune

@@ -4,13 +4,13 @@
 
 #ifndef KERNELSINGLETON_H
 #define KERNELSINGLETON_H
-#include <alpaka/tune/active/Queue.hpp>
 #include "../utils/environmentVars.hpp"
 #include "alpaka/core/decay.hpp"
 #include "alpaka/tune/adjust/adjust.hpp"
 
 #include <alpaka/onHost/FrameSpec.hpp>
 #include <alpaka/tune/IO/storageTypes.hpp>
+#include <alpaka/tune/active/Queue.hpp>
 #include <alpaka/tune/active/activeKernel.hpp>
 #include <alpaka/tune/traits/traits.hpp>
 
@@ -28,7 +28,6 @@ struct EnvironmentState
     StorageKernelRun bestConfig;
     alpaka::tune::ConfigQueue<StorageKernelRun> config_queue;
 };
-
 
 // #define DEBUG_Singleton
 template<
@@ -100,17 +99,20 @@ public:
         }
         getRunsPerConfig_Env();
         KernelData& h = *ptrToHistory;
-        activeRunPtr->m_strategyState.configStamp = h.highestStamp;
         // acts like a guard only valid configs are used for the device
-        std::cout<<" Kernel: "<<h.toHash()<<std::endl;
-        std::cout<<"[DEBUG] before clamp to Spec "<<std::endl;
+        std::cout << " Kernel: " << h.toHash() << std::endl;
+        std::cout << "[DEBUG] before clamp to Spec " << std::endl;
         activeRunPtr->printFull();
-        alpaka::tune::clampToSpec(device,frameSpec, *activeRunPtr);
+        alpaka::tune::clampToSpec(device, frameSpec, *activeRunPtr);
 
         alpaka::tune::recalculateMaxRuns(*activeRunPtr);
-        std::cout<<"[DEBUG] after clamp to Spec "<<std::endl;
+        std::cout << "[DEBUG] after clamp to Spec " << std::endl;
         activeRunPtr->printFull();
-        applyCustomThreadSpec(*activeRunPtr, frameSpec);
+        bool specWasLarger
+            = specToRun(*activeRunPtr, frameSpec); // values of the KernelTuningModel initially set to the frameSpec.
+        if(specWasLarger)
+            activeRunPtr->maxRuns += 1;
+        // applyCustomThreadSpec(*activeRunPtr, frameSpec);
         if(!h.runs.contains(activeRunPtr->toHash()))
         {
             h.runs[activeRunPtr->toHash()] = toStore(*activeRunPtr);
@@ -233,10 +235,10 @@ auto createTuningEnvironment(
     T_History& history)
 {
     auto activeRun = makeConformToFrameSpec(spec, run);
-    std::cout<<"[DEBUG] before apply HW "<<std::endl;
+    std::cout << "[DEBUG] before apply HW " << std::endl;
     run.printFull();
     auto retPair = alpaka::tune::applyHwConstraints(device, exec, spec, activeRun);
-    std::cout<<"[DEBUG] after apply HW "<<std::endl;
+    std::cout << "[DEBUG] after apply HW " << std::endl;
     retPair.second.printFull();
     auto CTuneableBundle = alpaka::tune::trait::constructRuntimeCtuneablesForActivKernel(bundle);
     auto newFrameSpec = retPair.first;

@@ -11,15 +11,21 @@
 
 namespace alpaka::tune
 {
-    template<typename T_Platform,typename T_Kind, typename T_Mapping,typename T_NumBlocks,typename T_NumThreads,typename T_KernelRun>
+    template<
+        typename T_Platform,
+        typename T_Kind,
+        typename T_Mapping,
+        typename T_NumBlocks,
+        typename T_NumThreads,
+        typename T_KernelRun>
     struct tunerAdjust::Op<
-        alpaka::onHost::Device<T_Platform,T_Kind>,
+        alpaka::onHost::Device<T_Platform, T_Kind>,
         T_Mapping,
         alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads>,
         T_KernelRun>
     {
         auto operator()(
-            alpaka::onHost::Device<T_Platform,T_Kind>& device,
+            alpaka::onHost::Device<T_Platform, T_Kind>& device,
             T_Mapping const& executor,
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
             T_KernelRun& kernelRun)
@@ -30,9 +36,8 @@ namespace alpaka::tune
             {
                 if(!newRun.getThreadBlockSizeTune().userDef)
                 {
-                    newRun.getThreadBlockSizeTune().idxRange.m_begin = primeFactorPartitioning(
-                        device.getDeviceProperties().m_warpSize,
-                        T_NumThreads{});
+                    newRun.getThreadBlockSizeTune().idxRange.m_begin
+                        = primeFactorPartitioning(device.getDeviceProperties().m_warpSize, T_NumThreads{});
                     // if(dataBlocking.m_frameExtent.product()<alpaka::onHost::getDeviceProperties(device).m_maxThreadsPerBlock)
                     newRun.getThreadBlockSizeTune().idxRange.m_end = multipleOfPartitioning(
                         device.getDeviceProperties().m_maxThreadsPerBlock,
@@ -41,8 +46,8 @@ namespace alpaka::tune
                         = newRun.getThreadBlockSizeTune().idxRange.m_begin;
                 }
             }
-#define minNumBlocks 10
-#define maxNumBlocks 20
+#    define minNumBlocks 10
+#    define maxNumBlocks 20
             if constexpr(T_newActiveRunType::hasNumBlocksTune())
             {
                 if(!newRun.getNumBlocksTune().userDef)

@@ -208,11 +208,11 @@ namespace alpaka::onHost::internal
                         = sycl::local_accessor<std::byte>{sycl::range<1>{blockDynSharedMemBytes}, cgh};
 
                     auto workerDesc = detail::getWorkerDescription(threadBlocking);
-                    auto optimizedThreadSpec = workerDesc.second;
+                    auto optimizedThreadSpec = workerDesc.second; // threadSpec to 3 dim clamped
                     constexpr uint32_t syclDim = workerDesc.first.dimensions;
 
                     cgh.parallel_for(
-                        workerDesc.first,
+                        workerDesc.first, // gridRange
                         [optimizedThreadSpec, st_shared_accessor, dyn_shared_accessor, kernelBundle](
                             sycl::nd_item<syclDim> work_item)
                         {

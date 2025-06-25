@@ -13,7 +13,63 @@
 #    include <alpaka/tune/active/sessionBuilder.h>
 
 namespace alpaka
+
 {
+    bool anyTrue(alpaka::concepts::Vector auto const& vec)
+    {
+        bool result = false;
+        for(auto i = 0; i < vec.dim(); ++i)
+        {
+            result = result || vec[i];
+        }
+        return result;
+    }
+
+    bool anyFalse(alpaka::concepts::Vector auto const& vec)
+    {
+        bool result = true;
+        for(auto i = 0; i < vec.dim(); ++i)
+        {
+            result = result && !vec[i];
+        }
+        return result;
+    }
+
+    /*
+     *converts a frameSpec to a KernelTuningModel
+     *returns wether any part of the frameSpec was larger than the specified idxRange of the tuneable
+     **/
+    template<typename T_FrameSpec, typename... T_Args>
+    static bool specToRun(KernelTuningModel<T_Args...>& kernelRun, T_FrameSpec& spec)
+    {
+        bool frameSmaller = false, extentSmaller = false, numBlockSmaller = false, numBlockExtentSmaller = false;
+        if constexpr(KernelTuningModel<T_Args...>::hasNumFramesTune())
+        {
+            kernelRun.getNumFramesTune().value = spec.m_numFrames;
+            if(anyTrue(kernelRun.getNumFramesTune().idxRange.m_end < spec.m_numFrames))
+                frameSmaller = true;
+        }
+        if constexpr(KernelTuningModel<T_Args...>::hasFrameExtentTune())
+        {
+            kernelRun.getFrameExtentTune().value = spec.m_frameExtent;
+            if(anyTrue(kernelRun.getFrameExtentTune().idxRange.m_end < spec.m_frameExtent))
+                extentSmaller = true;
+        }
+        if constexpr(KernelTuningModel<T_Args...>::hasNumBlocksTune())
+        {
+            kernelRun.getNumBlocksTune().value = spec.m_threadSpec.m_numBlocks;
+            if(anyTrue(kernelRun.getNumBlocksTune().idxRange.m_end < spec.m_threadSpec.m_numBlocks))
+                numBlockSmaller = true;
+        }
+        if constexpr(KernelTuningModel<T_Args...>::hasThreadBlockSizeTune())
+        {
+            kernelRun.getThreadBlockSizeTune().value = spec.m_threadSpec.m_numThreads;
+            if(anyTrue(kernelRun.getThreadBlockSizeTune().idxRange.m_end < spec.m_threadSpec.m_numThreads))
+                numBlockExtentSmaller = true;
+        }
+        return (frameSmaller || extentSmaller || numBlockSmaller || numBlockExtentSmaller);
+    }
+
     template<typename T_FrameSpec, typename... T_Args>
     static T_FrameSpec& applyCustomThreadSpec(KernelTuningModel<T_Args...>& kernelRun, T_FrameSpec& spec)
     {
@@ -571,6 +627,7 @@ namespace alpaka
             {
                 history.storeConfig(configfile);
                 write = false;
+                std::terminate(); // simply for data analysis, so that I can effectively gather data
             }
         }
     }

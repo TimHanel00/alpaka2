@@ -149,7 +149,7 @@ constexpr auto getNumNodes(alpaka::exec::CpuOmpBlocks const& exec)
 //! with the selected accelerator only. If you use the example as the starting point for your project, you can
 //! rename the example() function to main() and move the accelerator tag to the function body.
 template<typename T_Cfg>
-auto example(T_Cfg const& cfg) -> int
+auto example(T_Cfg const& cfg, uint32_t i) -> int
 {
     using namespace alpaka;
     using namespace alpaka::onHost;
@@ -168,9 +168,9 @@ auto example(T_Cfg const& cfg) -> int
     // fVec{108}}}). withGridSizeTune(tune::GridSizeTune{fVec{22}, IdxRange{fVec{22}, fVec{32},
     // fVec{1}}}).//#cpu
 
-    constexpr IdxVec numNodes = getNumNodes(exec);
+    IdxVec numNodes = {i, i};
     constexpr IdxVec haloSize{2, 2};
-    constexpr IdxVec extent = numNodes + haloSize;
+    IdxVec extent = numNodes + haloSize;
 
     constexpr uint32_t numTimeSteps = 4000 * 32 * 4;
     constexpr double tMax = 0.000005;
@@ -184,8 +184,8 @@ auto example(T_Cfg const& cfg) -> int
     constexpr double tMax = 0.001;
     */
     // x, y in [0, 1], t in [0, tMax]
-    constexpr double dx = 1.0 / static_cast<double>(extent[1] - 1);
-    constexpr double dy = 1.0 / static_cast<double>(extent[0] - 1);
+    double dx = 1.0 / static_cast<double>(extent[1] - 1);
+    double dy = 1.0 / static_cast<double>(extent[0] - 1);
     constexpr double dt = tMax / static_cast<double>(numTimeSteps);
 
     // Check the stability condition
@@ -220,10 +220,10 @@ auto example(T_Cfg const& cfg) -> int
     constexpr Idx ySize = 32u;
     constexpr Idx halo = 2u;
     constexpr auto chunkSize = CVec<Idx, ySize, xSize>{};
-    constexpr auto numNodesWithHalo = numNodes + halo;
+    auto numNodesWithHalo = numNodes + halo;
 
 
-    constexpr IdxVec numChunks{
+    IdxVec numChunks{
         divCeil(numNodes, IdxVec{xSize, ySize}),
     };
 
@@ -234,7 +234,7 @@ auto example(T_Cfg const& cfg) -> int
     StencilKernel2 stencilKernel;
     BoundaryKernel2 boundaryKernel;
     auto dataBlockingStencil = FrameSpec{numChunks, chunkSize};
-    constexpr auto longestSide = std::max(numNodesWithHalo.y(), numNodesWithHalo.x());
+    auto longestSide = std::max(numNodesWithHalo.y(), numNodesWithHalo.x());
     auto dataBlockingBorder = FrameSpec{Vec{longestSide / chunkSize.x()}, Vec{std::max(chunkSize.y(), chunkSize.x())}};
     auto toRTime = FrameSpec{
         alpaka::Vec{dataBlockingStencil.m_numFrames.x(), dataBlockingStencil.m_numFrames.y()},
@@ -315,9 +315,20 @@ auto example(T_Cfg const& cfg) -> int
     }
 }
 
-auto main() -> int
+auto main(int argc, char** argv) -> int
 {
     using namespace alpaka;
+    uint32_t i = 0;
+
+    // Simple CLI parsing
+    for(int arg = 1; arg < argc; ++arg)
+    {
+        std::string s = argv[arg];
+        if(s.rfind("--numNodes=", 0) == 0)
+        {
+            i = static_cast<uint32_t>(std::stoul(s.substr(11)));
+        }
+    }
     // Execute the example once for each enabled accelerator.
     // If you would like to execute it for a single accelerator only you can use the following code.
     //  \code{.cpp}
@@ -330,6 +341,6 @@ auto main() -> int
     //   TagCpuOmp2Threads, TagCpuSycl, TagCpuTbbBlocks, TagCpuThreads,
     //   TagFpgaSyclIntel, TagGenericSycl, TagGpuSyclIntel
     return executeForEachIfHasDevice(
-        [=](auto const& tag) { return example(tag); },
+        [=](auto const& tag) { return example(tag, i); },
         onHost::allBackends(onHost::enabledApis));
 };

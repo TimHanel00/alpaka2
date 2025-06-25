@@ -61,7 +61,6 @@ namespace alpaka::tune
             }
         }
 
-
         auto ret = adjustThreadSpec(device, exec, frameSpec, newRun);
         auto spec = ret.first;
         auto kernel = ret.second;
@@ -168,13 +167,13 @@ namespace alpaka::tune
                 if(!newRun.getNumBlocksTune().userDef)
                 {
                     newRun.getNumBlocksTune().idxRange.m_begin
-                        = primeFactorPartitioning(device.getDeviceProperties().m_multiProcessorCount, T_NumThreads{});
+                        = primeFactorPartitioning(device.getDeviceProperties().m_multiProcessorCount, T_NumBlocks{});
                     newRun.getNumBlocksTune().idxRange.m_end = primeFactorPartitioning(
                         device.getDeviceProperties().m_multiProcessorCount * 4u,
-                        T_NumThreads{});
+                        T_NumBlocks{});
                     newRun.getNumBlocksTune().idxRange.m_stride = primeFactorPartitioning(
                         device.getDeviceProperties().m_multiProcessorCount / 2,
-                        T_NumThreads{});
+                        T_NumBlocks{});
                     newRun.getNumBlocksTune().toRange();
                 }
             }
