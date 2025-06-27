@@ -273,7 +273,7 @@ struct DotKernel
         auto traverseOverFrames = onAcc::makeIdxMap(
             acc,
             onAcc::worker::blocksInGrid,
-            IdxRange{alpaka::CVec<uint32_t, 0u>{}, frameDataExtent, frameExtent});
+            IdxRange{alpaka::Vec{0u}, frameDataExtent, frameExtent});
 
         for(auto frameIdx : traverseOverFrames)
         {
@@ -349,48 +349,40 @@ static auto getSessionFromExec(Exec_T const &exec,auto arraySize,auto & devAcc){
     static constexpr auto _0T = std::size_t{0};
     static constexpr std::size_t index0 = 0;
     // alpaka::tune::Tuneable{uVec{56*2}, IdxRange{uVec{56*2}, uVec{dataBlocking.m_numFrames}, uVec{56*2}}})
-    auto tuningSessionDot
+    static auto tuningSessionDot
         = tune::TuningBuilder{}
               .withStrategy(tune::strategy::exhaustiveSearch{})
               .withRunSpecifiers(std::to_string(arraySize))
               .withFrameExtentTune(tune::Tuneable(idxVec{64}, IdxRange{idxVec{64}, idxVec{64 * 16}, idxVec{64}}))
               .withBlockSizeTune(tune::Tuneable(idxVec{64}, IdxRange{idxVec{64}, idxVec{maxThreads}, idxVec{64}}))
               .withNumBlocksTune()
-              .template withConstraint<tune::frameTune::numBlocks, tune::frameTune::FrameExtent, _0T>(
-                  [arraySize](auto numBlocks, auto frameExtent, auto concurrentElements)
+              .template withConstraint<tune::frameTune::FrameExtent, _0T>(
+                  [arraySize](auto frameExtent, auto concurrentElements)
                   {
                       auto chunkElements = concurrentElements * frameExtent;
                       auto condZ = arraySize % chunkElements[0] == decltype(arraySize){0};
-                      auto calcNumFrames = alpaka::Vec<uint32_t, 1u>{arraySize / chunkElements[0]};
-                      auto frameDataExtent = calcNumFrames * chunkElements;
-                      auto condX = numBlocks[0] <= calcNumFrames[0]; //also covers cases where numFrames is 0 (if chunkElements[0] < arraySize )
-                      auto condY = frameDataExtent[0] <= arraySize;
-                      std::cout << " chunkElems: " << chunkElements << " arSize: " << arraySize << " numFrames "
-                                << calcNumFrames[0] << " concurrentElements " << concurrentElements[0] << " numBlocks "
-                                << numBlocks[0] << " frameDataExtent " << frameDataExtent[0];
-                      return condX && condY && condZ&&isPowerOfTwo(concurrentElements[0]);
+
+                      return condZ&&isPowerOfTwo(concurrentElements[0]);
                   })
-              .withConfig("./config/realBabelstreamGPU "+std::to_string(arraySize)+"_"+data+".toml")
+              .withConfig("./config/realBabelstreamGPU_"+std::to_string(arraySize)+"_"+data+".toml")
               .build();
-    auto tuningSessionRest
+    static auto tuningSessionRest
         = tune::TuningBuilder{}
               .withStrategy(alpaka::tune::strategy::exhaustiveSearch{})
               .withRunSpecifiers(std::to_string(arraySize))
               .withBlockSizeTune(tune::Tuneable(idxVec{64}, IdxRange{idxVec{64}, idxVec{maxThreads}, idxVec{64}}))
               .withNumBlocksTune()
-              .template withConstraint<tune::frameTune::numBlocks, _0T>(
-                  [arraySize](auto numBlocks, auto numThreads, auto concurrentElements)
-                  {
-                      auto gridElems = concurrentElements[0] * numBlocks[0] * numThreads[0];
-                      auto condX = (arraySize % (concurrentElements[0] * numThreads[0])) == decltype(arraySize){0};
-                      auto condY = gridElems <= arraySize;
-
-                      return condX && condY&&isPowerOfTwo(concurrentElements[0]);
-                  })
-              .withConfig("./config/realBabelstreamGPU_Rest "+std::to_string(arraySize)+"_"+data+".toml")
+              .template withConstraint<_0T>(  [arraySize](auto concurrentElements){return isPowerOfTwo(concurrentElements[0]);})
+              .withConfig("./config/realBabelstreamGPU_Rest_"+std::to_string(arraySize)+"_"+data+".toml")
               .build();
 		return std::make_tuple(tuningSessionDot,tuningSessionRest);
     };
+template<typename T_TuningSessionDot,typename T_TuningSessionRest>
+void abortIfFinished(const T_TuningSessionDot &dotSession,const  T_TuningSessionRest &restSession){
+    std::cout<<" rest "<<restSession.finishedConfigs<<std::endl;
+    std::cout<<" dot "<<dotSession.finishedConfigs<<std::endl;
+    if(restSession.finishedConfigs>=4&&dotSession.finishedConfigs>=1){std::terminate();};
+    }
 template<typename Data_T>
 static auto getSessionFromExec(alpaka::exec::CpuOmpBlocks const &exec, auto arraySize, auto &devAcc) {
     // specialization implementation
@@ -410,34 +402,20 @@ using Idx = std::uint32_t;
 	static auto sessionDot=tune::TuningBuilder{}
               .withRunSpecifiers(std::to_string(arraySize),data)
               .withFrameExtentTune(tune::Tuneable(idxVec{64}, IdxRange{idxVec{64}, idxVec{64 * 16}, idxVec{64}}))
-                            .template withConstraint<tune::frameTune::numBlocks, tune::frameTune::FrameExtent, _0T>(
-                  [arraySize](auto numBlocks, auto frameExtent, auto concurrentElements)
+                            .template withConstraint< tune::frameTune::FrameExtent, _0T>(
+                  [arraySize]( auto frameExtent, auto concurrentElements)
                   {
                       auto chunkElements = concurrentElements * frameExtent;
                       auto condZ = arraySize % chunkElements[0] == decltype(arraySize){0};
-                      auto calcNumFrames = alpaka::Vec<uint32_t, 1u>{arraySize / chunkElements[0]};
-                      auto frameDataExtent = calcNumFrames * chunkElements;
-                      auto condX = numBlocks[0] <= calcNumFrames[0]; //also covers cases where numFrames is 0 (if chunkElements[0] < arraySize )
-                      auto condY = frameDataExtent[0] <= arraySize;
-                      std::cout << " chunkElems: " << chunkElements << " arSize: " << arraySize << " numFrames "
-                                << calcNumFrames[0] << " concurrentElements " << concurrentElements[0] << " numBlocks "
-                                << numBlocks[0] << " frameDataExtent " << frameDataExtent[0];
-                      return condX && condY && condZ&&isPowerOfTwo(concurrentElements[0]);
+
+                      return condZ&&isPowerOfTwo(concurrentElements[0]);
                   })
               .withNumBlocksTune()
     .withConfig("./config/babelstream_OMPBlocks_Dot_"+std::to_string(arraySize)+"_"+data+".toml").build();
 	static auto sessionRest= tune::TuningBuilder{}
           .withRunSpecifiers(std::to_string(arraySize),data)
           .withNumBlocksTune()
-			.template withConstraint<tune::frameTune::numBlocks, _0T>(
-                  [arraySize](auto numBlocks, auto concurrentElements)
-                  {
-                      auto gridElems = concurrentElements[0] * numBlocks[0];
-                      auto condX = (arraySize % (concurrentElements[0])) == decltype(arraySize){0};
-                      auto condY = gridElems <= arraySize;
-
-                      return condX && condY&&isPowerOfTwo(concurrentElements[0]);
-                  })
+          .template withConstraint<_0T>(  [arraySize](auto concurrentElements){return isPowerOfTwo(concurrentElements[0]);})
           .withConfig("./config/babelstream_OMPBlocks_Rest_"+std::to_string(arraySize)+"_"+data+".toml")
           .build();
 
@@ -498,6 +476,7 @@ void testKernels(T_Cfg cfg)
     }
     else if(std::is_same<DataType, double>::value)
     {
+        return;
         dataTypeStr = "double";
     }
 
@@ -563,6 +542,7 @@ void testKernels(T_Cfg cfg)
         kernelFunc();
         onHost::wait(queue);
         auto end = std::chrono::high_resolution_clock::now();
+        abortIfFinished(tuningSessionDot,tuningSessionRest);
         // get duration in seconds
         std::chrono::duration<double> duration = end - start;
         runtime = duration.count();

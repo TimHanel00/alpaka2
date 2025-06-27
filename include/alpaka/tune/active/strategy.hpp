@@ -566,13 +566,19 @@ namespace alpaka::tune::strategy
 
                 VecT idx = computeValueIndices(tuneables, kernelRun);
                 VecT dimsVecAsVec = convertVec<N>(dimsVec);
-                stateCount = linearize(dimsVecAsVec, idx) + 1;
+                stateCount = 1;
                 init = true;
                 return;
             }
 
             if(stateCount >= total)
             {
+                std::cout << " state count " << stateCount << " numChecked " << state.numberOfCheckedConfigs
+                          << std::endl;
+                std::cout << " total " << total << " stateConfigs " << state.maxConfigsTotal << std::endl;
+                std::cout
+                    << " for some reason we rached the total state count, therefore exhaustive must be wrong somehow "
+                    << std::endl;
                 state.sessionFinished = true;
                 return;
             }

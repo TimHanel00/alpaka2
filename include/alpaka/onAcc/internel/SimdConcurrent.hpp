@@ -109,7 +109,8 @@ namespace alpaka::onAcc::internal
              */
             auto ids = std::make_tuple(*(T_repeat + 1 != 0u ? iter++ : iter++)...);
             std::apply(
-                [&](auto const&... dataIdx) constexpr {
+                [&](auto const&... dataIdx) constexpr
+                {
                     (executeDo<T_MemAlignment, T_width>(acc, dataIdx, ALPAKA_FORWARD(func), ALPAKA_FORWARD(data)...),
                      ...);
                 },
@@ -127,21 +128,23 @@ namespace alpaka::onAcc::internal
             using ValueType = alpaka::trait::GetValueType_t<ALPAKA_TYPEOF(data0)>;
             constexpr uint32_t simdWidthInByte = T_simdWidth * sizeof(ValueType);
             // number of simd packs fitting into the maxConcurrencyInByte
-            constexpr uint32_t numSimdPacksToUtilizeConcurrency
+            constexpr uint32_t numSimdPacksToUtilizeConcurrency // on default = numPipelines
                 = alpaka::divExZero(T_maxConcurrencyInByte, simdWidthInByte);
 
             constexpr uint32_t cachelineBytes
                 = getCachelineSize(ALPAKA_TYPEOF(acc.getApi()){}, ALPAKA_TYPEOF(acc.getDeviceKind()){});
             // number of simd packs fitting into the cacheline
-            constexpr uint32_t numSimdPacksPerCacheLine = std::max(cachelineBytes / simdWidthInByte, 1u);
+            constexpr uint32_t numSimdPacksPerCacheLine
+                = std::max(cachelineBytes / simdWidthInByte, 1u); // simd packs per cacheline
             /* number of simd packs used per functor call
              * - the number of simd packs per functor call should be a multiple of the number of simd packs per
              * cacheline
              */
             constexpr uint32_t numSimdPacksPerFnCall
                 = alpaka::divExZero(numSimdPacksToUtilizeConcurrency, numSimdPacksPerCacheLine)
-                  * numSimdPacksPerCacheLine;
-
+                  * numSimdPacksPerCacheLine; // this is basically a floor operation with 1u only takes effect if
+                                              // maxConcurrency >= cachlineSize *2 otherwise this is equivalent to
+                                              // numSimdPacksPerCacheLine
             auto const workGroup = asParent().getWorkGroup();
 
             // we SIMDfy only over the fast moving dimension (columns of memory)

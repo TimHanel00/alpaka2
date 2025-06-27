@@ -570,6 +570,7 @@ namespace alpaka
 #    define MeasureBestRuns 50 // how many runs after we have the best config will get messured (from the best config)
 
     template<
+        typename T_session,
         typename T_Config,
         typename T_Queue,
         typename T_Exec,
@@ -581,6 +582,7 @@ namespace alpaka
         KernelData& data,
         EnvironmentState& state,
         std::string const& configfile,
+        T_session& session,
         T_Config& config,
         T_Queue& queue,
         T_Exec& exec,
@@ -609,7 +611,7 @@ namespace alpaka
             {
                 history.storeConfig(configfile);
                 write = false;
-                std::terminate(); // simply for data analysis, so that I can effectively gather data
+                ++session.finishedConfigs;
             }
         }
     }
@@ -630,7 +632,7 @@ namespace alpaka
         T_Constraints m_constraint;
         KernelTuningModel<T_KernelRunArgs...> m_run;
 
-
+        uint32_t finishedConfigs = 0;
         T_Integer dynamicRuns_Nr{0};
         bool m_initialized = false;
         std::size_t reRuns{0};
@@ -738,7 +740,9 @@ namespace alpaka
                     history,
                     historyKernelData,
                     environment_state,
+
                     config,
+                    *this,
                     activeRun,
                     queue,
                     exec,
@@ -813,7 +817,9 @@ namespace alpaka
                     history,
                     data,
                     environment_state,
+
                     config,
+                    *this,
                     run,
                     queue,
                     exec,

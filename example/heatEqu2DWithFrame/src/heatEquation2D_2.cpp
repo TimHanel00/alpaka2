@@ -137,6 +137,15 @@ constexpr auto getNumNodes(alpaka::exec::CpuOmpBlocks const& exec)
     return numNodes;
 }
 
+template<typename T_TuningSession>
+void abortIfFinished(T_TuningSession const& session)
+{
+    if(session.finishedConfigs >= 1)
+    {
+        std::terminate();
+    };
+}
+
 // namespace alpaka::onHost::trait
 //! Each kernel computes the next step for one point.
 //! Therefore the number of threads should be equal to numNodesX.
@@ -286,6 +295,7 @@ auto example(T_Cfg const& cfg, uint32_t i) -> int
 
         // So we just swap next and curr (shallow copy)
         std::swap(uNextBufAcc, uCurrBufAcc);
+        abortIfFinished(tuningSession);
     }
 
     alpaka::onHost::wait(computeQueue);
