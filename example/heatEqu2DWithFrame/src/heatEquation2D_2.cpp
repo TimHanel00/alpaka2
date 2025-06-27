@@ -77,7 +77,7 @@ static auto getSessionFromExec(Exec_T const& exec, auto frameSpec, auto& devAcc,
               /*
               .template withConstraint<tune::frameTune::NumFrames, tune::frameTune::FrameExtent>(
               [toRTime, numNodes](auto a, auto b) { return numNodes > (a * b); })*/
-              .withConfig("./config/heatEquation_GPU.toml")
+              .withConfig("./config/heatEquation_GPU_" + numNodes.toString() + ".toml")
               .build();
     return tuningSession;
 };
@@ -115,7 +115,7 @@ static auto getSessionFromExec(alpaka::exec::CpuOmpBlocks const& exec, auto fram
               [toRTime, numNodes](auto a, auto b) { return numNodes > (a * b); })*/
 
 
-              .withConfig("./config/heatEquation_CPU.toml")
+              .withConfig("./config/heatEquation_CPU" + numNodes.toString() + ".toml")
               .build();
     return tuningSession;
 };

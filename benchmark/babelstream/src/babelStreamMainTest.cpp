@@ -370,7 +370,7 @@ static auto getSessionFromExec(Exec_T const &exec,auto arraySize,auto & devAcc){
                                 << numBlocks[0] << " frameDataExtent " << frameDataExtent[0];
                       return condX && condY && condZ&&isPowerOfTwo(concurrentElements[0]);
                   })
-              .withConfig("./config/realBabelstreamGPU "+alpaka::tune::strategy::detail::getName()+"_"+data+".toml")
+              .withConfig("./config/realBabelstreamGPU "+std::to_string(arraySize)+"_"+data+".toml")
               .build();
     auto tuningSessionRest
         = tune::TuningBuilder{}
@@ -387,7 +387,7 @@ static auto getSessionFromExec(Exec_T const &exec,auto arraySize,auto & devAcc){
 
                       return condX && condY&&isPowerOfTwo(concurrentElements[0]);
                   })
-              .withConfig("./config/realBabelstreamGPU "+alpaka::tune::strategy::detail::getName()+"_"+data+".toml")
+              .withConfig("./config/realBabelstreamGPU_Rest "+std::to_string(arraySize)+"_"+data+".toml")
               .build();
 		return std::make_tuple(tuningSessionDot,tuningSessionRest);
     };
@@ -425,7 +425,7 @@ using Idx = std::uint32_t;
                       return condX && condY && condZ&&isPowerOfTwo(concurrentElements[0]);
                   })
               .withNumBlocksTune()
-    .withConfig("./config/babelstream_OMPBlocks_Dot_"+alpaka::tune::strategy::detail::getName()+"_"+data+".toml").build();
+    .withConfig("./config/babelstream_OMPBlocks_Dot_"+std::to_string(arraySize)+"_"+data+".toml").build();
 	static auto sessionRest= tune::TuningBuilder{}
           .withRunSpecifiers(std::to_string(arraySize),data)
           .withNumBlocksTune()
@@ -438,7 +438,7 @@ using Idx = std::uint32_t;
 
                       return condX && condY&&isPowerOfTwo(concurrentElements[0]);
                   })
-          .withConfig("./config/babelstream_OMPBlocks_Rest_"+alpaka::tune::strategy::detail::getName()+"_"+data+".toml")
+          .withConfig("./config/babelstream_OMPBlocks_Rest_"+std::to_string(arraySize)+"_"+data+".toml")
           .build();
 
 		return std::make_tuple(sessionDot,sessionRest);
