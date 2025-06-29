@@ -163,10 +163,13 @@ namespace alpaka::tune
             {
                 if(!newRun.getNumBlocksTune().userDef)
                 {
-                    adaptRangeToNumSteps(
-                        newRun.getNumBlocksTune(),
-                        dataBlocking.m_numFrames,
-                        device.getDeviceProperties().m_multiProcessorCount);
+                    newRun.getNumBlocksTune().idxRange.m_begin
+                        = primeFactorPartitioning(device.getDeviceProperties().m_multiProcessorCount, T_NumThreads{});
+                    newRun.getNumBlocksTune().idxRange.m_end = primeFactorPartitioning(
+                        device.getDeviceProperties().m_multiProcessorCount * 8u,
+                        T_NumThreads{});
+                    newRun.getNumBlocksTune().idxRange.m_stride
+                        = primeFactorPartitioning(device.getDeviceProperties().m_multiProcessorCount, T_NumThreads{});
                 }
             }
 

@@ -544,7 +544,7 @@ namespace alpaka::tune
                                 typename std::decay_t<decltype(std::get<Is>(definitions))>::T_Begin{})),
                             std::decay_t<decltype(std::get<Is>(definitions))>::tag,
                             ::alpaka::tune::DimensionsDependent>{
-                            CompileTimeHelpers::toRuntimeVec(std::get<Is>(KernelInitialValues)),
+
                             ::alpaka::IdxRange{
                                 CompileTimeHelpers::toRuntimeVec(
                                     typename std::decay_t<decltype(std::get<Is>(definitions))>::T_Begin{}),
@@ -552,6 +552,7 @@ namespace alpaka::tune
                                     typename std::decay_t<decltype(std::get<Is>(definitions))>::T_End{}),
                                 CompileTimeHelpers::toRuntimeVec(
                                     typename std::decay_t<decltype(std::get<Is>(definitions))>::T_Stride{})},
+                            CompileTimeHelpers::toRuntimeVec(std::get<Is>(KernelInitialValues)),
                             "CTune_" + std::to_string(Is)}...);
                 }(std::make_index_sequence<N>{});
             }

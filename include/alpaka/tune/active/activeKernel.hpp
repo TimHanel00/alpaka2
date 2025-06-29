@@ -43,6 +43,7 @@ void outTuple(Tuple&& tuple)
         [](auto& tuneable)
         {
             std::cout << "[DEBUG] tuneable Name: " << tuneable.name() << std::endl;
+            std::cout << "[DEBUG] Value " << tuneable.value.toString() << std::endl;
             std::cout << "[DEBUG] Start " << tuneable.idxRange.m_begin.toString() << std::endl;
             std::cout << "[DEBUG] End " << tuneable.idxRange.m_end.toString() << std::endl;
             std::cout << "[DEBUG] Stride " << tuneable.idxRange.m_stride.toString() << std::endl;

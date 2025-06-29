@@ -63,42 +63,6 @@ namespace alpaka::tune::strategy
         return result;
     }
 
-    template<typename T, typename T_Ref>
-    T getNextUpper(T const& value, IdxRangeHandle<T_Ref> const& range, bool& valid)
-    {
-        // Create a result vector.
-        T result = value;
-        auto minVal = range.m_begin;
-        auto maxVal = range.m_end;
-        auto step = range.m_stride;
-        result = (result + step);
-
-        if(utils::anyTrue(result < minVal) || utils::anyTrue(result > maxVal))
-        {
-            valid = false;
-            return maxVal;
-        }
-        return result;
-    }
-
-    template<typename T, typename T_Ref>
-    T getNextLower(T const& value, IdxRangeHandle<T_Ref> const& range, bool& valid)
-    {
-        // Create a result vector.
-        T result = value;
-        auto minVal = range.m_begin;
-        auto maxVal = range.m_end;
-        auto step = range.m_stride;
-        result = (result - step);
-        if(utils::anyTrue(result < minVal) || utils::anyTrue(result > maxVal))
-        {
-            valid = false;
-            return minVal;
-        }
-
-        return result;
-    }
-
     struct randomSample
     {
         template<typename T_tuneables, typename T_ActiveKernel>

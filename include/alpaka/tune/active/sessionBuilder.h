@@ -43,6 +43,17 @@ namespace alpaka::tune
             run);
     }
 
+    template<auto ID, typename T, auto ID2, typename DimIndep>
+    auto helperChangeTuneableID(Tuneable<T, ID2, DimIndep> const& tune)
+    {
+        std::cout << " val " << tune.value.toString() << std::endl;
+        auto createTune = Tuneable<T, ID, DimIndep>(tune.idxRange, tune.value);
+        createTune.inputList = tune.inputList;
+        createTune.hasRange = tune.hasRange;
+        std::cout << " create " << createTune.value.toString() << std::endl;
+        return createTune;
+    };
+
     namespace strategy::detail
     {
 #ifdef strategy_randomSearch
@@ -189,20 +200,7 @@ namespace alpaka::tune
         template<typename T, auto ID, typename Policy>
         auto withNumBlocksTune(Tuneable<T, ID, Policy> tune) const
         {
-            auto newTune = Tuneable<T, static_cast<std::size_t>(SpecialTuneableID::NumBlocks), Policy>(
-                tune.value,
-                tune.idxRange,
-                tune.m_name);
-            return this->withTuning(newTune);
-        }
-
-        template<typename T, auto dim, typename DimTraversePolicy = DimensionsIndependent>
-        auto withNumBlocksTune(alpaka::Vec<T, dim> tune, DimTraversePolicy = {}) const
-        {
-            auto newTune = Tuneable<
-                alpaka::Vec<T, dim>,
-                static_cast<std::size_t>(SpecialTuneableID::NumBlocks),
-                DimTraversePolicy>(tune);
+            auto newTune = helperChangeTuneableID<static_cast<std::size_t>(SpecialTuneableID::NumBlocks)>(tune);
             return this->withTuning(newTune);
         }
 
@@ -223,20 +221,7 @@ namespace alpaka::tune
         template<typename T, auto ID, typename Policy>
         auto withBlockSizeTune(Tuneable<T, ID, Policy> tune) const
         {
-            auto newTune = Tuneable<T, static_cast<std::size_t>(SpecialTuneableID::ThreadBlock), Policy>(
-                tune.value,
-                tune.idxRange,
-                tune.m_name);
-            return this->withTuning(newTune);
-        }
-
-        template<typename T, auto dim, typename DimTraversePolicy = DimensionsIndependent>
-        auto withBlockSizeTune(alpaka::Vec<T, dim> tune, DimTraversePolicy = {}) const
-        {
-            auto newTune = Tuneable<
-                alpaka::Vec<T, dim>,
-                static_cast<std::size_t>(SpecialTuneableID::ThreadBlock),
-                DimTraversePolicy>(tune);
+            auto newTune = helperChangeTuneableID<static_cast<std::size_t>(SpecialTuneableID::ThreadBlock)>(tune);
             return this->withTuning(newTune);
         }
 
@@ -257,20 +242,7 @@ namespace alpaka::tune
         template<typename T, auto ID, typename Policy>
         auto withNumFramesTune(Tuneable<T, ID, Policy> tune) const
         {
-            auto newTune = Tuneable<T, static_cast<std::size_t>(SpecialTuneableID::NumFrames), Policy>(
-                tune.value,
-                tune.idxRange,
-                tune.m_name);
-            return this->withTuning(newTune);
-        }
-
-        template<typename T, auto dim, typename DimTraversePolicy = DimensionsIndependent>
-        auto withNumFramesTune(alpaka::Vec<T, dim> tune, DimTraversePolicy = {}) const
-        {
-            auto newTune = Tuneable<
-                alpaka::Vec<T, dim>,
-                static_cast<std::size_t>(SpecialTuneableID::NumFrames),
-                DimTraversePolicy>(tune);
+            auto newTune = helperChangeTuneableID<static_cast<std::size_t>(SpecialTuneableID::NumFrames)>(tune);
             return this->withTuning(newTune);
         }
 
@@ -291,20 +263,7 @@ namespace alpaka::tune
         template<typename T, auto ID, typename Policy>
         auto withFrameExtentTune(Tuneable<T, ID, Policy> tune) const
         {
-            auto newTune = Tuneable<T, static_cast<std::size_t>(SpecialTuneableID::FrameExtent), Policy>(
-                tune.value,
-                tune.idxRange,
-                tune.m_name);
-            return this->withTuning(newTune);
-        }
-
-        template<typename T, auto dim, typename DimTraversePolicy = DimensionsIndependent>
-        auto withFrameExtentTune(alpaka::Vec<T, dim> tune, DimTraversePolicy = {}) const
-        {
-            auto newTune = Tuneable<
-                alpaka::Vec<T, dim>,
-                static_cast<std::size_t>(SpecialTuneableID::FrameExtent),
-                DimTraversePolicy>(tune);
+            auto newTune = helperChangeTuneableID<static_cast<std::size_t>(SpecialTuneableID::FrameExtent)>(tune);
             return this->withTuning(newTune);
         }
 
@@ -378,17 +337,17 @@ namespace alpaka::tune
                 }
                 else
                 {
-                    std::cout<<" check frameExtent bigger condition"<<std::endl;
+                    std::cout << " check frameExtent bigger condition" << std::endl;
                     auto threadsSmallerExtentCondition
                         = this->template constraintHelper<frameTune::FrameExtent, frameTune::ThreadBlock>(
                             []<typename T0>(T0 a, auto b)
                             {
-
                                 using T = T0;
                                 bool allTrue = true;
                                 for(int i = 0; i < T::dim(); i++)
                                     allTrue = allTrue && (a[i] >= b[i]);
-                                std::cout<<" evaluate frame extent bigger than blocks" <<a.x() <<" vs " <<b.x()<< allTrue<<std::endl;
+                                std::cout << " evaluate frame extent bigger than blocks" << a.x() << " vs " << b.x()
+                                          << allTrue << std::endl;
                                 return allTrue;
                             });
                     auto newTuple = std::tuple_cat(m_constraintTuple, std::make_tuple(threadsSmallerExtentCondition));

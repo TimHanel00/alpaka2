@@ -115,7 +115,6 @@ public:
         alpaka::tune::clampToSpec(device, frameSpec, *activeRunPtr);
         addSpecToRun(*activeRunPtr, frameSpec);
         makeListsForAllTuneables(activeRunPtr->allTuneables());
-
         alpaka::tune::recalculateMaxRuns(*activeRunPtr);
         // applyCustomThreadSpec(*activeRunPtr, frameSpec);
         if(!h.runs.contains(activeRunPtr->toHash()))
@@ -148,7 +147,7 @@ auto makeConformToTVec(T_Vec const& vec, T_Tuneable& tuneable)
     using dimensionTraversePolicy_type = dimensionTraversePolicy;
     static constexpr std::size_t tag = getId<ID>();
     */
-
+    std::cout << tuneable.value.toString() << std::endl;
     using T_TuneableVec = typename T_Tuneable::ValueType;
     using T_traversePolicy = typename T_Tuneable::dimensionTraversePolicy_type;
     constexpr auto tuneable_ID = T_Tuneable::tag;
@@ -161,8 +160,9 @@ auto makeConformToTVec(T_Vec const& vec, T_Tuneable& tuneable)
         {
             T_Vec ones = T_Vec::all(1);
             auto ret
-                = alpaka::tune::Tuneable<T_Vec, tuneable_ID, T_traversePolicy>(vec, alpaka::IdxRange{ones, vec, ones});
+                = alpaka::tune::Tuneable<T_Vec, tuneable_ID, T_traversePolicy>(alpaka::IdxRange{ones, vec, ones}, vec);
             ret.userDef = false;
+            ret.hasRange = tuneable.hasRange;
             return ret;
         }
         std::string s = std::string(tuneable.name());
@@ -174,26 +174,36 @@ auto makeConformToTVec(T_Vec const& vec, T_Tuneable& tuneable)
         {
             // Fallback case when targetDim == sourceDim
             T_Vec value, begin, end, stride;
-
-            for(std::size_t i = 0; i < targetDim; ++i)
+            if constexpr(std::is_convertible_v<T_Vec, T_TuneableVec>)
             {
-                value[i] = tuneable.value[i];
-                begin[i] = tuneable.idxRange.m_begin[i];
-                end[i] = tuneable.idxRange.m_end[i];
-                stride[i] = tuneable.idxRange.m_stride[i];
-            }
+                auto retTuneable = alpaka::tune::Tuneable<T_Vec, tuneable_ID, T_traversePolicy>(
+                    tuneable.idxRange,
+                    tuneable.value,
+                    tuneable.name());
 
-            auto ret = alpaka::tune::Tuneable<ALPAKA_TYPEOF(value), tuneable_ID, T_traversePolicy>(
-                value,
-                alpaka::IdxRange{begin, end, stride});
-            return ret;
+                retTuneable.inputList.resize(tuneable.inputList.size());
+                std::transform(
+                    tuneable.inputList.begin(),
+                    tuneable.inputList.end(),
+                    retTuneable.inputList.begin(),
+                    [](auto const& x) { return static_cast<T_Vec>(x); });
+                std::cout << " has range ENV" << tuneable.hasRange << std::endl;
+                std::cout << " has range IN" << tuneable.hasRange << " " << value.toString() << std::endl;
+                retTuneable.hasRange = tuneable.hasRange;
+                return retTuneable;
+            }
+            else
+            {
+                throw std::runtime_error("Type of frameSpec is not convertible to corresponding tuneables.");
+            }
         }
 
         T_Vec ones = T_Vec::all(1);
         auto ret = alpaka::tune::Tuneable<ALPAKA_TYPEOF(vec), tuneable_ID, T_traversePolicy>(
-            vec,
-            alpaka::IdxRange{ones, vec, ones});
+            alpaka::IdxRange{ones, vec, ones},
+            vec);
         ret.userDef = false;
+        ret.hasRange = tuneable.hasRange;
         return ret;
     }
 }

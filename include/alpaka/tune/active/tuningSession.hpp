@@ -567,7 +567,8 @@ namespace alpaka::tune::detail::internal
 namespace alpaka
 {
 
-#    define MeasureBestRuns 200 // how many runs after we have the best config will get messured (from the best config)
+#    define MeasureBestRuns                                                                                           \
+        1000 // how many runs after we have the best config will get messured (from the best config)
 
     template<
         typename T_session,

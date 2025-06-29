@@ -220,18 +220,40 @@ namespace alpaka::tune
         onHost::FrameSpec<T_NumFrames, T_NumThreads>& frameSpec,
         T_activeKernel& activeKernel)
     {
+        if constexpr(T_activeKernel::hasNumFramesTune())
+        {
+            clampToSpec_elem(frameSpec.m_numFrames, activeKernel.getNumFramesTune().idxRange, false, device);
+            if(activeKernel.getNumFramesTune().hasRange)
+                activeKernel.getNumFramesTune().toRange();
+        }
+        if constexpr(T_activeKernel::hasFrameExtentTune())
+        {
+            clampToSpec_elem(frameSpec.m_frameExtent, activeKernel.getFrameExtentTune().idxRange, false, device);
+            if(activeKernel.getFrameExtentTune().hasRange)
+                activeKernel.getFrameExtentTune().toRange();
+        }
         if constexpr(T_activeKernel::hasNumBlocksTune())
         {
             auto countMps = device.getDeviceProperties().m_multiProcessorCount;
-            clampToSpec_elem(frameSpec.m_numFrames, activeKernel.getNumBlocksTune().idxRange, false, device);
-            activeKernel.getNumBlocksTune().toRange();
+            clampToSpec_elem(
+                frameSpec.m_threadSpec.m_numBlocks,
+                activeKernel.getNumBlocksTune().idxRange,
+                false,
+                device);
+            if(activeKernel.getNumBlocksTune().hasRange)
+                activeKernel.getNumBlocksTune().toRange();
         }
         if constexpr(T_activeKernel::hasThreadBlockSizeTune())
         {
             auto countWarps = device.getDeviceProperties().m_warpSize;
-            clampToSpec_elem(frameSpec.m_frameExtent, activeKernel.getThreadBlockSizeTune().idxRange, true, device);
+            clampToSpec_elem(
+                frameSpec.m_threadSpec.m_numThreads,
+                activeKernel.getThreadBlockSizeTune().idxRange,
+                true,
+                device);
 
-            activeKernel.getThreadBlockSizeTune().toRange();
+            if(activeKernel.getThreadBlockSizeTune().hasRange)
+                activeKernel.getThreadBlockSizeTune().toRange();
         }
     }
 
@@ -599,12 +621,11 @@ namespace alpaka::tune
         std::size_t ID = static_cast<std::size_t>(SpecialTuneableID::userDef),
         typename dimensionTraversePolicy = DimensionsIndependent>
     struct Tuneable
-
     {
         using ValueType = T;
         using dimensionTraversePolicy_type = dimensionTraversePolicy;
         T value;
-        bool userDef;
+        bool userDef = true;
         bool hasRange = true;
         static constexpr std::size_t tag = ID;
         IdxRange<T, T, T> idxRange;
@@ -646,93 +667,37 @@ namespace alpaka::tune
         {
         }
 
-        constexpr Tuneable(T init, std::string const& name = "")
-            : value(init)
-            , userDef(true)
-            , idxRange(defaultIdxRange(init))
+        constexpr Tuneable(
+            std::initializer_list<T> input,
+            std::optional<T> init = std::nullopt,
+            std::string const& name = "")
+            : inputList(input)
+            , idxRange{T::all(1), T::all(1), T::all(1)}
+            , hasRange(false)
         {
             if(!name.empty())
                 m_name = name;
-            toRange();
-        }
-
-        // Value + optional range + optional name
-        constexpr Tuneable(T init, IdxRange<T, T, T> ir, std::string const& name = "")
-            : value(init)
-            , userDef(true)
-            , idxRange(ir)
-        {
-            if(!name.empty())
-                m_name = name;
-            toRange();
-        }
-
-        // Only range + optional name
-        constexpr Tuneable(IdxRange<T, T, T> ir, std::string const& name = "")
-            : value(ir.m_end)
-            , userDef(true)
-            , idxRange(ir)
-        {
-            if(!name.empty())
-                m_name = name;
-            toRange();
-        }
-
-        // From integral steps (delegating to the "steps" constructor)
-        constexpr Tuneable(std::size_t integralSteps, T start, T end, T init, std::string const& name = "")
-            : Tuneable(primeFactorPartitioning(integralSteps, T{}), start, end, init, name)
-        {
-        }
-
-        constexpr Tuneable(std::size_t integralSteps, T start, T end, std::string const& name = "")
-            : Tuneable(primeFactorPartitioning(integralSteps, T{}), start, end, end, name)
-        {
-        }
-
-        // provide steps in a vector
-        constexpr Tuneable(T numSteps, T start, T end, std::string const& name = "")
-            : value(end)
-            , userDef(true)
-            , idxRange(start, end, T::all(1))
-        {
-            if(!name.empty())
-                m_name = name;
-
-            IdxRange<T, T, T> stepsRange(start, end, T::all(1));
-            for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
+            if(init.has_value())
             {
-                if(numSteps[i] > 1)
-                    stepsRange.m_stride[i] = (stepsRange.m_end[i] - stepsRange.m_begin[i]) / (numSteps[i] - 1);
-                else
-                    stepsRange.m_stride[i] = 0;
-                stepsRange.m_end[i] = stepsRange.m_begin[i] + stepsRange.m_stride[i] * (numSteps[i] - 1);
+                value = init.value();
             }
-            idxRange = stepsRange;
-            toRange();
+            else
+            {
+                value = inputList[0];
+            }
         }
 
-        // numSteps -> explicit init
-        constexpr Tuneable(T numSteps, T start, T end, T init, std::string const& name = "")
-            : value(init)
-            , userDef(true)
-            , idxRange(start, end, T::all(1))
+        constexpr Tuneable(IdxRange<T, T, T> range, std::optional<T> init = std::nullopt, std::string const& name = "")
+            : idxRange(range)
         {
             if(!name.empty())
                 m_name = name;
-
-            IdxRange<T, T, T> stepsRange(start, end, T::all(1));
-            T steps{};
-            for(std::size_t i = 0; i < alpaka::getDim(T{}); ++i)
+            if(init.has_value())
+                value = init.value();
+            else
             {
-                if(numSteps[i] > 1)
-                    stepsRange.m_stride[i] = (stepsRange.m_end[i] - stepsRange.m_begin[i]) / (numSteps[i] - 1);
-                else
-                    stepsRange.m_stride[i] = 0;
-                stepsRange.m_end[i] = stepsRange.m_begin[i] + stepsRange.m_stride[i] * (numSteps[i] - 1);
+                value = range.m_end;
             }
-            idxRange = stepsRange;
-
-            toRange();
         }
 
         static constexpr IdxRange<T, T, T> defaultIdxRange(T const& val)
@@ -789,6 +754,7 @@ namespace alpaka::tune
     auto Tuneable<T, ID, dimensionTraversePolicy>::makeList() -> std::vector<T>
     {
         std::vector<T> dependentList;
+        std::cout << " has range IN" << hasRange << " " << value.toString() << std::endl;
         if(hasRange)
         {
             for(auto i = idxRange.m_begin; allTrue(i <= idxRange.m_end); i += idxRange.m_stride)
@@ -812,7 +778,8 @@ namespace alpaka::tune
         using Scalar = typename T::type;
         constexpr std::size_t D = vecDim;
         std::array<std::vector<Scalar>, D> independentLists;
-
+        std::cout << " has range IN" << hasRange << std::endl;
+        std::cout << " has range IN" << hasRange << " " << value.toString() << std::endl;
         std::cerr << "[DEBUG] makeList() called for DimensionsIndependent\n";
         std::cerr << "[DEBUG] vecDim = " << D << "\n";
 

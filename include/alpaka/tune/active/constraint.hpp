@@ -55,7 +55,7 @@ struct Constraint
         static auto accessorTuple = constructAccessorTuple<Environment, KernelRun, IDs...>(run);
 
         constexpr std::size_t expectedSize = sizeof...(IDs);
-        constexpr std::size_t actualSize = std::tuple_size<decltype(accessorTuple)>::value;
+        constexpr std::size_t actualSize = std::tuple_size_v<decltype(accessorTuple)>;
 
         if constexpr(actualSize != expectedSize)
         {

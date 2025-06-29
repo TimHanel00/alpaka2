@@ -91,7 +91,6 @@ static auto getSessionFromExec(alpaka::exec::CpuOmpBlocks const& exec, auto fram
         = tune::TuningBuilder{}
               .withFrameExtentTune(tune::Tuneable(IdxRange{fVec{4, 4}, frameSpec.m_frameExtent, fVec{4, 4}}))
               .withNumBlocksTune()
-              .withBlockSizeTune(tune::Tuneable(IdxRange{fVec{4, 4}, frameSpec.m_frameExtent, fVec{4, 4}}))
               .template withConstraint<tune::frameTune::numBlocks, tune::frameTune::FrameExtent>(
                   [numNodes](auto numBlocks, auto numElementsPerChunk)
                   {

@@ -353,8 +353,8 @@ static auto getSessionFromExec(Exec_T const &exec,auto arraySize,auto & devAcc){
         = tune::TuningBuilder{}
               .withStrategy(tune::strategy::exhaustiveSearch{})
               .withRunSpecifiers(std::to_string(arraySize))
-              .withFrameExtentTune(tune::Tuneable(idxVec{64}, IdxRange{idxVec{64}, idxVec{64 * 16}, idxVec{64}}))
-              .withBlockSizeTune(tune::Tuneable(idxVec{64}, IdxRange{idxVec{64}, idxVec{maxThreads}, idxVec{64}}))
+              .withFrameExtentTune(tune::Tuneable(IdxRange{idxVec{64}, idxVec{64 * 16}, idxVec{64}}))
+              .withBlockSizeTune(tune::Tuneable(IdxRange{idxVec{64}, idxVec{maxThreads}, idxVec{64}}))
               .withNumBlocksTune()
               .template withConstraint<tune::frameTune::FrameExtent, _0T>(
                   [arraySize](auto frameExtent, auto concurrentElements)
@@ -370,7 +370,7 @@ static auto getSessionFromExec(Exec_T const &exec,auto arraySize,auto & devAcc){
         = tune::TuningBuilder{}
               .withStrategy(alpaka::tune::strategy::exhaustiveSearch{})
               .withRunSpecifiers(std::to_string(arraySize))
-              .withBlockSizeTune(tune::Tuneable(idxVec{64}, IdxRange{idxVec{64}, idxVec{maxThreads}, idxVec{64}}))
+              .withBlockSizeTune(tune::Tuneable(IdxRange{idxVec{64}, idxVec{maxThreads}, idxVec{64}}))
               .withNumBlocksTune()
               .template withConstraint<_0T>(  [arraySize](auto concurrentElements){return isPowerOfTwo(concurrentElements[0]);})
               .withConfig("./config/realBabelstreamGPU_Rest_"+std::to_string(arraySize)+"_"+data+".toml")
@@ -401,7 +401,7 @@ using Idx = std::uint32_t;
     static auto constexpr _0T=static_cast<std::size_t>(0);
 	static auto sessionDot=tune::TuningBuilder{}
               .withRunSpecifiers(std::to_string(arraySize),data)
-              .withFrameExtentTune(tune::Tuneable(idxVec{64}, IdxRange{idxVec{64}, idxVec{64 * 16}, idxVec{64}}))
+              .withFrameExtentTune(tune::Tuneable(IdxRange{idxVec{64}, idxVec{64 * 16}, idxVec{64}}))
                             .template withConstraint< tune::frameTune::FrameExtent, _0T>(
                   [arraySize]( auto frameExtent, auto concurrentElements)
                   {
@@ -518,8 +518,8 @@ void testKernels(T_Cfg cfg)
         idxVec{static_cast<Idx>(numFrames)},
         idxVec{static_cast<Idx>(blockThreadExtentMain)}};
     auto dataBlockingDot = onHost::FrameSpec{
-        idxVec{static_cast<Idx>(arraySize/ (static_cast<Idx>(blockThreadExtentMain) * 2))},
-        idxVec{static_cast<Idx>(blockThreadExtentMain)}};
+        idxVec{static_cast<Idx>(numFrames)},
+        idxVec{static_cast<Idx>(blockThreadExtentMain/2)}}; //restrict the dotKernell search space a bit
     // alpaka::tune::Tuneable{uVec{56*2}, IdxRange{uVec{56*2}, uVec{dataBlocking.m_numFrames}, uVec{56*2}}})
     auto tuningSessions
         = getSessionFromExec<DataType>(exec,arraySize,devAcc);
