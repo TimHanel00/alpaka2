@@ -72,7 +72,7 @@ namespace alpaka::tune
 
                 if(!loadMultiple)
                 {
-                    std::cout << "[DEBUG] loadMultiple is false, clearing tuning history." << std::endl;
+                    // std::cout << "[DEBUG] loadMultiple is false, clearing tuning history." << std::endl;
                     m_tuningHistory.clear();
                 }
 
@@ -216,7 +216,7 @@ namespace alpaka::tune
                         }
                     }
 
-                    kernelData.highestStamp = highestStamp+1;
+                    kernelData.highestStamp = highestStamp + 1;
                     std::string dataHash = kernelData.toHash();
                     m_tuningHistory[dataHash] = std::move(kernelData);
 #ifdef DEBUG_Hist

@@ -389,7 +389,7 @@ namespace alpaka::tune::strategy
                 }
                 if(!existsInHistory(kernelRun, kernel_data))
                 {
-                    std::cout << " new config found! " << std::endl;
+                    // std::cout << " new config found! " << std::endl;
                     return;
                 }
                 StorageKernelRun& curRun = kernel_data[kernelRun.toHash()];

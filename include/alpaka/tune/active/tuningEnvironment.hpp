@@ -25,6 +25,7 @@ struct EnvironmentState
     uint32_t maxValidEvaluations{0};
     uint32_t maxConfigsTotal{0};
     uint32_t stamp{0};
+
     StorageKernelRun bestConfig;
     alpaka::tune::ConfigQueue<StorageKernelRun> config_queue;
 };
@@ -62,6 +63,7 @@ public:
     T_Device device;
     T_Exec exec;
     FrameSpecType frameSpec;
+    FrameSpecType const defaultFrameSpec;
     T_KernelBundle kernelBundle;
     T_Strategy env_strategy;
     T_MetricInterface env_metricInterface;
@@ -91,6 +93,7 @@ public:
         : device(device_)
         , exec(exec_)
         , frameSpec(frameSpec_)
+        , defaultFrameSpec(frameSpec_)
         , kernelBundle(kernelBundle_)
         , env_strategy(std::move(strategy_))
         , env_metricInterface(std::move(metric_interface_))

@@ -778,33 +778,25 @@ namespace alpaka::tune
         using Scalar = typename T::type;
         constexpr std::size_t D = vecDim;
         std::array<std::vector<Scalar>, D> independentLists;
-        std::cout << " has range IN" << hasRange << std::endl;
-        std::cout << " has range IN" << hasRange << " " << value.toString() << std::endl;
-        std::cerr << "[DEBUG] makeList() called for DimensionsIndependent\n";
-        std::cerr << "[DEBUG] vecDim = " << D << "\n";
 
         if(hasRange)
         {
-            std::cerr << "[DEBUG] Generating from idxRange: \n";
             for(std::size_t dim = 0; dim < D; ++dim)
             {
                 auto begin = idxRange.m_begin[dim];
                 auto end = idxRange.m_end[dim];
                 auto stride = idxRange.m_stride[dim];
 
-                std::cerr << "  [DEBUG] dim[" << dim << "]: begin=" << begin << ", end=" << end
-                          << ", stride=" << stride << "\n";
 
                 if(stride == 0)
                 {
-                    std::cerr << "[ERROR] Zero stride in dimension " << dim << " — skipping\n";
+                    independentLists[dim].push_back(begin);
                     continue;
                 }
 
                 for(auto val = begin; val <= end; val += stride)
                 {
                     independentLists[dim].push_back(val);
-                    std::cerr << "    [DEBUG] pushed val = " << val << "\n";
                 }
             }
         }
@@ -813,10 +805,6 @@ namespace alpaka::tune
         {
             std::cerr << "[DEBUG] inputList is empty\n";
         }
-        else
-        {
-            std::cerr << "[DEBUG] Processing inputList with " << inputList.size() << " entries\n";
-        }
 
         for(T const& v : inputList)
         {
@@ -824,25 +812,17 @@ namespace alpaka::tune
             {
                 auto val = v[dim];
                 independentLists[dim].push_back(val);
-                std::cerr << "  [DEBUG] From inputList: v[" << dim << "] = " << val << "\n";
             }
         }
 
-        std::cerr << "[DEBUG] Sorting and deduplicating...\n";
         for(std::size_t dim = 0; dim < D; ++dim)
         {
             auto& list = independentLists[dim];
             std::sort(list.begin(), list.end());
             list.erase(std::unique(list.begin(), list.end()), list.end());
-
-            std::cerr << "  [DEBUG] Final list[" << dim << "] = { ";
-            for(auto val : list)
-                std::cerr << val << " ";
-            std::cerr << "}\n";
         }
 
         valueList = independentLists;
-        std::cerr << "[DEBUG] makeList() completed successfully\n";
         return independentLists;
     }
 

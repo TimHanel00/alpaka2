@@ -88,6 +88,7 @@ namespace alpaka::onAcc
             alpaka::concepts::MdSpan auto&&... dataN) const
         {
             using ValueType = alpaka::trait::GetValueType_t<ALPAKA_TYPEOF(data0)>;
+
             concurrent<
                 alpaka::getNumElemPerThread<ValueType>(
                     ALPAKA_TYPEOF(acc.getApi()){},

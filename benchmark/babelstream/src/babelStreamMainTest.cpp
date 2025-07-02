@@ -364,7 +364,7 @@ static auto getSessionFromExec(Exec_T const &exec,auto arraySize,auto & devAcc){
 
                       return condZ&&isPowerOfTwo(concurrentElements[0]);
                   })
-              .withConfig("./config/realBabelstreamGPU_"+std::to_string(arraySize)+"_"+data+".toml")
+              .withConfig("./config/BabelstreamGPU_"+std::to_string(arraySize)+"_"+".toml")
               .build();
     static auto tuningSessionRest
         = tune::TuningBuilder{}
@@ -373,14 +373,12 @@ static auto getSessionFromExec(Exec_T const &exec,auto arraySize,auto & devAcc){
               .withBlockSizeTune(tune::Tuneable(IdxRange{idxVec{64}, idxVec{maxThreads}, idxVec{64}}))
               .withNumBlocksTune()
               .template withConstraint<_0T>(  [arraySize](auto concurrentElements){return isPowerOfTwo(concurrentElements[0]);})
-              .withConfig("./config/realBabelstreamGPU_Rest_"+std::to_string(arraySize)+"_"+data+".toml")
+              .withConfig("./config/BabelstreamGPU_"+std::to_string(arraySize)+"_"+".toml")
               .build();
 		return std::make_tuple(tuningSessionDot,tuningSessionRest);
     };
 template<typename T_TuningSessionDot,typename T_TuningSessionRest>
 void abortIfFinished(const T_TuningSessionDot &dotSession,const  T_TuningSessionRest &restSession){
-    std::cout<<" rest "<<restSession.finishedConfigs<<std::endl;
-    std::cout<<" dot "<<dotSession.finishedConfigs<<std::endl;
     if(restSession.finishedConfigs>=4&&dotSession.finishedConfigs>=1){std::terminate();};
     }
 template<typename Data_T>
@@ -411,12 +409,12 @@ using Idx = std::uint32_t;
                       return condZ&&isPowerOfTwo(concurrentElements[0]);
                   })
               .withNumBlocksTune()
-    .withConfig("./config/babelstream_OMPBlocks_Dot_"+std::to_string(arraySize)+"_"+data+".toml").build();
+    .withConfig("./config/BabelstreamCPU_Dot_"+std::to_string(arraySize)+"_.toml").build();
 	static auto sessionRest= tune::TuningBuilder{}
           .withRunSpecifiers(std::to_string(arraySize),data)
           .withNumBlocksTune()
           .template withConstraint<_0T>(  [arraySize](auto concurrentElements){return isPowerOfTwo(concurrentElements[0]);})
-          .withConfig("./config/babelstream_OMPBlocks_Rest_"+std::to_string(arraySize)+"_"+data+".toml")
+          .withConfig("./config/BabelstreamCPU_Dot_"+std::to_string(arraySize)+"_.toml")
           .build();
 
 		return std::make_tuple(sessionDot,sessionRest);
@@ -546,6 +544,7 @@ void testKernels(T_Cfg cfg)
         // get duration in seconds
         std::chrono::duration<double> duration = end - start;
         runtime = duration.count();
+        std::cout<<"[TIME]"<<","<<runtime<<","<<kernelLabel<<"\n";
         runtimeResults.kernelToRundataMap[kernelLabel]->timingsSuccessiveRuns.push_back(runtime);
     };
 

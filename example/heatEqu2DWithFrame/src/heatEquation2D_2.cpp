@@ -270,12 +270,18 @@ auto example(T_Cfg const& cfg, uint32_t i) -> int
                 dx,
                 dy,
         */
+        auto startTime_IN = std::chrono::high_resolution_clock::now();
         tuningSession.enqueue(
             devAcc,
             computeQueue,
             exec,
             toRTime,
             KernelBundle{stencilKernel, uCurrBufAcc.getMdSpan(), uNextBufAcc.getMdSpan(), numNodes, dx, dy, dt});
+        auto startTime_OUT = std::chrono::high_resolution_clock::now();
+        auto endTime_IN = std::chrono::high_resolution_clock::now();
+
+        std::chrono::duration<double> elapsedTime_IN = endTime_IN - startTime_IN;
+        std::cout << "[TIME]" << "," << elapsedTime_IN.count() << "," << "\n";
         // Apply boundaries
         computeQueue.enqueue(
             exec,

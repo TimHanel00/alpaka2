@@ -346,8 +346,6 @@ namespace alpaka::tune
                                 bool allTrue = true;
                                 for(int i = 0; i < T::dim(); i++)
                                     allTrue = allTrue && (a[i] >= b[i]);
-                                std::cout << " evaluate frame extent bigger than blocks" << a.x() << " vs " << b.x()
-                                          << allTrue << std::endl;
                                 return allTrue;
                             });
                     auto newTuple = std::tuple_cat(m_constraintTuple, std::make_tuple(threadsSmallerExtentCondition));

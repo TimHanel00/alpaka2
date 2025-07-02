@@ -192,7 +192,6 @@ namespace alpaka::tune::detail::internal
             }
         case ::Comparison::Inconclusive:
             {
-                std::cout << " inconclusive " << std::endl;
                 if(!stored.fullFlag)
                 {
                     return false;
@@ -210,17 +209,23 @@ namespace alpaka::tune::detail::internal
 
     inline void checkSessionFinishedCondition(EnvironmentState& state)
     {
-        std::cout << state.maxConfigsTotal << " Total configs estimated " << state.numberOfCheckedConfigs
-                  << " number of checked configs" << std::endl;
-        if(hasMaxRuns_Env())
+        static int counter = 0;
+        if(counter % 100 == 0)
         {
-            std::cout << state.numValidConfigs << " evaluated configs from " << state.maxValidEvaluations << std::endl;
+            std::cout << state.maxConfigsTotal << " Total configs estimated " << state.numberOfCheckedConfigs
+                      << " number of checked configs" << std::endl;
+            if(hasMaxRuns_Env())
+            {
+                std::cout << state.numValidConfigs << " evaluated configs from " << state.maxValidEvaluations
+                          << std::endl;
+            }
+            counter = 0;
         }
-
         if(state.numberOfCheckedConfigs >= state.maxConfigsTotal || state.numValidConfigs >= state.maxValidEvaluations)
         {
             state.sessionFinished = true;
         }
+        counter++;
     }
 
     template<
@@ -310,7 +315,6 @@ namespace alpaka::tune::detail::internal
                         assignBestIfBetter<T_MetricInterface>(environment_state.bestConfig, stored);
                         continue;
                     }
-                    environment_state.bestConfig = stored;
                 }
                 else
                 {
@@ -343,7 +347,6 @@ namespace alpaka::tune::detail::internal
             });
         if(!valid)
         {
-            std::cout << " constraint violated for : " << runHash << std::endl;
             using T_state = ALPAKA_TYPEOF(stored.state);
             ++state.numberOfCheckedConfigs;
             stored.metricContainer.clear();
@@ -410,7 +413,6 @@ namespace alpaka::tune::detail::internal
             strategy(metric_interface, sharedParams, run, data, environment);
 
             std::string newHash = run.toHash();
-            std::cout << oldHash << "  old vs new" << newHash << std::endl;
             if(newHash != oldHash
                && configReadyForRun<T_Context, T_MetricInterface>(run, data, environment, constraints))
             {
@@ -462,7 +464,7 @@ namespace alpaka::tune::detail::internal
         // KernelBundle Definition
         trait::callPreProcessing(run, spec, interface, kernelBundle);
         using KernelFn = typename getTypeFrom<std::decay_t<decltype(kernelBundle)>>::type;
-        std::cout << " try to launch kernel with " << run.toHash() << std::endl;
+        // std::cout << " try to launch kernel with " << run.toHash() << std::endl;
         if constexpr(!trait::hasUserDefinedCTuneable<KernelFn>::value)
         {
             interface.start(run, spec);
@@ -514,19 +516,15 @@ namespace alpaka::tune::detail::internal
     {
         auto runHash = run.toHash();
         using T_state = ALPAKA_TYPEOF(data.runs[runHash].state);
-        std::cout << " ran config: " << runHash << " time " << run.metric << std::endl;
         StorageKernelRun& stored = data.runs[runHash];
         switch(stored.state)
         {
         case T_state::Uninitialized:
             stored.stamp = data.highestStamp + state.stamp++;
-            std::cout << " assigned stamp: " << stored.stamp << std::endl;
             break;
         case T_state::Dummy:
             return;
         default:
-            std::cout << " config has state: " << runHash << " state: " << static_cast<std::size_t>(stored.state)
-                      << std::endl;
             break;
         }
         bool flagPre = stored.fullFlag;
@@ -589,23 +587,32 @@ namespace alpaka
         T_Exec& exec,
         T_KernelBundle& kernelBundle,
         T_Spec& spec,
+        const T_Spec& defaultSpec,
         T_MetricInterface& metric_interface)
     {
         static int runCount = 0;
         static bool write = true;
 
-        StorageKernelRun& stored = data.runs[state.bestConfig.toHash()];
-        toActive(config, stored);
+        // StorageKernelRun& stored = data.runs[state.bestConfig.toHash()];
+        StorageKernelRun best = data.runs.begin()->second;
+        for(auto const& run : data.runs)
+        {
+            best = (run.second.metricContainer.get(median_t{}).as<t_ns>()
+                    < best.metricContainer.get(median_t{}).as<t_ns>())
+                       ? run.second
+                       : best;
+        }
+        toActive(config, best);
 
         std::cout << " run with best config: " << config.toHash() << " median timings. "
-                  << stored.metricContainer.get(median_t{}).template as<t_ns>() << std::endl;
+                  << best.metricContainer.get(median_t{}).template as<t_ns>() << std::endl;
 
         tune::detail::internal::applyConfigAndExecuteKernel(queue, exec, kernelBundle, spec, metric_interface, config);
         onHost::wait(queue);
 
         if(runCount < MeasureBestRuns)
         {
-            stored.pushMetric(config.metric);
+            best.pushMetric(config.metric);
             ++runCount;
 
             if(write && runCount == MeasureBestRuns)
@@ -749,6 +756,7 @@ namespace alpaka
                     exec,
                     kernelBundle,
                     kernelptr->frameSpec,
+                    kernelptr->defaultFrameSpec,
                     env_metricInterface);
                 return;
             }
@@ -796,8 +804,6 @@ namespace alpaka
             }
             if(configReadyForRun<T_Context, T_MetricInterface>(run, data, environment_state, constraints))
             {
-                std::cout << " stopping criteria for current config:  " << run.toHash() << "not reached yet"
-                          << std::endl;
                 applyConfigAndExecuteKernel(queue, exec, kernelBundle, spec, metricInterface, run);
                 updateMetrics<T_Context, T_MetricInterface>(run, data, environment_state);
                 checkSessionFinishedCondition(environment_state);
