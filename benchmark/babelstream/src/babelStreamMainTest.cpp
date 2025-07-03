@@ -379,7 +379,7 @@ static auto getSessionFromExec(Exec_T const &exec,auto arraySize,auto & devAcc){
     };
 template<typename T_TuningSessionDot,typename T_TuningSessionRest>
 void abortIfFinished(const T_TuningSessionDot &dotSession,const  T_TuningSessionRest &restSession){
-    //if(restSession.finishedConfigs>=4&&dotSession.finishedConfigs>=1){std::terminate();};
+    if(restSession.finishedConfigs>=4&&dotSession.finishedConfigs>=1){std::terminate();};
     }
 template<typename Data_T>
 static auto getSessionFromExec(alpaka::exec::CpuOmpBlocks const &exec, auto arraySize, auto &devAcc) {

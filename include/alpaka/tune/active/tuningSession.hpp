@@ -562,6 +562,53 @@ namespace alpaka
 #    define MeasureBestRuns                                                                                           \
         1000 // how many runs after we have the best config will get messured (from the best config)
 
+    template<typename... T_Args>
+    void toDefault(auto& queue, const auto& defaultSpec, KernelTuningModel<T_Args...>& config)
+    {
+        auto elementsPerFrameItem = getNumElemPerThread<float_t>(queue);
+        if constexpr(KernelTuningModel<T_Args...>::hasNumBlocksTune())
+        {
+            config.getNumBlocksTune().value = defaultSpec.m_numFrames;
+        }
+        if constexpr(KernelTuningModel<T_Args...>::hasFrameExtentTune())
+        {
+            config.getFrameExtentTune().value = defaultSpec.m_frameExtent;
+        }
+        if constexpr(KernelTuningModel<T_Args...>::hasThreadBlockSizeTune())
+        {
+            config.getThreadBlockSizeTune().value = defaultSpec.m_frameExtent;
+        }
+        for_each(
+            config.allTuneables(),
+            [&](auto& tune)
+            {
+                if(tune.name() == "CTune_0")
+                {
+                    tune.value = elementsPerFrameItem;
+                }
+            });
+    }
+
+    void selectRun(
+        auto& queue,
+        auto& config,
+        KernelData& data,
+        auto const& defaultSpec,
+        int runCount,
+        EnvironmentState& state)
+    {
+        if(runCount < MeasureBestRuns)
+        {
+            // run Best
+            StorageKernelRun& best = data.runs[state.bestConfig.toHash()];
+            toActive(config, best);
+        }
+        else
+        {
+            toDefault(queue, defaultSpec, config);
+        }
+    }
+
     template<
         typename T_session,
         typename T_Config,
@@ -581,26 +628,22 @@ namespace alpaka
         T_Exec& exec,
         T_KernelBundle& kernelBundle,
         T_Spec& spec,
+        T_Spec const& defaultSpec,
         T_MetricInterface& metric_interface)
     {
         static int runCount = 0;
         static bool write = true;
-
-        StorageKernelRun& stored = data.runs[state.bestConfig.toHash()];
-        toActive(config, stored);
-
-        std::cout << " run with best config: " << config.toHash() << " median timings. "
-                  << stored.metricContainer.get(median_t{}).template as<t_ns>() << std::endl;
-
+        // StorageKernelRun& stored = data.runs[state.bestConfig.toHash()];
+        selectRun(queue, config, data, defaultSpec, runCount, state);
         tune::detail::internal::applyConfigAndExecuteKernel(queue, exec, kernelBundle, spec, metric_interface, config);
         onHost::wait(queue);
-
-        if(runCount < MeasureBestRuns)
+        StorageKernelRun& cur = data.runs[config.toHash()];
+        if(runCount < MeasureBestRuns * 2)
         {
-            stored.pushMetric(config.metric);
+            cur.pushMetric(config.metric);
             ++runCount;
 
-            if(write && runCount == MeasureBestRuns)
+            if(write && runCount == MeasureBestRuns * 2)
             {
                 history.storeConfig(configfile);
                 write = false;
@@ -741,6 +784,7 @@ namespace alpaka
                     exec,
                     kernelBundle,
                     kernelptr->frameSpec,
+                    kernelptr->defaultFrameSpec,
                     env_metricInterface);
                 return;
             }
@@ -755,6 +799,7 @@ namespace alpaka
                 historyKernelData,
                 environment_state,
                 kernelptr->frameSpec,
+                kernelptr->defaultFrameSpec,
                 kernelptr->sharedParams);
         }
 
@@ -776,6 +821,7 @@ namespace alpaka
             KernelData& data,
             EnvironmentState& environment_state,
             onHost::FrameSpec<T_NumBlocks, T_NumThreads>& spec,
+            onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& defaultSpec,
             auto& sharedParameters)
         {
             using namespace alpaka::tune::detail::internal;
@@ -816,6 +862,7 @@ namespace alpaka
                     exec,
                     kernelBundle,
                     spec,
+                    defaultSpec,
                     metricInterface);
                 return;
             }

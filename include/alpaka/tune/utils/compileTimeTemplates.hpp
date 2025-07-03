@@ -439,8 +439,28 @@ namespace alpaka::tune
         template<typename T>
         using toFirstType_t = typename toFirstType<T>::type;
 
-        template<typename Definition>
-        auto makeTuneable(std::size_t index, auto const& initialValue)
+        template<typename Decayed>
+        auto make_vec()
+        {
+            using Scalar = typename Decayed::Scalar;
+            using ValueTuple = typename Decayed::Values;
+            constexpr std::size_t N = std::tuple_size_v<ValueTuple>;
+
+            auto vec = [&]<std::size_t... Is>(std::index_sequence<Is...>)
+            {
+                auto values = std::tuple<decltype(std::get<Is>(ValueTuple{}))...>(std::get<Is>(ValueTuple{})...);
+
+                std::vector<alpaka::Vec<Scalar, Decayed::dim>> result;
+                result.reserve(sizeof...(Is));
+                (..., result.emplace_back(CompileTimeHelpers::toRuntimeVec(std::get<Is>(values))));
+                return result;
+            }(std::make_index_sequence<N>{});
+
+            return vec;
+        }
+
+        template<typename Definition, typename T_initalValue>
+        auto makeTuneable(std::size_t index, T_initalValue const& initialValue)
         {
             using Decayed = std::decay_t<Definition>;
 
@@ -459,12 +479,7 @@ namespace alpaka::tune
             {
                 using Scalar = typename Decayed::Scalar;
                 using ValueTuple = typename Decayed::Values;
-                constexpr std::size_t N = std::tuple_size_v<ValueTuple>;
-                auto vec = [&]<std::size_t... Is>(std::index_sequence<Is...>)
-                {
-                    return std::vector<alpaka::Vec<Scalar, Decayed::dim>>{
-                        CompileTimeHelpers::toRuntimeVec(std::tuple_element_t<Is, ValueTuple>{})...};
-                }(std::make_index_sequence<N>{});
+                auto vec = make_vec<Decayed>();
 
                 // Now construct Tuneable from the vector
                 return ::alpaka::tune::
@@ -573,9 +588,8 @@ namespace alpaka::tune
                 {
                     return std::make_tuple(
                         alpaka::tune::CompileTimeHelpers::makeTuneable<
-                            std::decay_t<decltype(std::get<Is>(definitions))>>(
-                            Is,
-                            std::get<Is>(KernelInitialValues))...);
+                            std::decay_t<decltype(std::get<Is>(definitions))>,
+                            decltype(std::get<Is>(KernelInitialValues))>(Is, std::get<Is>(KernelInitialValues))...);
                 }(std::make_index_sequence<N>{});
             }
         }
