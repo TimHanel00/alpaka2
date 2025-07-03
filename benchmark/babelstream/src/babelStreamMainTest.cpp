@@ -246,10 +246,6 @@ struct DotKernel
         auto sdata = onAcc::getDynSharedMem<T>(acc);
 
         std::uint32_t constexpr simdBytes=aligning<Data,CVec>();
-        for(auto worker:onAcc::makeIdxMap(acc, onAcc::worker::threadsInGrid, IdxRange{1})){
-            printf("CVec[0] = %d\n", static_cast<int>(CVec{}[0]));
-
-            }
 
         auto frameExtent = acc[frame::extent];
         auto numElemsPerFrame=CVec{}[0]*frameExtent[0];
