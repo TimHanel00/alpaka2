@@ -5,6 +5,7 @@
 #ifndef TUNEABLE_H
 #define TUNEABLE_H
 #include "alpaka/mem/IdxRange.hpp"
+#include "alpaka/tune/utils/tupleHelper.h"
 
 #include <alpaka/tune/utils/VecUtils.h>
 #include <alpaka/tune/utils/partitioning.hpp>
@@ -14,18 +15,6 @@
 #include <string>
 #include <utility>
 
-template<typename Tuple, typename F, std::size_t... I>
-void for_each_impl(Tuple&& tup, F&& f, std::index_sequence<I...>)
-{
-    (f(std::get<I>(std::forward<Tuple>(tup))), ...);
-}
-
-template<typename Tuple, typename F>
-void for_each(Tuple&& tup, F&& f)
-{
-    constexpr std::size_t N = std::tuple_size_v<std::remove_reference_t<Tuple>>;
-    for_each_impl(std::forward<Tuple>(tup), std::forward<F>(f), std::make_index_sequence<N>{});
-}
 
 #define DEFINE_TUNE_NAME(name)                                                                                        \
     inline constexpr ::alpaka::tune::StaticString<sizeof(#name)> name##_ss()                                          \
@@ -613,6 +602,14 @@ namespace alpaka::tune
         using type = std::array<std::vector<typename T::type>, Dim>;
     };
 
+    template<typename VecRef>
+    struct tuneableListWrapper
+    {
+        std::size_t id; // index in the original tuneables tuple
+        std::size_t dim; // 0 for dependent, or actual dimension for independent
+        VecRef list; // reference to the std::vector<T>
+    };
+
     //--------------------------------------
     // 3. Tuneable
     //--------------------------------------
@@ -711,6 +708,55 @@ namespace alpaka::tune
             return IdxRange<T, T, T>{zero, val, one};
         }
 
+        auto expand(std::size_t tuneableId)
+        {
+            if constexpr(std::is_same_v<dimensionTraversePolicy, DimensionsDependent>)
+            {
+                return std::tuple<tuneableListWrapper<std::vector<T>&>>{{tuneableId, 0, valueList}};
+            }
+            else if constexpr(std::is_same_v<dimensionTraversePolicy, DimensionsIndependent>)
+            {
+                using ValueType = typename T::type;
+
+                return [&]<std::size_t... Is>(std::index_sequence<Is...>)
+                {
+                    return std::make_tuple(
+                        tuneableListWrapper<std::vector<ValueType>&>{tuneableId, Is, valueList[Is]}...);
+                }(std::make_index_sequence<vecDim>{});
+            }
+        }
+
+        bool removeIfValid(std::size_t index, std::size_t dim)
+        {
+            if constexpr(std::is_same_v<dimensionTraversePolicy, DimensionsDependent>)
+            {
+                if(index >= valueList.size())
+                    throw std::out_of_range("Index out of bounds in removeIfValid (Dependent)");
+
+                if(valueList[index] == value)
+                    return false;
+
+                valueList.erase(valueList.begin() + index);
+                return true;
+            }
+            else if constexpr(std::is_same_v<dimensionTraversePolicy, DimensionsIndependent>)
+            {
+                if(dim >= vecDim)
+                    throw std::out_of_range("Dimension out of bounds in removeIfValid (Independent)");
+
+                auto& vec = valueList[dim];
+
+                if(index >= vec.size())
+                    throw std::out_of_range("Index out of bounds in removeIfValid (Independent)");
+
+                if(vec[index] == value[dim])
+                    return false;
+
+                vec.erase(vec.begin() + index);
+                return true;
+            }
+        }
+
         [[nodiscard]] std::size_t numSteps() const
         {
             if constexpr(std::is_same_v<dimensionTraversePolicy, DimensionsDependent>)
@@ -754,7 +800,6 @@ namespace alpaka::tune
     auto Tuneable<T, ID, dimensionTraversePolicy>::makeList() -> std::vector<T>
     {
         std::vector<T> dependentList;
-        std::cout << " has range IN" << hasRange << " " << value.toString() << std::endl;
         if(hasRange)
         {
             for(auto i = idxRange.m_begin; allTrue(i <= idxRange.m_end); i += idxRange.m_stride)
@@ -778,44 +823,25 @@ namespace alpaka::tune
         using Scalar = typename T::type;
         constexpr std::size_t D = vecDim;
         std::array<std::vector<Scalar>, D> independentLists;
-        std::cout << " has range IN" << hasRange << std::endl;
-        std::cout << " has range IN" << hasRange << " " << value.toString() << std::endl;
-        std::cerr << "[DEBUG] makeList() called for DimensionsIndependent\n";
-        std::cerr << "[DEBUG] vecDim = " << D << "\n";
 
         if(hasRange)
         {
-            std::cerr << "[DEBUG] Generating from idxRange: \n";
             for(std::size_t dim = 0; dim < D; ++dim)
             {
                 auto begin = idxRange.m_begin[dim];
                 auto end = idxRange.m_end[dim];
                 auto stride = idxRange.m_stride[dim];
 
-                std::cerr << "  [DEBUG] dim[" << dim << "]: begin=" << begin << ", end=" << end
-                          << ", stride=" << stride << "\n";
-
                 if(stride == 0)
                 {
-                    std::cerr << "[ERROR] Zero stride in dimension " << dim << " — skipping\n";
-                    continue;
+                    independentLists[dim].push_back(begin);
                 }
 
                 for(auto val = begin; val <= end; val += stride)
                 {
                     independentLists[dim].push_back(val);
-                    std::cerr << "    [DEBUG] pushed val = " << val << "\n";
                 }
             }
-        }
-
-        if(inputList.empty())
-        {
-            std::cerr << "[DEBUG] inputList is empty\n";
-        }
-        else
-        {
-            std::cerr << "[DEBUG] Processing inputList with " << inputList.size() << " entries\n";
         }
 
         for(T const& v : inputList)
@@ -824,25 +850,18 @@ namespace alpaka::tune
             {
                 auto val = v[dim];
                 independentLists[dim].push_back(val);
-                std::cerr << "  [DEBUG] From inputList: v[" << dim << "] = " << val << "\n";
             }
         }
 
-        std::cerr << "[DEBUG] Sorting and deduplicating...\n";
+
         for(std::size_t dim = 0; dim < D; ++dim)
         {
             auto& list = independentLists[dim];
             std::sort(list.begin(), list.end());
             list.erase(std::unique(list.begin(), list.end()), list.end());
-
-            std::cerr << "  [DEBUG] Final list[" << dim << "] = { ";
-            for(auto val : list)
-                std::cerr << val << " ";
-            std::cerr << "}\n";
         }
 
         valueList = independentLists;
-        std::cerr << "[DEBUG] makeList() completed successfully\n";
         return independentLists;
     }
 

@@ -5,62 +5,108 @@
 #ifndef ENVIRONMENTVARS_H
 #define ENVIRONMENTVARS_H
 
-inline bool hasRunsPerConfig_Env(std::optional<bool> const& hasRunsPerConfig = std::nullopt)
+namespace alpaka::tune
 {
-    static bool hasRunsPerCfg = false;
-    if(hasRunsPerConfig.has_value())
+
+    inline bool hasRunsPerConfig_Env(std::optional<bool> const& hasRunsPerConfig = std::nullopt)
     {
-        hasRunsPerCfg = hasRunsPerConfig.value();
+        static bool hasRunsPerCfg = false;
+        if(hasRunsPerConfig.has_value())
+        {
+            hasRunsPerCfg = hasRunsPerConfig.value();
+        }
+        return hasRunsPerCfg;
     }
-    return hasRunsPerCfg;
-}
 
 #define upperBoundForRunsPerConfig 50
 
-static std::size_t getRunsPerConfig_Env()
-{
-    if(char const* var = std::getenv("TunerRunsPerConfig"))
+    inline bool hasMaxRuns_Env(std::optional<bool> const& hasRuns = std::nullopt)
     {
-        try
+        static bool hasMaxRuns = false;
+        if(hasRuns.has_value())
         {
-            std::size_t const value = static_cast<std::size_t>(std::stoul(var));
-            hasRunsPerConfig_Env(true);
-            return value;
+            hasMaxRuns = hasRuns.value();
         }
-        catch(std::exception const& e)
-        {
-            std::cerr << "Invalid value for TunerReRuns: " << e.what() << std::endl;
-        }
-    }
-    return upperBoundForRunsPerConfig;
-}
-
-inline bool hasMaxRuns_Env(std::optional<bool> const& hasRuns = std::nullopt)
-{
-    static bool hasMaxRuns = false;
-    if(hasRuns.has_value())
-    {
-        hasMaxRuns = hasRuns.value();
-    }
-    return hasMaxRuns;
-}
-
-static std::size_t getMaxRuns_Env()
-{
-    if(char const* var = std::getenv("TunerMaxConfigEvaluations"))
-    {
-        try
-        {
-            std::size_t value = static_cast<std::size_t>(std::stoul(var));
-            hasMaxRuns_Env(true);
-            return value;
-        }
-        catch(std::exception const& e)
-        {
-            std::cerr << "Invalid value for TunerMaxConfigEvaluations: " << e.what() << std::endl;
-        }
+        return hasMaxRuns;
     }
 
-    return UINT64_MAX;
-}
+    namespace internal
+    {
+
+        static std::size_t getMaxRuns_Env()
+        {
+            if(char const* var = std::getenv("TunerMaxConfigEvaluations"))
+            {
+                try
+                {
+                    std::size_t value = static_cast<std::size_t>(std::stoul(var));
+                    alpaka::tune::hasMaxRuns_Env(true);
+                    return value;
+                }
+                catch(std::exception const& e)
+                {
+                    std::cerr << "Invalid value for TunerMaxConfigEvaluations: " << e.what() << std::endl;
+                }
+            }
+
+            return UINT64_MAX;
+        }
+
+        static std::size_t getRunsPerConfig_Env()
+        {
+            if(char const* var = std::getenv("TunerRunsPerConfig"))
+            {
+                try
+                {
+                    std::size_t const value = static_cast<std::size_t>(std::stoul(var));
+                    hasRunsPerConfig_Env(true);
+                    return value;
+                }
+                catch(std::exception const& e)
+                {
+                    std::cerr << "Invalid value for TunerReRuns: " << e.what() << std::endl;
+                }
+            }
+            return upperBoundForRunsPerConfig;
+        }
+
+        static std::size_t getMaxConfigs_Env()
+        {
+            if(char const* var = std::getenv("TunerMaxConfigs"))
+            {
+                try
+                {
+                    std::size_t const value = static_cast<std::size_t>(std::stoul(var));
+                    return value;
+                }
+                catch(std::exception const& e)
+                {
+                    std::cerr << "Invalid value for TunerReRuns: " << e.what() << std::endl;
+                }
+            }
+            return UINT64_MAX;
+        }
+    } // namespace internal
+
+    static std::size_t getMaxConfigs()
+    {
+        static std::size_t maxConfigs = internal::getMaxConfigs_Env();
+
+        return maxConfigs;
+    }
+
+    static std::size_t getMaxRuns()
+    {
+        static std::size_t maxRuns = internal::getMaxRuns_Env();
+
+        return maxRuns;
+    }
+
+    static std::size_t getRunsPerConfig()
+    {
+        static std::size_t maxRuns = internal::getRunsPerConfig_Env();
+
+        return maxRuns;
+    }
+} // namespace alpaka::tune
 #endif // ENVIRONMENTVARS_H

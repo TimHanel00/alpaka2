@@ -7,6 +7,8 @@
 #include "../utils/environmentVars.hpp"
 #include "alpaka/core/decay.hpp"
 #include "alpaka/tune/adjust/adjust.hpp"
+#include "alpaka/tune/utils/Random.h"
+#include "alpaka/tune/utils/tupleHelper.h"
 
 #include <alpaka/onHost/FrameSpec.hpp>
 #include <alpaka/tune/IO/storageTypes.hpp>
@@ -29,6 +31,32 @@ struct EnvironmentState
     alpaka::tune::ConfigQueue<StorageKernelRun> config_queue;
 };
 
+template<typename TuneablesTuple, typename ExpandedTuple>
+void printTuneableDimensions(TuneablesTuple const& allTuneables, ExpandedTuple const& expandedTuneables)
+{
+    for_each_enumerate(
+        expandedTuneables,
+        [&](auto const& wrapper, std::size_t)
+        {
+            visitIndex(
+                wrapper.id,
+                allTuneables,
+                [&](auto const& tuneable)
+                {
+                    std::cout << tuneable.name() << "_" << wrapper.dim << " = [ ";
+
+                    for(std::size_t i = 0; i < wrapper.list.size(); ++i)
+                    {
+                        std::cout << wrapper.list[i];
+                        if(i + 1 < wrapper.list.size())
+                            std::cout << ", ";
+                    }
+
+                    std::cout << " ]" << std::endl;
+                });
+        });
+}
+
 template<typename... Tuneables>
 void makeListsForAllTuneables(std::tuple<Tuneables...>&& allTuneables)
 {
@@ -40,6 +68,110 @@ void makeListsForAllTuneables(std::tuple<Tuneables...>&& allTuneables)
             };
         },
         allTuneables);
+}
+
+template<typename... Tuneables>
+auto expand(std::tuple<Tuneables...>& tuneables)
+{
+    return [&]<std::size_t... Is>(std::index_sequence<Is...>)
+    {
+        return std::tuple_cat(std::get<Is>(tuneables).expand(Is)...);
+    }(std::make_index_sequence<sizeof...(Tuneables)>{});
+}
+
+template<typename TuneablesTuple, typename WrapperTuple, typename Predicate>
+bool removeAllMatchingIndices(
+    TuneablesTuple& allTuneables,
+    std::size_t wrapperIndex,
+    WrapperTuple& wrappers,
+    Predicate shouldRemoveIndex)
+{
+    bool removedAny = false;
+
+    visitIndex(
+        wrapperIndex,
+        wrappers,
+        [&](auto& wrapper)
+        {
+            visitIndex(
+                wrapper.id,
+                allTuneables,
+                [&](auto& tuneable)
+                {
+                    for(std::size_t i = wrapper.list.size(); i-- > 0;)
+                    {
+                        if(shouldRemoveIndex(i))
+                        {
+                            if(tuneable.removeIfValid(i, wrapper.dim))
+                            {
+                                removedAny = true;
+                            }
+                        }
+                    }
+                });
+        });
+
+    return removedAny;
+}
+
+template<typename... Tuneables>
+void shrinkTuningSpace(std::tuple<Tuneables...>&& allTuneables, std::size_t initialMaxRuns)
+{
+    std::cout << initialMaxRuns << " runs initial\n";
+
+    auto expandedTuneables = expand(allTuneables);
+
+    while(initialMaxRuns > alpaka::tune::getMaxConfigs())
+    {
+        std::vector<std::pair<std::size_t, std::size_t>> maxRunsVec;
+
+        for_each_enumerate(
+            expandedTuneables,
+            [&](auto& wrapper, std::size_t index) { maxRunsVec.emplace_back(wrapper.list.size(), index); });
+
+        std::sort(maxRunsVec.begin(), maxRunsVec.end(), std::greater<>());
+
+        std::size_t maxIndex = maxRunsVec.front().second;
+
+        bool shouldContinue = true;
+
+        visitIndex(
+            maxIndex,
+            expandedTuneables,
+            [&](auto& wrapper)
+            {
+                if(wrapper.list.size() < 2)
+                {
+                    shouldContinue = false;
+                    return;
+                }
+
+                bool removed = removeAllMatchingIndices(
+                    allTuneables,
+                    maxIndex,
+                    expandedTuneables,
+                    [](std::size_t i) { return (i & 1) == 1; } // odd indices
+                );
+
+                // fallback if nothing removed
+                if(!removed)
+                {
+                    removeAllMatchingIndices(
+                        allTuneables,
+                        maxIndex,
+                        expandedTuneables,
+                        [](std::size_t i) { return (i & 1) == 0; } // even indices
+                    );
+                }
+            });
+
+        if(!shouldContinue)
+            break;
+
+        initialMaxRuns = 1;
+        for_each(allTuneables, [&](auto& tunable) { initialMaxRuns *= tunable.numSteps(); });
+    }
+    printTuneableDimensions(allTuneables, expandedTuneables);
 }
 
 // #define DEBUG_Singleton
@@ -113,9 +245,12 @@ public:
         KernelData& h = *ptrToHistory;
         // acts like a guard only valid configs are used for the device
         alpaka::tune::clampToSpec(device, frameSpec, *activeRunPtr);
-        addSpecToRun(*activeRunPtr, frameSpec);
         makeListsForAllTuneables(activeRunPtr->allTuneables());
         alpaka::tune::recalculateMaxRuns(*activeRunPtr);
+        shrinkTuningSpace(activeRunPtr->allTuneables(), activeRunPtr->maxRuns);
+
+        alpaka::tune::recalculateMaxRuns(*activeRunPtr);
+        std::cout << activeRunPtr->maxRuns << " runs after shrink" << std::endl;
         // applyCustomThreadSpec(*activeRunPtr, frameSpec);
         if(!h.runs.contains(activeRunPtr->toHash()))
         {
@@ -123,7 +258,7 @@ public:
         }
         environmentState.bestConfig = h.runs[activeRunPtr->toHash()];
         environmentState.maxConfigsTotal = activeRunPtr->maxRuns;
-        environmentState.maxValidEvaluations = getMaxRuns_Env();
+        environmentState.maxValidEvaluations = alpaka::tune::getMaxRuns();
     }
 
     // Prevent copy/move

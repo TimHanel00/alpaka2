@@ -119,7 +119,7 @@ namespace alpaka::tune::detail::internal
             return false;
         }
 
-        if(stored.nr_runs >= getRunsPerConfig_Env())
+        if(stored.nr_runs >= alpaka::tune::getRunsPerConfig())
         {
             if(!stored.fullFlag)
             {
@@ -212,7 +212,7 @@ namespace alpaka::tune::detail::internal
     {
         std::cout << state.maxConfigsTotal << " Total configs estimated " << state.numberOfCheckedConfigs
                   << " number of checked configs" << std::endl;
-        if(hasMaxRuns_Env())
+        if(alpaka::tune::hasMaxRuns_Env())
         {
             std::cout << state.numValidConfigs << " evaluated configs from " << state.maxValidEvaluations << std::endl;
         }
@@ -535,7 +535,7 @@ namespace alpaka::tune::detail::internal
 
 
         // update stopping criteria
-        if(!hasRunsPerConfig_Env())
+        if(!alpaka::tune::hasRunsPerConfig_Env())
         {
             if(flagPre != flagPost)
             {
@@ -550,7 +550,7 @@ namespace alpaka::tune::detail::internal
             {
                 stored.fullFlag = false;
             }
-            if(stored.nr_runs >= getRunsPerConfig_Env())
+            if(stored.nr_runs >= alpaka::tune::getRunsPerConfig())
             {
                 if(!stored.fullFlag)
                 {

@@ -5,7 +5,9 @@
 #ifndef STRATEGY_HPP
 #define STRATEGY_HPP
 #include "alpaka/tune/IO/storageTypes.hpp"
+#include "alpaka/tune/utils/Random.h"
 #include "alpaka/tune/utils/environmentVars.hpp"
+#include "alpaka/tune/utils/tupleHelper.h"
 
 #include <alpaka/tune/active/MetricInterface.hpp>
 
@@ -14,24 +16,7 @@
 
 namespace alpaka::tune::strategy
 {
-    class RNG
-    {
-    public:
-        static std::mt19937& get()
-        {
-            static RNG instance;
-            return instance.rng_;
-        }
 
-    private:
-        RNG()
-        {
-            std::random_device rd;
-            rng_ = std::mt19937(rd());
-        }
-
-        std::mt19937 rng_;
-    };
 
     template<typename T>
     constexpr bool is_signed_type = std::is_signed_v<T>;
@@ -82,19 +67,6 @@ namespace alpaka::tune::strategy
                 });
         };
     };
-
-    template<typename Tuple, typename F, std::size_t... Is>
-    void for_each_enumerate_impl(Tuple&& tup, F&& f, std::index_sequence<Is...>)
-    {
-        (f(std::get<Is>(tup), Is), ...);
-    }
-
-    template<typename Tuple, typename F>
-    void for_each_enumerate(Tuple&& tup, F&& f)
-    {
-        constexpr std::size_t N = std::tuple_size_v<std::remove_reference_t<Tuple>>;
-        for_each_enumerate_impl(std::forward<Tuple>(tup), std::forward<F>(f), std::make_index_sequence<N>{});
-    }
 
     template<typename T_range, typename T_value>
     T_value randomNeighbour(T_range& range, T_value& value, bool& valid)
@@ -530,7 +502,7 @@ namespace alpaka::tune::strategy
 
                 VecT idx = computeValueIndices(tuneables, kernelRun);
                 VecT dimsVecAsVec = convertVec<N>(dimsVec);
-                stateCount = 1;
+                stateCount = 0;
                 init = true;
                 return;
             }
