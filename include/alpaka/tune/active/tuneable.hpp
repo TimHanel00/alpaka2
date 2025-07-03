@@ -549,42 +549,27 @@ namespace alpaka::tune
     {
     };
 
-    template<
-        typename Begin,
-        typename End,
-        typename Stride,
-        std::size_t ID = static_cast<std::size_t>(SpecialTuneableID::userDef)>
+    template<std::size_t Tag = 0, typename... CVecs>
     struct CTunable
     {
-        // Check they are all CVec
-        static_assert(alpaka::isCVector_v<Begin>, "CTuneable construction failed: Begin must be a CVec");
-        static_assert(alpaka::isCVector_v<End>, "CTuneable construction failed:  End must be a CVec");
-        static_assert(alpaka::isCVector_v<Stride>, "CTuneable construction failed:  Stride must be a CVec");
+        // Sanity checks
+        static constexpr auto tag = Tag;
+        static_assert(sizeof...(CVecs) > 0, "CTunable requires at least one CVec");
 
-        // Get dimensions
-        static constexpr std::size_t dimBegin = std::tuple_size_v<typename Begin::Storage::Values>;
-        static constexpr std::size_t dimEnd = std::tuple_size_v<typename End::Storage::Values>;
-        static constexpr std::size_t dimStride = std::tuple_size_v<typename Stride::Storage::Values>;
+        // Check all are CVec
+        static_assert((alpaka::isCVector_v<CVecs> && ...), "All parameters to CTunable must be CVec<T, ...>");
 
+        // Extract scalar type from first CVec
+        using Scalar = typename std::tuple_element_t<0, std::tuple<CVecs...>>::type;
+        static constexpr std::size_t dim = std::tuple_element_t<0, std::tuple<CVecs...>>::dim();
+        // Ensure all CVecs use the same scalar type
         static_assert(
-            dimBegin == dimEnd && dimEnd == dimStride,
-            "CTuneable construction failed:  Begin, End, and Stride must have the same number of dimensions");
+            (std::is_same_v<Scalar, typename CVecs::type> && ...),
+            "All CVecs in CTunable must have the same scalar type");
 
-        // Get scalar types
-        using ScalarBegin = typename Begin::type;
-        using ScalarEnd = typename End::type;
-        using ScalarStride = typename Stride::type;
-
-        static_assert(
-            std::is_same_v<ScalarBegin, ScalarEnd> && std::is_same_v<ScalarEnd, ScalarStride>
-                && std::is_same_v<ScalarStride, ScalarBegin>,
-            "CTuneable construction failed:  types of Begin, End, and Stride must match");
-
-        // This is valid now
-        using T_Begin = Begin;
-        using T_End = End;
-        using T_Stride = Stride;
-        static constexpr std::size_t tag = ID;
+        // Store all CVecs
+        using Tuple = std::tuple<CVecs...>;
+        using Values = Tuple;
     };
     template<typename T, typename Policy>
     struct ValueListType;
@@ -666,6 +651,26 @@ namespace alpaka::tune
 
         constexpr Tuneable(
             std::initializer_list<T> input,
+            std::optional<T> init = std::nullopt,
+            std::string const& name = "")
+            : inputList(input)
+            , idxRange{T::all(1), T::all(1), T::all(1)}
+            , hasRange(false)
+        {
+            if(!name.empty())
+                m_name = name;
+            if(init.has_value())
+            {
+                value = init.value();
+            }
+            else
+            {
+                value = inputList[0];
+            }
+        }
+
+        constexpr Tuneable(
+            std::vector<T> const& input,
             std::optional<T> init = std::nullopt,
             std::string const& name = "")
             : inputList(input)

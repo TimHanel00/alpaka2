@@ -17,11 +17,10 @@ namespace alpaka::tune::trait{
 
         static constexpr auto tuneAbleDefinitions()
         {
-            constexpr auto tune1 = tune::CTunable<
+            constexpr auto tune1 = tune::CTunable<static_cast<std::size_t>(0),
                 CVec<std::uint32_t, 2>,
                 CVec<std::uint32_t, 16>,
-                CVec<std::uint32_t, 2>,
-                static_cast<std::size_t>(0)>{};
+                CVec<std::uint32_t, 2>>{};
             // static_assert(tune1.tag != tune2.tag, "Compile-time tunables have duplicate tags!");
             // constexpr auto tune2 = tune::CTunable<CVec<int, 3, 3>, CVec<int, 6, 6>, CVec<int, 1, 1>>{};
             return std::tuple{tune1}; // empty tuple, no tunables

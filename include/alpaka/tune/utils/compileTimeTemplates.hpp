@@ -82,25 +82,6 @@ namespace alpaka::tune
             {
                 using type = std::tuple<>;
             };
-            template<typename Tunable>
-            struct UnwrappTuneableType;
-
-            template<// e.g., CVec<T, ...>
-                    typename Begin,
-                    typename End,
-                    typename Stride,
-                    std::size_t ID>
-                struct UnwrappTuneableType<CTunable<Begin, End, Stride, ID>>
-            {
-                using T = typename Begin::type;
-                using type_ = typename GenerateRecursive<Begin, End, Stride>::type;
-            };
-
-            template<typename Tuple, std::size_t... Is>
-            constexpr auto expandValuesFromDefinition(std::index_sequence<Is...>)
-            {
-                return std::tuple<typename UnwrappTuneableType<std::tuple_element_t<Is, Tuple>>::type_...>{};
-            }
 
             template<typename Tuple>
             constexpr auto expandValuesFromDefinition()
@@ -444,7 +425,60 @@ namespace alpaka::tune
                 { return std::make_tuple(convertTupleOfCVecsToRuntimeVecs(cvecTuple)...); },
                 all);
         }
+        template<typename T>
+        struct toFirstType;
+
+        // Specialization: extract from std::tuple<CTunable<Tag, Vecs...>>
+        template<std::size_t Tag, typename... Vecs>
+        struct toFirstType<std::tuple<CTunable<Tag, Vecs...>>>
+        {
+            using type = std::tuple<std::tuple<Vecs...>>;
+        };
+
+        // Convenience alias
+        template<typename T>
+        using toFirstType_t = typename toFirstType<T>::type;
+
+        template<typename Definition>
+        auto makeTuneable(std::size_t index, auto const& initialValue)
+        {
+            using Decayed = std::decay_t<Definition>;
+
+            if constexpr(requires { typename Decayed::T_Begin; }) // old form
+            {
+                using Scalar = decltype(CompileTimeHelpers::toRuntimeVec(typename Decayed::T_Begin{}));
+                return ::alpaka::tune::Tuneable<Scalar, Decayed::tag, ::alpaka::tune::DimensionsDependent>{
+                    ::alpaka::IdxRange{
+                        CompileTimeHelpers::toRuntimeVec(typename Decayed::T_Begin{}),
+                        CompileTimeHelpers::toRuntimeVec(typename Decayed::T_End{}),
+                        CompileTimeHelpers::toRuntimeVec(typename Decayed::T_Stride{})},
+                    CompileTimeHelpers::toRuntimeVec(initialValue),
+                    "CTune_" + std::to_string(index)};
+            }
+            else if constexpr(requires { typename Decayed::Values; }) // new form
+            {
+                using Scalar = typename Decayed::Scalar;
+                using ValueTuple = typename Decayed::Values;
+                constexpr std::size_t N = std::tuple_size_v<ValueTuple>;
+                auto vec = [&]<std::size_t... Is>(std::index_sequence<Is...>)
+                {
+                    return std::vector<alpaka::Vec<Scalar, Decayed::dim>>{
+                        CompileTimeHelpers::toRuntimeVec(std::tuple_element_t<Is, ValueTuple>{})...};
+                }(std::make_index_sequence<N>{});
+
+                // Now construct Tuneable from the vector
+                return ::alpaka::tune::
+                    Tuneable<alpaka::Vec<Scalar, Decayed::dim>, Decayed::tag, ::alpaka::tune::DimensionsDependent>{
+                        vec,
+                        CompileTimeHelpers::toRuntimeVec(initialValue),
+                        "CTune_" + std::to_string(index)};
+            }
+        }
+
+
     } // namespace CompileTimeHelpers
+    template<typename T_Dummy>
+    struct GEk;
 
     namespace trait
     {
@@ -460,12 +494,11 @@ namespace alpaka::tune
                 numDefs == numIndices,
                 "Mismatch: number of tuneable definitions must match dimension of tuned_indices");
 
-            using ExpandedTuples
-                = decltype(alpaka::tune::CompileTimeHelpers::expandFromDefinition::expandValuesFromDefinition<
-                           decltype(FromTrait::tuneAbleDefinitions())>());
 
+            using Flattened = alpaka::tune::CompileTimeHelpers::toFirstType_t<TuneDefsTuple>;
+            // GEk<Flattened> expanded;
             using AllCombinations =
-                typename alpaka::tune::CompileTimeHelpers::allCombinations::CartesianFromTuple<ExpandedTuples>::type;
+                typename alpaka::tune::CompileTimeHelpers::allCombinations::CartesianFromTuple<Flattened>::type;
 
             static constexpr auto rCombinations
                 = alpaka::tune::CompileTimeHelpers::convertAllCVecCombinationsToRuntimeVecs(AllCombinations{});
@@ -539,21 +572,10 @@ namespace alpaka::tune
                 return [&]<std::size_t... Is>(std::index_sequence<Is...>)
                 {
                     return std::make_tuple(
-                        ::alpaka::tune::Tuneable<
-                            decltype(CompileTimeHelpers::toRuntimeVec(
-                                typename std::decay_t<decltype(std::get<Is>(definitions))>::T_Begin{})),
-                            std::decay_t<decltype(std::get<Is>(definitions))>::tag,
-                            ::alpaka::tune::DimensionsDependent>{
-
-                            ::alpaka::IdxRange{
-                                CompileTimeHelpers::toRuntimeVec(
-                                    typename std::decay_t<decltype(std::get<Is>(definitions))>::T_Begin{}),
-                                CompileTimeHelpers::toRuntimeVec(
-                                    typename std::decay_t<decltype(std::get<Is>(definitions))>::T_End{}),
-                                CompileTimeHelpers::toRuntimeVec(
-                                    typename std::decay_t<decltype(std::get<Is>(definitions))>::T_Stride{})},
-                            CompileTimeHelpers::toRuntimeVec(std::get<Is>(KernelInitialValues)),
-                            "CTune_" + std::to_string(Is)}...);
+                        alpaka::tune::CompileTimeHelpers::makeTuneable<
+                            std::decay_t<decltype(std::get<Is>(definitions))>>(
+                            Is,
+                            std::get<Is>(KernelInitialValues))...);
                 }(std::make_index_sequence<N>{});
             }
         }
