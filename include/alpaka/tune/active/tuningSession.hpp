@@ -61,6 +61,27 @@ namespace alpaka
     }
 
     template<typename T_FrameSpec, typename... T_Args>
+    static void addSpecToRun(KernelTuningModel<T_Args...>& kernelRun, T_FrameSpec const& spec)
+    {
+        if constexpr(KernelTuningModel<T_Args...>::hasNumFramesTune())
+        {
+            kernelRun.getNumFramesTune().inputList.push_back(spec.m_numFrames);
+        }
+        if constexpr(KernelTuningModel<T_Args...>::hasFrameExtentTune())
+        {
+            kernelRun.getFrameExtentTune().inputList.push_back(spec.m_frameExtent);
+        }
+        if constexpr(KernelTuningModel<T_Args...>::hasNumBlocksTune())
+        {
+            kernelRun.getNumBlocksTune().inputList.push_back(spec.m_threadSpec.m_numBlocks);
+        }
+        if constexpr(KernelTuningModel<T_Args...>::hasThreadBlockSizeTune())
+        {
+            kernelRun.getThreadBlockSizeTune().inputList.push_back(spec.m_threadSpec.m_numThreads);
+        }
+    }
+
+    template<typename T_FrameSpec, typename... T_Args>
     static T_FrameSpec& applyCustomThreadSpec(KernelTuningModel<T_Args...>& kernelRun, T_FrameSpec& spec)
     {
         if constexpr(KernelTuningModel<T_Args...>::hasNumFramesTune())
@@ -459,12 +480,14 @@ namespace alpaka::tune::detail::internal
     {
         applyCustomThreadSpec(run, spec);
         auto bundle = recreate(kernelBundle, run.userTuneables);
+
         // static_assert(std::is_same_v<decltype(bundle), void()>);
         // we take the original KernelBundle here as userdefined traits are most likely according to the initial
         // KernelBundle Definition
+
         trait::callPreProcessing(run, spec, interface, kernelBundle);
         using KernelFn = typename getTypeFrom<std::decay_t<decltype(kernelBundle)>>::type;
-        // std::cout << " try to launch kernel with " << run.toHash() << std::endl;
+        //std::cout << " try to launch kernel with " << run.toHash() << std::endl;
         if constexpr(!trait::hasUserDefinedCTuneable<KernelFn>::value)
         {
             interface.start(run, spec);
@@ -564,9 +587,54 @@ namespace alpaka::tune::detail::internal
 
 namespace alpaka
 {
+    template<typename T_Dummy>
+    struct Dummy
+    {
+        static_assert(sizeof(T_Dummy) == 0, "T_Dummy is:");
+    };
 
 #    define MeasureBestRuns                                                                                           \
         1000 // how many runs after we have the best config will get messured (from the best config)
+    template<typename... T_Args>
+    void toDefault(auto& queue, const auto& defaultSpec, KernelTuningModel<T_Args...>& config)
+    {
+
+        auto elementsPerFrameItem = getNumElemPerThread<float_t>(queue);
+        if constexpr(KernelTuningModel<T_Args...>::hasNumBlocksTune()){
+
+            config.getNumBlocksTune().value=defaultSpec.m_numFrames;
+            }
+        if constexpr(KernelTuningModel<T_Args...>::hasFrameExtentTune()){
+
+            config.getFrameExtentTune().value=defaultSpec.m_frameExtent;
+        }
+        if constexpr(KernelTuningModel<T_Args...>::hasThreadBlockSizeTune()){
+
+            config.getThreadBlockSizeTune().value=defaultSpec.m_frameExtent;
+        }
+        for_each(
+            config.allTuneables(),
+            [&](auto& tune)
+            {
+                if(tune.name() == "CTune_0")
+                {
+                    tune.value = elementsPerFrameItem;
+                }
+            });
+    }
+    void selectRun(auto& queue, auto& config, KernelData& data, auto const& defaultSpec, int runCount,EnvironmentState& state)
+    {
+        if(runCount < MeasureBestRuns)
+        {
+            // run Best
+            StorageKernelRun &best =data.runs[state.bestConfig.toHash()];
+            toActive(config, best);
+        }
+        else
+        {
+            toDefault(queue, defaultSpec, config);
+        }
+    }
 
     template<
         typename T_session,
@@ -587,35 +655,22 @@ namespace alpaka
         T_Exec& exec,
         T_KernelBundle& kernelBundle,
         T_Spec& spec,
-        const T_Spec& defaultSpec,
+        T_Spec const& defaultSpec,
         T_MetricInterface& metric_interface)
     {
-        static int runCount = 0;
+        static int runCount = 0; //has to be contextualized
         static bool write = true;
-
         // StorageKernelRun& stored = data.runs[state.bestConfig.toHash()];
-        StorageKernelRun best = data.runs.begin()->second;
-        for(auto const& run : data.runs)
-        {
-            best = (run.second.metricContainer.get(median_t{}).as<t_ns>()
-                    < best.metricContainer.get(median_t{}).as<t_ns>())
-                       ? run.second
-                       : best;
-        }
-        toActive(config, best);
-
-        std::cout << " run with best config: " << config.toHash() << " median timings. "
-                  << best.metricContainer.get(median_t{}).template as<t_ns>() << std::endl;
-
+        selectRun(queue, config, data, defaultSpec, runCount,state);
         tune::detail::internal::applyConfigAndExecuteKernel(queue, exec, kernelBundle, spec, metric_interface, config);
         onHost::wait(queue);
-
-        if(runCount < MeasureBestRuns)
+        StorageKernelRun& cur = data.runs[config.toHash()];
+        if(runCount < MeasureBestRuns * 2)
         {
-            best.pushMetric(config.metric);
+            cur.pushMetric(config.metric);
             ++runCount;
 
-            if(write && runCount == MeasureBestRuns)
+            if(write && runCount == MeasureBestRuns * 2)
             {
                 history.storeConfig(configfile);
                 write = false;
@@ -771,6 +826,7 @@ namespace alpaka
                 historyKernelData,
                 environment_state,
                 kernelptr->frameSpec,
+                kernelptr->defaultFrameSpec,
                 kernelptr->sharedParams);
         }
 
@@ -792,6 +848,7 @@ namespace alpaka
             KernelData& data,
             EnvironmentState& environment_state,
             onHost::FrameSpec<T_NumBlocks, T_NumThreads>& spec,
+            onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& defaultSpec,
             auto& sharedParameters)
         {
             using namespace alpaka::tune::detail::internal;
@@ -832,6 +889,7 @@ namespace alpaka
                     exec,
                     kernelBundle,
                     spec,
+                    defaultSpec,
                     metricInterface);
                 return;
             }

@@ -8,7 +8,7 @@ echo "=== Running babelstream benchmarks ==="
 for exp in 17 19 21 23 25 27 29; do
     size=$((2**exp))
     echo "Running size=$size"
-    "$BINARY_DIR/benchmark/babelstream/babelstream" --array-size=$size --number-runs=40000> "babel_${size}_timing.csv"|| echo "babelstream failed for size=$size"
+    "$BINARY_DIR/benchmark/babelstream/babelstream" --array-size=$size --number-runs=400000> "babel_${size}_timing.csv"|| echo "babelstream failed for size=$size"
 done
 
 echo "=== Running heatEquation2D_Frame benchmarks ==="

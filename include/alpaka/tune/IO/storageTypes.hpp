@@ -583,7 +583,6 @@ inline Comparison kruskalCompare(StorageKernelRun const& current, StorageKernelR
 
     double_t H = (12.0 / (N * (N + 1))) * (R0 * R0 / n0 + R1 * R1 / n1) - 3 * (N + 1);
     constexpr double_t chiSquareCritical = 3.841;
-    std::cout << " H" << H << " vs " << chiSquareCritical << std::endl;
     // Chi-square critical value for df = 1, alpha = 0.05 is 3.841
 
 

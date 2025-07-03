@@ -530,7 +530,7 @@ namespace alpaka::tune::strategy
 
                 VecT idx = computeValueIndices(tuneables, kernelRun);
                 VecT dimsVecAsVec = convertVec<N>(dimsVec);
-                stateCount = 1;
+                stateCount = 0;
                 init = true;
                 return;
             }
@@ -555,6 +555,7 @@ namespace alpaka::tune::strategy
                     auto& vals = t.getValues();
                     if(nd[i] >= vals.size())
                     {
+                        std::cout << " strategy triggered abort Signal" << std::endl;
                         std::abort(); // Stop immediately
                     }
                     t.value = vals[nd[i]];

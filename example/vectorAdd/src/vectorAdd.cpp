@@ -2,8 +2,7 @@
  *                Aurora Perego, Andrea Bocci
  * SPDX-License-Identifier: ISC
  */
-
-#include <alpaka/alpaka.hpp>
+#include "vectorCTrait.hpp"
 #include <alpaka/example/executeForEach.hpp>
 #include <alpaka/example/executors.hpp>
 
@@ -16,6 +15,7 @@
 using namespace alpaka;
 
 //! A vector addition kernel.
+template<typename CVecTune>
 class VectorAddKernel
 {
 public:
@@ -36,10 +36,11 @@ public:
         auto const& numElements) const -> void
     {
         using namespace alpaka;
+        using T = trait::GetValueType_t<ALPAKA_TYPEOF(A)>;
         static_assert(ALPAKA_TYPEOF(numElements)::dim() == 1, "The VectorAddKernel expects 1-dimensional indices!");
 
         auto simdGrid = onAcc::SimdAlgo{onAcc::worker::threadsInGrid};
-        simdGrid.concurrent(
+        simdGrid.template concurrent<CVecTune{}[0]*sizeof(T)>(
             acc,
             numElements,
             [&](auto const&, auto&& simdA, auto&& simdB, auto&& simdC) constexpr
@@ -109,24 +110,31 @@ auto example(T_Cfg const& cfg, size_t numElements) -> int
     onHost::memcpy(queue, bufAccC, bufHostC);
 
     // Instantiate the kernel function object
-    VectorAddKernel kernel;
+    VectorAddKernel<CVec<uint32_t,1>> kernel;
     auto const taskKernel = KernelBundle{kernel, bufAccA, bufAccB, bufAccC, extent};
-
-    Vec<size_t, 1u> chunkSize = 256u;
+    using VecType=Vec<size_t,1>;
+    VecType chunkSize = 256u;
     // how many elements one worker should compute to ensure vectorization or instruction parallelism
     uint32_t elementsPerWorker = getNumElemPerThread<Data>(queue);
-    auto dataBlocking = onHost::FrameSpec{divCeil(extent, chunkSize * elementsPerWorker), chunkSize};
 
+    auto dataBlocking = onHost::FrameSpec{divCeil(extent, chunkSize * elementsPerWorker), chunkSize};
+    auto frameTune=alpaka::tune::Tuneable(IdxRange{dataBlocking.m_frameExtent/VecType{2}, dataBlocking.m_frameExtent,dataBlocking.m_frameExtent/VecType{2}});
+    static auto tuningSession= tune::TuningBuilder{}.withNumBlocksTune().withFrameExtentTune(frameTune).withConfig("./config/tuningSession_.toml")
+             .withStrategy(tune::strategy::exhaustiveSearch{}).build();
+    #define NUM_EXECUTIONS 40000
     // Enqueue the kernel execution task
     {
+        for(auto i(0u); i < NUM_EXECUTIONS; ++i){
         onHost::wait(queue);
         auto const beginT = std::chrono::high_resolution_clock::now();
-        queue.enqueue(exec, dataBlocking, taskKernel);
+        tuningSession.enqueue(devAcc,queue,exec,dataBlocking,taskKernel);
+        //queue.enqueue(exec, dataBlocking, taskKernel);
         // wait in case we are using an asynchronous queue to time actual kernel runtime
         onHost::wait(queue);
         auto const endT = std::chrono::high_resolution_clock::now();
         std::cout << "Time for kernel execution: " << std::chrono::duration<double>(endT - beginT).count() << 's'
                   << std::endl;
+        }
     }
 
     // Copy back the result

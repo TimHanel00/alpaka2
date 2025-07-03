@@ -81,6 +81,7 @@ public:
         T_Device device_,
         T_Exec exec_,
         FrameSpecType const& frameSpec_,
+        FrameSpecType const& oldFrameSpec_,
         T_KernelBundle kernelBundle_,
         T_Strategy strategy_,
         T_MetricInterface metric_interface_,
@@ -93,7 +94,7 @@ public:
         : device(device_)
         , exec(exec_)
         , frameSpec(frameSpec_)
-        , defaultFrameSpec(frameSpec_)
+        , defaultFrameSpec(oldFrameSpec_)
         , kernelBundle(kernelBundle_)
         , env_strategy(std::move(strategy_))
         , env_metricInterface(std::move(metric_interface_))
@@ -114,6 +115,7 @@ public:
             ptrToHistory = history.getKernelFromHistory(device, exec, kernelBundle, sessionSpecifier_);
         }
         KernelData& h = *ptrToHistory;
+        std::cout<<" blocks: "<<defaultFrameSpec.m_threadSpec.m_numBlocks<< " vs "<<frameSpec.m_threadSpec.m_numBlocks<<std::endl;
         // acts like a guard only valid configs are used for the device
         alpaka::tune::clampToSpec(device, frameSpec, *activeRunPtr);
         addSpecToRun(*activeRunPtr, frameSpec);
@@ -283,6 +285,7 @@ auto createTuningEnvironment(
         device,
         exec,
         newFrameSpec,
+        spec,
         bundle,
         strategy,
         metric_interface,
