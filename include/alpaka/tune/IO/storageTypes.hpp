@@ -16,7 +16,37 @@
 #include <queue>
 #include <span>
 #include <variant>
+template<typename... Ts>
+class Config {
+public:
+    std::tuple<Ts...> values;
 
+    Config() = default;
+    explicit Config(std::tuple<Ts...> const& vals) : values(vals) {}
+
+    std::size_t toHash() const {
+        return std::apply([](auto const&... val) {
+            std::size_t seed = 0;
+            (..., (seed ^= hashVec(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2)));
+            return seed;
+        }, values);
+    }
+
+    bool operator==(Config const& other) const {
+        return values == other.values;
+    }
+
+private:
+    template<typename Vec>
+    static std::size_t hashVec(Vec const& vec) {
+        std::size_t hash = 0;
+        constexpr auto dim = alpaka::getDim(vec);
+        for(std::size_t i = 0; i < dim; ++i) {
+            hash ^= std::hash<typename Vec::type>{}(vec[i]) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+        }
+        return hash;
+    }
+};
 inline std::vector<std::string> split(std::string const& s, char delimiter = ',')
 {
     std::vector<std::string> tokens;
