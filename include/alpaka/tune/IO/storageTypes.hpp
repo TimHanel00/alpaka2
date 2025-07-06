@@ -9,548 +9,214 @@
 #define STORAGETYPES_H
 #include "alpaka/core/RemoveRestrict.hpp"
 #include "alpaka/meta/IntegerSequence.hpp"
-#include "alpaka/tune/active/activeKernel.hpp"
+#include "alpaka/tune/active/kernelTuningModel.hpp"
+
+#include <alpaka/tune/IO/metricContainer.hpp>
 
 #include <cmath>
 #include <numeric>
 #include <queue>
 #include <span>
 #include <variant>
+
 template<typename... Ts>
-class Config {
-public:
-    std::tuple<Ts...> values;
+struct Config
+
+{
+    using TupleType = std::tuple<Ts...>;
 
     Config() = default;
-    explicit Config(std::tuple<Ts...> const& vals) : values(vals) {}
 
-    std::size_t toHash() const {
-        return std::apply([](auto const&... val) {
-            std::size_t seed = 0;
-            (..., (seed ^= hashVec(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2)));
-            return seed;
-        }, values);
+    explicit Config(TupleType const& vals)
+    {
+        std::cout << "Constructo called" << hashVal << "\n";
+        this->values = vals;
+        this->hashVal = computeHash(this->values);
     }
 
-    bool operator==(Config const& other) const {
-        return values == other.values;
+    std::string toString()
+    {
+        return std::apply([&](auto&... args) { return (args.toString(), ...); }, values);
+    };
+
+    std::size_t toHash() const
+    {
+        std::cout << "Hash" << "\n";
+        return hashVal;
+    }
+
+    TupleType const& getValues() const
+    {
+        return values;
+    }
+
+    bool operator==(Config const& other) const
+    {
+        std::cout << " comparison called \n" << std::endl;
+        return this->toHash() == other.toHash() && this->values == other.values;
+    }
+
+    bool operator!=(Config const& other) const
+    {
+        std::cout << " comparison called \n" << std::endl;
+        return !(*this == other);
+    }
+
+    template<typename KModel>
+    static Config fromModel(KModel const& model)
+    {
+        auto tuple = std::apply(
+            [&](auto const&... frameElems)
+            {
+                return std::apply(
+                    [&](auto const&... userElems)
+                    {
+                        return std::apply(
+                            [&](auto const&... compileElems)
+                            {
+                                return std::make_tuple(userElems.value..., frameElems.value..., compileElems.value...);
+                                // here we actually copy by value
+                            },
+                            model.m_compileTimeTuneables);
+                    },
+                    model.m_userTuneables);
+            },
+            model.m_frameTuneables);
+        return Config{tuple};
     }
 
 private:
+    TupleType values;
+    std::size_t hashVal;
+
+    static std::size_t computeHash(TupleType const& vals)
+    {
+        return std::apply(
+            [](auto const&... val)
+            {
+                std::size_t seed = 0;
+                (..., (seed ^= hashVec(val) + 0x9e37'79b9 + (seed << 6) + (seed >> 2)));
+                return seed;
+            },
+            vals);
+    }
+
     template<typename Vec>
-    static std::size_t hashVec(Vec const& vec) {
+    static std::size_t hashVec(Vec const& vec)
+    {
         std::size_t hash = 0;
-        constexpr auto dim = alpaka::getDim(vec);
-        for(std::size_t i = 0; i < dim; ++i) {
-            hash ^= std::hash<typename Vec::type>{}(vec[i]) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+        constexpr auto dim = alpaka::getDim(Vec{});
+        for(std::size_t i = 0; i < dim; ++i)
+        {
+            hash ^= std::hash<typename Vec::type>{}(vec[i]) + 0x9e37'79b9 + (hash << 6) + (hash >> 2);
         }
         return hash;
     }
 };
-inline std::vector<std::string> split(std::string const& s, char delimiter = ',')
+enum class ConfigState
 {
-    std::vector<std::string> tokens;
-    std::istringstream ss(s);
-    std::string token;
-    while(std::getline(ss, token, delimiter))
-        tokens.push_back(token);
-    return tokens;
-}
-
-inline std::string remove(std::string const& s, std::string const& removeSeq = "")
-{
-    std::string ret;
-    for(auto h : s)
-    {
-        bool contained = false;
-        for(auto const& elem : removeSeq)
-        {
-            if(elem == h)
-            {
-                contained = true;
-                break;
-            }
-        }
-        if(!contained)
-            ret += h;
-    }
-    return ret;
-}
-
-inline std::vector<std::string> getTokens(std::string const& f)
-{
-    auto const newS = remove(f, "{}");
-    return split(newS, ',');
-}
-
-template<typename T>
-auto vectorFromString(std::string const& s)
-{
-    using T_vec = std::remove_cvref_t<T>;
-    if constexpr(alpaka::isVector_v<T_vec>)
-    {
-        constexpr auto dim = alpaka::getDim(T_vec{});
-        using ElementType = typename T_vec::type;
-        auto tokens = getTokens(s);
-
-        if(tokens.size() != dim)
-            throw std::runtime_error("FMismatch between vector dimension and number of values");
-        auto parse = [](std::string const& tok)
-        {
-            std::istringstream iss(tok);
-            ElementType val;
-            if(!(iss >> val))
-                throw std::runtime_error("Failed to parse vector component");
-            return val;
-        };
-
-        return [&]<std::size_t... I>(std::index_sequence<I...>)
-        { return T_vec{parse(tokens[I])...}; }(std::make_index_sequence<dim>{});
-    }
-    throw std::runtime_error("tuneable string does not match any known type");
-}
-
-template<typename T_Tune>
-inline void tuneableFromString(alpaka::tune::StorageTuneable const& s, T_Tune& k)
-{
-    if constexpr(std::is_same_v<std::remove_const_t<T_Tune>, alpaka::tune::NoTune>)
-    {
-        return;
-    }
-    else
-    {
-        k.value = vectorFromString<ALPAKA_TYPEOF(k.value)>(s.value);
-    }
-}
-
-template<typename T>
-std::string convertToString(T const& val)
-{
-    if constexpr(std::is_same_v<T, std::string>)
-    {
-        return val;
-    }
-    else if constexpr(std::is_arithmetic_v<T>)
-    {
-        return std::to_string(val);
-    }
-    if constexpr(alpaka::isVector_v<T>)
-    {
-        return val.toString();
-    }
-
-    std::__throw_runtime_error("failed to convert to string - tuneable type not allowed");
-}
-
-/*
- *supports conversion from primitive type A -> to T=(string|primitive T)
- */
-template<typename T, typename U>
-T convertToT(U const& value)
-{
-    if constexpr(std::is_arithmetic_v<T>)
-    {
-        return static_cast<T>(value);
-    }
-    else
-    {
-        std::ostringstream oss;
-        oss << value;
-        return oss.str();
-    }
-}
-
-template<typename T_KernelBundle, typename T_FrameSpec>
-struct TuningResult
-{
-    T_KernelBundle m_kernelBundle;
-    T_FrameSpec m_frameSpec;
+    Uninitialized,
+    WarmUp,
+    Initialized,
+    Dummy
 };
-
-struct t_ns
-{
-};
-
-struct t_ms
-{
-};
-
-struct t_s
-{
-};
-
-struct min_t
-{
-};
-
-struct max_t
-{
-};
-
-struct mean_t
-{
-};
-
-struct median_t
-{
-};
-
-template<typename T>
-struct metricWrapper
-{
-    T value;
-
-    template<typename Unit>
-    [[nodiscard]] double_t as() const
-    {
-        if constexpr(std::is_same_v<Unit, t_ns>)
-            return value;
-        else if constexpr(std::is_same_v<Unit, t_ms>)
-            return value * 1e6;
-        else if constexpr(std::is_same_v<Unit, t_s>)
-            return value * 1e9;
-        else
-            static_assert(!sizeof(Unit), "Unsupported time unit");
-    }
-};
-
-/*
- * Storage Container for metrics such as timings. gives O(1) access to min,max,median,mean and
- * contains a history to preserve order of observations
- */
-class timingsContainer
-{
-public:
-    template<std::size_t stepsUntilCICheck = 10>
-    bool push(double_t val)
-    {
-        history.push_back(val); // to track the order of incoming metrics
-
-        if(val < minVal)
-            minVal = val;
-        if(val > maxVal)
-            maxVal = val;
-
-        meanVal = (meanVal * static_cast<double_t>(count) + val) / (static_cast<double_t>(count) + 1);
-        ++count;
-
-        if(lower.empty() || val <= lower.top())
-            lower.push(val);
-        else
-            upper.push(val);
-
-        if(lower.size() > upper.size() + 1)
-        {
-            upper.push(lower.top());
-            lower.pop();
-        }
-        else if(upper.size() > lower.size())
-        {
-            lower.push(upper.top());
-            upper.pop();
-        }
-        if(history.size() % stepsUntilCICheck == 0)
-        {
-            // perform CI (confidence Intervall) check
-            return ciWithinTolerance();
-        }
-        return false;
-    }
-
-    void clear()
-    {
-        history.resize(0);
-
-        rebuildFromHistory();
-    }
-
-    [[nodiscard]] std::span<double_t const> getAll() const
-    {
-        return history;
-    }
-
-    std::size_t size() const
-    {
-        return history.size();
-    }
-
-    [[nodiscard]] bool empty() const
-    {
-        return history.empty();
-    }
-
-    [[nodiscard]] metricWrapper<double_t> get(min_t) const
-    {
-        return {minVal};
-    }
-
-    [[nodiscard]] metricWrapper<double_t> get(max_t) const
-    {
-        return {maxVal};
-    }
-
-    [[nodiscard]] metricWrapper<double_t> get(mean_t) const
-    {
-        return {meanVal};
-    }
-
-    [[nodiscard]] metricWrapper<double_t> get(median_t) const
-    {
-        if(count == 0)
-            throw std::runtime_error("No elements");
-        if(lower.size() == upper.size())
-            return {(lower.top() + upper.top()) / 2.0};
-        else
-            return {lower.top()};
-    }
-
-    /**
-     * this is an expensive operation which shouldnt be used too frequently, it rebuilds the priority queues from
-     * scratch after pop
-     * @param n number of elements to get dropped
-     * @return dopped elements as an array
-     */
-    std::vector<double_t> pop(std::size_t n = 1)
-    {
-        if(n > history.size())
-            throw std::runtime_error("Trying to pop more elements than available");
-
-        std::vector<double_t> popped(history.end() - n, history.end());
-        history.resize(history.size() - n);
-
-        rebuildFromHistory(); // keep this as a helper
-
-        return popped; // safe copy, caller owns the data
-    }
-
-    /**
-     * after every k (where k <=> stepsUntilCICheck) steps we perform a check if the 99% Confidence Intervall
-     * (indicating 99% certainty that the true
-     *
-     * median is contained in that range) deviates less then 5% from the detected/observed median
-     *
-     * doi: 10.1145/2807591.2807644
-     * */
-    bool ciWithinTolerance(double_t zscore = 2.576 /*z score for 99% CI */, double_t tolerance = 0.05)
-    {
-        auto const& all = getAll();
-        std::vector<double_t> sorted(all.begin(), all.end());
-        std::sort(sorted.begin(), sorted.end());
-
-        std::size_t n = sorted.size();
-        if(n < 5)
-            return false; // Not enough samples for nonparametric CI
-
-        double_t z = zscore; // for 99% CI
-        int lowerIdx = std::max(0, static_cast<int>(std::floor((n - z * std::sqrt(n)) / 2)));
-        int upperIdx
-            = std::min(static_cast<int>(n - 1), static_cast<int>(std::ceil((1 + (n + z * std::sqrt(n)) / 2))));
-
-        double_t median = get(median_t{}).as<t_ns>();
-        double_t ciLow = sorted[lowerIdx];
-        double_t ciHigh = sorted[upperIdx];
-
-        double_t ciWidth = ciHigh - ciLow;
-        double_t allowedRange = tolerance * median;
-        // Check if 99% CI width is within 5% of the median
-        return (ciWidth / median) <= tolerance;
-    }
-
-private:
-    std::priority_queue<double_t> lower; // max-heap to allow O(1) median acces
-    std::priority_queue<double_t, std::vector<double_t>, std::greater<>> upper; // min-heap
-
-    double_t meanVal = 0.0;
-    size_t count = 0;
-    double_t minVal = std::numeric_limits<double_t>::max();
-    double_t maxVal = std::numeric_limits<double_t>::lowest();
-
-    std::vector<double_t> history;
-
-    void rebuildFromHistory()
-    {
-        minVal = std::numeric_limits<double_t>::max();
-        maxVal = std::numeric_limits<double_t>::lowest();
-        meanVal = 0.0;
-
-        while(!lower.empty())
-            lower.pop();
-        while(!upper.empty())
-            upper.pop();
-        for(auto const& val : history)
-        {
-            if(val < minVal)
-                minVal = val;
-            if(val > maxVal)
-                maxVal = val;
-
-            meanVal = (meanVal * static_cast<double_t>(lower.size() + upper.size()) + val)
-                      / (static_cast<double_t>(lower.size() + upper.size() + 1));
-
-            if(lower.empty() || val <= lower.top())
-                lower.push(val);
-            else
-                upper.push(val);
-
-            if(lower.size() > upper.size() + 1)
-            {
-                upper.push(lower.top());
-                lower.pop();
-            }
-            else if(upper.size() > lower.size())
-            {
-                lower.push(upper.top());
-                upper.pop();
-            }
-        }
-    }
-};
-
-template<typename T>
-constexpr bool is_stat_type_v
-    = std::is_same_v<T, min_t> || std::is_same_v<T, max_t> || std::is_same_v<T, mean_t> || std::is_same_v<T, median_t>;
-
-struct StorageKernelRun;
-
 
 // Shared helper to perform Kruskal-Wallis comparison
 enum class Comparison;
-
-Comparison kruskalCompare(StorageKernelRun const& current, StorageKernelRun const& other);
+template<typename TConfig>
+class ConfigEntry;
+template<typename T_Config>
+Comparison kruskalCompare(ConfigEntry<T_Config> const& current, ConfigEntry<T_Config> const& other);
 
 // storage container of a single Run used for history
-struct StorageKernelRun
+template<typename TConfig>
+struct ConfigEntry
 {
-    enum class State
-    {
-        Uninitialized,
-        WarmUp,
-        Initialized,
-        Dummy
-    };
-    long long int stamp; // indicates this is the nth configuration found for a kernel.
-    std::vector<alpaka::tune::StorageTuneable> tuneables;
-    std::vector<alpaka::tune::StorageTuneable> Ctuneables;
-    std::optional<alpaka::tune::StorageTuneable> numBlocksTune{std::nullopt};
-    std::optional<alpaka::tune::StorageTuneable> threadBlockSize{std::nullopt};
-    std::optional<alpaka::tune::StorageTuneable> numFramesTune{std::nullopt};
-    std::optional<alpaka::tune::StorageTuneable> frameExtentTune{std::nullopt};
-    timingsContainer metricContainer;
-    std::size_t nr_runs{0};
-    std::size_t warm_up_runs{0};
-    State state{State::Uninitialized};
+    using ConfigType = TConfig;
+    ConfigEntry() = default;
 
-    [[nodiscard]] std::string toHash() const
+    explicit ConfigEntry(TConfig const& cfg) : config(cfg)
     {
-        std::string m;
-        for(auto const& tuneable : tuneables)
-        {
-            m += tuneable.toHash();
-        }
-        if(numFramesTune.has_value())
-            m += numFramesTune.value().toHash();
-        if(frameExtentTune.has_value())
-            m += frameExtentTune.value().toHash();
-        if(numBlocksTune.has_value())
-            m += numBlocksTune.value().toHash();
-        if(threadBlockSize.has_value())
-            m += threadBlockSize.value().toHash();
-        for(auto const& tuneable : Ctuneables)
-        {
-            m += tuneable.toHash();
-        }
-        return m;
     }
 
-    [[nodiscard]] std::vector<std::reference_wrapper<alpaka::tune::StorageTuneable const>> view() const
+    std::string toString()
     {
-        std::vector<std::reference_wrapper<alpaka::tune::StorageTuneable const>> view;
-        for(auto const& t : tuneables)
-        {
-            view.emplace_back(t);
-        }
-        if(numBlocksTune)
-            view.emplace_back(*numBlocksTune);
-        if(threadBlockSize)
-            view.emplace_back(*threadBlockSize);
-        if(numFramesTune)
-            view.emplace_back(*numFramesTune);
-        if(frameExtentTune)
-            view.emplace_back(*frameExtentTune);
-        for(auto const& t : Ctuneables)
-        {
-            view.emplace_back(t);
-        }
-        return view;
+        return config.toString();
     }
 
-    bool fullFlag = false;
-#define WarmUpRuns 1
-#define StepsUntilCICheck 10
-
-    void pushMetric(double_t const& m)
+    auto compare(ConfigEntry& other)
     {
-        if(metricContainer.push<StepsUntilCICheck>(m))
-        {
+        return kruskalCompare(*this, other);
+    }
+
+    void pushMetric(double_t val)
+    {
+        if(metrics.push<10>(val))
             fullFlag = true;
-        }
-        switch(this->state)
+
+        switch(state)
         {
-        case State::Uninitialized:
-            this->state = State::WarmUp;
-
-            ++this->warm_up_runs;
+        case ConfigState::Uninitialized:
+            state = ConfigState::WarmUp;
+            ++warm_up_runs;
             break;
-        case State::WarmUp:
-            if(this->warm_up_runs < WarmUpRuns)
+        case ConfigState::WarmUp:
+            if(++warm_up_runs > warmUpThreshold)
             {
-                ++this->warm_up_runs;
+                metrics.clear();
+                metrics.push<10>(val);
+                state = ConfigState::Initialized;
+                nr_runs = 1;
             }
-            else
-            {
-                this->metricContainer.clear();
-                metricContainer.push<StepsUntilCICheck>(m);
-                this->state = State::Initialized;
-                this->nr_runs = 1;
-            }
-
             break;
-
-        case State::Initialized:
-            ++this->nr_runs;
+        case ConfigState::Initialized:
+            ++nr_runs;
             break;
-        case State::Dummy:
-            this->metricContainer.clear();
-            this->stamp = -1;
-            this->fullFlag = true;
-            break;
-        default:
-
+        case ConfigState::Dummy:
+            metrics.clear();
             break;
         }
     }
 
-    template<typename T, std::enable_if_t<is_stat_type_v<T>, int> = 0>
-    metricWrapper<double_t> getMetric()
+    ConfigState state = ConfigState::Uninitialized;
+
+    bool operator==(ConfigEntry const& other)
     {
-        return metricContainer.get(T{});
+        return this->toHash() == config.toHash() && this->config == other.config;
     }
 
-    template<typename T, std::enable_if_t<is_stat_type_v<T>, int> = 0>
-    [[nodiscard]] metricWrapper<double_t> getMetric() const
+    bool operator!=(ConfigEntry const& other) const
     {
-        return metricContainer.get(T{});
+        return !(*this == other);
     }
 
-    [[nodiscard]] std::size_t size() const
+    auto toHash()
     {
-        return metricContainer.size();
+        return config.toHash();
     }
 
-    auto compare(StorageKernelRun const& b) const
+    TConfig const& getConfig() const
     {
-        return kruskalCompare(*this, b);
+        return config;
     }
+
+    MetricContainer& getMetrics()
+    {
+        return metrics;
+    }
+
+    std::size_t getRunCount() const
+    {
+        return nr_runs;
+    }
+
+    TConfig config;
+    MetricContainer metrics;
+    long long int stamp{0}; // signed to indicate constraint violation with -1
+    std::size_t nr_runs = 0;
+    std::size_t warm_up_runs = 0;
+    bool fullFlag = false;
+    static constexpr std::size_t warmUpThreshold = 1;
 };
 
 // Shared helper to perform Kruskal-Wallis comparison
@@ -563,15 +229,16 @@ enum class Comparison
 };
 
 // Kruskal–Wallis is essentially the non-parametric alternative to one-way ANOVA. (does not assume normality)
-inline Comparison kruskalCompare(StorageKernelRun const& current, StorageKernelRun const& other)
+template<typename T_Config>
+inline Comparison kruskalCompare(ConfigEntry<T_Config>& current, ConfigEntry<T_Config>& other)
 {
     using T_state = ALPAKA_TYPEOF(current.state);
     if(other.state == T_state::Dummy)
     {
         return Comparison::Dummy;
     }
-    auto const& lhsVals = current.metricContainer.getAll();
-    auto const& rhsVals = other.metricContainer.getAll();
+    auto const& lhsVals = current.getMetrics().getAll();
+    auto const& rhsVals = other.getMetrics().getAll();
 
     if(lhsVals.size() < 1 || rhsVals.size() < 1)
         return Comparison::Inconclusive; // not enough data
@@ -624,15 +291,61 @@ inline Comparison kruskalCompare(StorageKernelRun const& current, StorageKernelR
               << std::endl;
     std::cout << " stored median: " << other.metricContainer.get(median_t{}).value << " name " << current.toHash()
               << std::endl;*/
-    double_t lhsMedian = current.metricContainer.get(median_t{}).as<t_ns>();
-    double_t rhsMedian = other.metricContainer.get(median_t{}).as<t_ns>();
+    double_t lhsMedian = current.getMetrics().get(median_t{}).template as<t_ns>();
+    double_t rhsMedian = other.getMetrics().get(median_t{}).template as<t_ns>();
 
     return (lhsMedian < rhsMedian) ? Comparison::Less : Comparison::Greater;
 }
 
+template<typename TConfig>
+class ConfigStorage
+{
+public:
+    using Entry = ConfigEntry<TConfig>;
+
+    Entry& getOrCreate(TConfig const& config)
+    {
+        auto [iter, h] = entries.try_emplace(config, config);
+        return iter->second;
+    }
+
+    std::unordered_map<TConfig, Entry>& getAll()
+    {
+        return entries;
+    }
+
+    bool contains(TConfig const& config) const
+    {
+        return entries.contains(config);
+    }
+
+private:
+    std::unordered_map<TConfig, Entry> entries;
+};
+
+namespace std
+{
+    template<typename... Ts>
+    struct hash<Config<Ts...>>
+    {
+        std::size_t operator()(Config<Ts...> const& c) const
+        {
+            std::cout << "koko \n" << std::endl;
+            auto hash = c.toHash();
+            std::cout << "loko " << hash << "\n" << std::endl;
+            return hash;
+        }
+    };
+} // namespace std
+
+/*
+ * This class is associated with a certain tuning context.
+ */
+template<typename TConfig, typename T_ConfigDescriptor>
 struct KernelData
 {
-    std::unordered_map<std::string, StorageKernelRun> runs;
+    ConfigStorage<TConfig> configEntries;
+    T_ConfigDescriptor descriptor;
     std::string device;
     std::string executor;
     std::string kernel;
@@ -643,135 +356,93 @@ struct KernelData
     std::size_t nrOfConfigs{0};
     long long int highestStamp{0};
     std::size_t maxRuns{0};
+};
 
-    std::string toHash()
+template<typename T_Vec>
+requires(alpaka::isVector_v<T_Vec>)
+struct ConfigDescriptorEntry
+{
+    std::string name;
+    ConfigDescriptorEntry() = default;
+    static constexpr std::size_t dimension = alpaka::getDim(T_Vec{});
+    using type = typename T_Vec::type;
+    using vecType = T_Vec;
+
+    explicit ConfigDescriptorEntry(std::string name_) : name(std::move(name_))
     {
-        std::string concatenatedSpecifier = std::accumulate(specifiers.begin(), specifiers.end(), std::string());
-        return device + executor + kernel + targetMetric + concatenatedSpecifier;
     }
 };
 
-static KernelData createKernelData(
+template<typename... TVec>
+struct ConfigDescriptor
+{
+    using Entries = std::tuple<ConfigDescriptorEntry<TVec>...>;
+    Entries entries;
+    ConfigDescriptor() = default;
+
+    explicit ConfigDescriptor(std::tuple<ConfigDescriptorEntry<TVec>...> v) : entries(std::move(v))
+    {
+    }
+
+    static constexpr std::size_t size = sizeof...(TVec);
+};
+template<typename Tuple>
+struct DescriptorFromAllTuneables;
+
+template<typename... Tuneables>
+struct DescriptorFromAllTuneables<std::tuple<Tuneables...>>
+{
+    using type = ConfigDescriptor<ConfigDescriptorEntry<typename std::remove_cvref_t<Tuneables>::ValueType>...>;
+};
+
+template<typename Tuple>
+auto buildDescriptorFromTuneables(Tuple&& tuneables)
+{
+    return std::apply(
+        [](auto const&... tune)
+        {
+            return ConfigDescriptor<typename std::remove_cvref_t<decltype(tune)>::ValueType...>(std::make_tuple(
+                ConfigDescriptorEntry<typename std::remove_cvref_t<decltype(tune)>::ValueType>{tune.name()}...));
+        },
+        tuneables);
+}
+
+template<typename KernelTuningModel>
+auto createKernelDataFromModel(
+    KernelTuningModel& model,
     std::string const& device,
     std::string const& exec,
-
     std::string const& bundle,
     std::vector<std::string> const& sessionSpecs,
     std::string const& targetMetric = "time")
 {
-    KernelData data;
+    // Step 1: Flatten allTuneables
+    auto all = model.allTuneables(); // tuple<Tuneable<T_Vec, ...>...>
+
+    // Step 2: Build Config<Ts...> and Descriptor<...> from tuneables
+    constexpr std::size_t N = std::tuple_size_v<decltype(all)>;
+    using TConfig = decltype(Config{model.allValues()});
+    using TupleOfVecs = decltype(std::apply(
+        [](auto const&... t) { return std::tuple<typename std::remove_cvref_t<decltype(t)>::ValueType...>{}; },
+        all));
+
+
+    using TDescriptor = decltype(buildDescriptorFromTuneables(all));
+    // Step 3: Construct and return KernelData
+    KernelData<TConfig, TDescriptor> data{};
     data.kernel = bundle;
     data.device = device;
     data.executor = exec;
     data.targetMetric = targetMetric;
     data.specifiers = sessionSpecs;
+    data.descriptor = buildDescriptorFromTuneables(all);
+    data.configEntries.getOrCreate(Config{model.allValues()});
     return data;
-};
+}
 
 /*
  * small predefined storageContainer to represent a certain state m_strategy State of a activeKernelRun
  * (since static variables inside strategies) might violate the constraints implied by the sessionSpecifieres
  */
-
-
-template<typename Tuple>
-void updateTuneables(Tuple& tup, std::vector<alpaka::tune::StorageTuneable> const& storage)
-{
-    std::apply(
-        [&](auto&... elems)
-        {
-            std::size_t i = 0;
-            (void) std::initializer_list<int>{(
-                [&]
-                {
-                    if(std::string(elems.name()) == storage[i].name)
-                    {
-                        elems.value = vectorFromString<decltype(elems.value)>(storage[i].value);
-                    }
-                    ++i;
-                }(),
-                0)...};
-        },
-        tup);
-}
-
-// A free function that updates an the configuration found in a storageKernel
-template<typename T_userTuple, typename T_frameTuple, typename T_compileTuple>
-void toActive(
-    KernelTuningModel<T_userTuple, T_frameTuple, T_compileTuple>& active,
-    StorageKernelRun const& storeKernel)
-{
-    // Update gridSize if available.
-    if(storeKernel.numFramesTune.has_value())
-    {
-        tuneableFromString(storeKernel.numFramesTune.value(), active.getNumFramesTune());
-    }
-    if(storeKernel.frameExtentTune.has_value())
-    {
-        tuneableFromString(storeKernel.frameExtentTune.value(), active.getFrameExtentTune());
-    };
-    if(storeKernel.numBlocksTune.has_value())
-    {
-        tuneableFromString(storeKernel.numBlocksTune.value(), active.getNumBlocksTune());
-    }
-    if(storeKernel.threadBlockSize.has_value())
-    {
-        tuneableFromString(storeKernel.threadBlockSize.value(), active.getThreadBlockSizeTune());
-    }
-    updateTuneables(active.userTuneables, storeKernel.tuneables);
-    updateTuneables(active.m_compileTimeTuple, storeKernel.Ctuneables);
-
-    // Update metric by converting the storage string metric to the active kernel's floating type.
-    // active.metric = storeKernel.getMetric<median_t>().as<t_ns>();
-}
-
-template<typename... T_KernelRunArgs>
-StorageKernelRun toStore(KernelTuningModel<T_KernelRunArgs...>& active)
-{
-    StorageKernelRun result;
-    // Convert gridSize.
-    if constexpr(KernelTuningModel<T_KernelRunArgs...>::hasNumFramesTune())
-    {
-        result.numFramesTune = alpaka::tune::StorageTuneable{
-            std::string(active.getNumFramesTune().name()),
-            convertToString(active.getNumFramesTune().value)};
-    }
-    if constexpr(KernelTuningModel<T_KernelRunArgs...>::hasFrameExtentTune())
-    {
-        result.frameExtentTune = alpaka::tune::StorageTuneable{
-            std::string(active.getFrameExtentTune().name()),
-            convertToString(active.getFrameExtentTune().value)};
-    }
-    if constexpr(KernelTuningModel<T_KernelRunArgs...>::hasNumBlocksTune())
-    {
-        result.numBlocksTune = alpaka::tune::StorageTuneable{
-            std::string(active.getNumBlocksTune().name()),
-            convertToString(active.getNumBlocksTune().value)};
-    }
-    if constexpr(KernelTuningModel<T_KernelRunArgs...>::hasThreadBlockSizeTune())
-    {
-        result.threadBlockSize = alpaka::tune::StorageTuneable{
-            std::string(active.getThreadBlockSizeTune().name()),
-            convertToString(active.getThreadBlockSizeTune().value)};
-    }
-    // Convert each tuneable in the tuple
-    std::apply(
-        [&result](auto&... tuneable)
-        {
-            ((result.tuneables.emplace_back(
-                 alpaka::tune::StorageTuneable{std::string(tuneable.name()), convertToString(tuneable.value)})),
-             ...);
-        },
-        active.userTuneables);
-    std::apply(
-        [&result](auto&... tuneable)
-        {
-            ((result.Ctuneables.emplace_back(
-                 alpaka::tune::StorageTuneable{std::string(tuneable.name()), convertToString(tuneable.value)})),
-             ...);
-        },
-        active.m_compileTimeTuple);
-    return result;
-}
 
 #endif // STORAGETYPES_H

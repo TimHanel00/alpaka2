@@ -12,13 +12,15 @@
 
 #include <alpaka/onHost/FrameSpec.hpp>
 #include <alpaka/tune/IO/storageTypes.hpp>
+#include <alpaka/tune/IO/tuningHistory.hpp>
 #include <alpaka/tune/active/Queue.hpp>
-#include <alpaka/tune/active/activeKernel.hpp>
+#include <alpaka/tune/active/kernelTuningModel.hpp>
 #include <alpaka/tune/traits/traits.hpp>
 
 #include <any>
 #include <utility>
 
+template<typename T_Config>
 struct EnvironmentState
 {
     bool sessionFinished{false};
@@ -27,8 +29,22 @@ struct EnvironmentState
     uint32_t maxValidEvaluations{0};
     uint32_t maxConfigsTotal{0};
     uint32_t stamp{0};
-    StorageKernelRun bestConfig;
-    alpaka::tune::ConfigQueue<StorageKernelRun> config_queue;
+
+    bool strategyCriteriaReached()
+    {
+    }
+
+    ConfigEntry<T_Config> bestConfig;
+
+    bool globalBreakCriteriaFinished(auto const& config)
+    {
+        return false;
+    }
+
+    bool localBreakCriteriaFinished(auto const& config)
+    {
+        return false;
+    }
 };
 
 template<typename TuneablesTuple, typename ExpandedTuple>
@@ -173,96 +189,323 @@ void shrinkTuningSpace(std::tuple<Tuneables...>&& allTuneables, std::size_t init
     }
     printTuneableDimensions(allTuneables, expandedTuneables);
 }
+template<typename T>
+struct KernelModelForSPI;
+#define REGISTER_SPI_TYPE(S_Type, ModelType)                                                                          \
+    template<>                                                                                                        \
+    struct KernelModelForSPI<S_Type>                                                                                  \
+    {                                                                                                                 \
+        using type = ModelType;                                                                                       \
+    };
 
-// #define DEBUG_Singleton
-template<
-    typename T_Device,
-    typename T_Exec,
-    typename T_NumFrames,
-    typename T_FrameExtent,
-    typename T_KernelBundle,
-    typename T_Strategy,
-    typename T_MetricInterface,
-    typename T_Constraints,
-    typename T_ActiveKernelRun,
-    typename T_PtrToHistory,
-    typename T_SharedParams>
-class tuningEnvironment
+namespace alpaka::tune
 {
-public:
-    using FrameSpecType = alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent>;
-    T_Device device;
-    T_Exec exec;
-    FrameSpecType frameSpec;
-    T_KernelBundle kernelBundle;
-    T_Strategy env_strategy;
-    T_MetricInterface env_metricInterface;
-    T_Constraints env_constraints;
-    T_ActiveKernelRun activeRunPtr;
-    T_PtrToHistory ptrToHistory;
-    T_SharedParams sharedParams;
-    EnvironmentState environmentState;
-    tuningEnvironment(tuningEnvironment const&) = delete;
-    tuningEnvironment& operator=(tuningEnvironment const&) = delete;
-    tuningEnvironment(tuningEnvironment&&) = delete;
-    tuningEnvironment& operator=(tuningEnvironment&&) = delete;
-
-    tuningEnvironment(
-        T_Device device_,
-        T_Exec exec_,
-        FrameSpecType const& frameSpec_,
-        T_KernelBundle kernelBundle_,
-        T_Strategy strategy_,
-        T_MetricInterface metric_interface_,
-        T_Constraints constraints_,
-        T_ActiveKernelRun activeRun_,
-        T_PtrToHistory ptrToHistory_,
-        T_SharedParams uniformParamInterface,
-        auto sessionSpecifier_,
-        auto& history)
-        : device(device_)
-        , exec(exec_)
-        , frameSpec(frameSpec_)
-        , kernelBundle(kernelBundle_)
-        , env_strategy(std::move(strategy_))
-        , env_metricInterface(std::move(metric_interface_))
-        , env_constraints(std::move(constraints_))
-        , activeRunPtr(std::move(activeRun_))
-        , ptrToHistory(std::move(ptrToHistory_))
-        , sharedParams(std::move(uniformParamInterface))
+    // #define DEBUG_Singleton
+    template<
+        typename T_Config,
+        typename T_ConfigDescriptor,
+        typename T_NumFrames,
+        typename T_FrameExtent,
+        typename T_Strategy,
+        typename T_MetricInterface,
+        typename T_Constraints,
+        typename T_KernelTuningModel>
+    class tuningEnvironment
     {
-        if(!ptrToHistory)
-        {
-            // once per tuningSession - make sure to reset static variables since they might persist between
-            // multiple instances of TuningSession
-            std::string deviceName = alpaka::core::demangledName(device);
-            std::string execName = alpaka::core::demangledName(exec);
-            std::string kernelName = typeid(kernelBundle).name();
-            auto tmp = createKernelData(deviceName, execName, kernelName, sessionSpecifier_);
-            history.m_tuningHistory.emplace(tmp.toHash(), std::move(tmp));
-            ptrToHistory = history.getKernelFromHistory(device, exec, kernelBundle, sessionSpecifier_);
-        }
-        KernelData& h = *ptrToHistory;
-        // acts like a guard only valid configs are used for the device
-        alpaka::tune::clampToSpec(device, frameSpec, *activeRunPtr);
-        makeListsForAllTuneables(activeRunPtr->allTuneables());
-        alpaka::tune::recalculateMaxRuns(*activeRunPtr);
-        shrinkTuningSpace(activeRunPtr->allTuneables(), activeRunPtr->maxRuns);
+    public:
+        using FrameSpecType = alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent>;
 
-        alpaka::tune::recalculateMaxRuns(*activeRunPtr);
-        std::cout << activeRunPtr->maxRuns << " runs after shrink" << std::endl;
-        // applyCustomThreadSpec(*activeRunPtr, frameSpec);
-        if(!h.runs.contains(activeRunPtr->toHash()))
-        {
-            h.runs[activeRunPtr->toHash()] = toStore(*activeRunPtr);
-        }
-        environmentState.bestConfig = h.runs[activeRunPtr->toHash()];
-        environmentState.maxConfigsTotal = activeRunPtr->maxRuns;
-        environmentState.maxValidEvaluations = alpaka::tune::getMaxRuns();
-    }
+        T_Strategy env_strategy;
+        T_MetricInterface env_metricInterface;
+        T_Constraints env_constraints;
+        T_KernelTuningModel env_kernelTuningPtr;
+        KernelData<T_Config, T_ConfigDescriptor> env_kernelData;
+        EnvironmentState<T_Config> environmentState;
+        alpaka::tune::ConfigQueue<ConfigEntry<T_Config>> env_config_queue;
+        tuningEnvironment(tuningEnvironment const&) = delete;
+        tuningEnvironment& operator=(tuningEnvironment const&) = delete;
+        tuningEnvironment(tuningEnvironment&&) = delete;
+        tuningEnvironment& operator=(tuningEnvironment&&) = delete;
 
-    // Prevent copy/move
-};
+        auto& getConfigStorage()
+        {
+            return env_kernelData.configEntries;
+        }
+
+        tuningEnvironment(
+            KernelData<T_Config, T_ConfigDescriptor>&& env_kernelData_,
+            auto& device_,
+            FrameSpecType&& frameSpec_,
+            T_Strategy&& strategy_,
+            T_MetricInterface&& metric_interface_,
+            T_Constraints&& constraints_,
+            T_KernelTuningModel&& activeRun_,
+
+            std::string const& filename)
+            : env_kernelData(std::forward<KernelData<T_Config, T_ConfigDescriptor>>(env_kernelData_))
+            , env_strategy(std::forward<T_Strategy>(strategy_))
+            , env_metricInterface(std::forward<T_MetricInterface>(metric_interface_))
+            , env_constraints(std::forward<T_Constraints>(constraints_))
+            , env_kernelTuningPtr(std::forward<T_KernelTuningModel>(activeRun_))
+
+        {
+            auto& history = alpaka::tune::TuningHistory::get(filename);
+            history.loadConfig(env_kernelData);
+            // 1. Clamp to spec
+            alpaka::tune::clampToSpec(device_, frameSpec_, *env_kernelTuningPtr);
+            // 2. Generate value lists
+            makeListsForAllTuneables(env_kernelTuningPtr->allTuneables());
+
+            // 3. Initial max runs
+            alpaka::tune::recalculateMaxRuns(*env_kernelTuningPtr);
+            shrinkTuningSpace(env_kernelTuningPtr->allTuneables(), env_kernelTuningPtr->maxRuns);
+            alpaka::tune::recalculateMaxRuns(*env_kernelTuningPtr);
+            environmentState.bestConfig = getConfigStorage().getOrCreate(env_kernelTuningPtr->toConfig());
+            environmentState.maxConfigsTotal = env_kernelTuningPtr->maxRuns;
+            environmentState.maxValidEvaluations = alpaka::tune::getMaxRuns();
+        }
+
+        // Prevent copy/move
+    };
+
+    template<typename T_Env>
+    class TuningContextManager : public T_Env
+    {
+    public:
+        using Base = T_Env;
+        using Base::Base; // inherit constructor
+
+        template<typename... T_Args>
+        void launch(T_Args&&... launchArgs)
+        {
+            if(this->environmentState.checkGlobalBreakCriteria())
+            {
+                executeBestConfig(std::forward<T_Args...>(launchArgs...));
+                return;
+            }
+
+            if(handleFullQueue(std::forward<T_Args...>(launchArgs...)))
+                return;
+
+            while(!this->environmentState.strategyCriteriaReached())
+            {
+                if(this->env_config_queue.empty())
+                {
+                    executeBestConfig();
+                    return;
+                }
+
+                auto oldConfig = this->env_kernelTuningPtr->toConfig();
+                auto newConfig = oldConfig;
+
+                while(this->getConfigStorage().contains(newConfig) || violatesConstraint(newConfig))
+                {
+                    this->env_strategy(
+                        this->env_metricInterface,
+                        KernelTuningModelView(*this->env_kernelTuningPtr),
+                        this->getConfigStorage(),
+                        this->environmentState);
+
+                    newConfig = this->env_kernelTuningPtr->toConfig();
+                    if(this->environmentState.strategyCriteriaReached())
+                    {
+                        if(emptyTheQueue(std::forward<T_Args...>(launchArgs...)))
+                            return;
+                    }
+                }
+
+                this->env_config_queue.push(newConfig);
+
+                if(handleFullQueue(std::forward<T_Args...>(launchArgs...)))
+                    return;
+            }
+        }
+
+    private:
+        template<typename... T_Args>
+        bool emptyTheQueue(T_Args&&... launchArgs)
+        {
+            while(!this->env_config_queue.empty())
+            {
+                auto& config = this->env_config_queue.get();
+                if(this->environmentState.checkLocalBreakCriteria(config))
+                {
+                    this->env_config_queue.pop();
+                }
+                else
+                {
+                    applyAndExecute(std::forward<T_Args...>(launchArgs...), config);
+                    update(config);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        template<typename... T_Args>
+        bool handleFullQueue(T_Args&&... launchArgs)
+        {
+            while(this->env_config_queue.full())
+            {
+                auto& config = this->env_config_queue.get();
+                if(this->environmentState.checkLocalBreakCriteria(config))
+                {
+                    this->env_config_queue.pop();
+                }
+                else
+                {
+                    applyAndExecute(std::forward<T_Args...>(launchArgs...), config);
+                    update(config);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        template<typename... T_Args>
+        void executeBestConfig(T_Args&&... launchArgs)
+        {
+            auto& bestConfig = this->environmentState.bestConfig;
+            applyAndExecute(std::forward<T_Args...>(launchArgs...), bestConfig);
+            update(bestConfig);
+        }
+
+        bool violatesConstraint(auto const& config)
+        {
+            auto& stored = this->getConfigStorage().getOrCreate(config);
+            if(stored.state == ConfigState::Dummy)
+            {
+                return true;
+            }
+
+            bool valid = true;
+            int index = 0;
+            for_each(
+                this->env_constraints,
+                [&index, &valid, &run = *this->env_kernelTuningPtr](auto& constraint)
+                {
+                    auto constraintValid = constraint.template operator()<decltype(run)>(run);
+                    valid = valid && constraintValid;
+                });
+
+            if(!valid)
+            {
+                std::cout << " constraint violated for : " << stored.config.toString() << std::endl;
+                using T_state = decltype(stored.state);
+                ++this->environmentState.numberOfCheckedConfigs;
+                stored.getMetrics().clear();
+                stored.stamp = -1;
+                stored.state = T_state::Dummy;
+                stored.fullFlag = true;
+                stored.nr_runs = std::numeric_limits<decltype(stored.nr_runs)>::max();
+                return true;
+            }
+
+            return false;
+        }
+
+        template<typename T_Queue, typename T_Exec, typename T_Spec, typename T_Kernelbundle>
+        void applyAndExecute(
+            T_Queue&& queue,
+            T_Exec&& exec,
+            T_Spec&& spec,
+            T_Kernelbundle&& kernelbundle,
+            auto const& config)
+        {
+            auto& run = *this->env_kernelTuningPtr;
+            run.fromConfig(config);
+            applyCustomThreadSpec(run, spec);
+            auto bundle = recreate(kernelbundle, run.m_userTuneables);
+
+            trait::callPreProcessing(run, spec, this->env_metricInterface, bundle);
+
+            using KernelFn = typename decltype(this->env_kernelTuningPtr->kernelBundle)::KernelFn;
+            std::cout << " try to launch kernel with " << run.toConfig().toString() << std::endl;
+
+            if constexpr(!trait::hasUserDefinedCTuneable<KernelFn>::value)
+            {
+                this->env_metricInterface.start(run, spec);
+                queue.enqueue(exec, spec, bundle);
+                onHost::wait(queue);
+                this->env_metricInterface.end(run, spec);
+            }
+            else
+            {
+                std::size_t i = trait::getRtimeIndexMap(bundle)[run.compileTimeToFlatValueTuple()];
+                static auto variants =
+                    typename trait::RegisteredCTuneables<std::decay_t<KernelFn>>::T_KernelVariants{};
+
+                alpaka::tune::runtime_Kernel_dispatch(
+                    i,
+                    variants,
+                    [&](auto&& element)
+                    {
+                        auto newBundle = std::apply(
+                            [&element]<typename... T0>(T0&&... args)
+                            { return KernelBundle{element, std::forward<T0>(args)...}; },
+                            bundle.m_args);
+
+                        this->env_metricInterface.start(run, spec);
+                        queue.enqueue(exec, spec, newBundle);
+                        onHost::wait(queue);
+                        this->env_metricInterface.end(run, spec);
+                    });
+            }
+            trait::callPostProcessing(run, spec, this->env_metricInterface, bundle);
+        }
+
+        void update(auto const& config)
+        {
+            auto& run = *this->env_kernelTuningPtr;
+            std::cout << " ran config: " << config.toHash() << " time " << run.metric << std::endl;
+            auto& stored = this->getConfigStorage().getOrCreate(config);
+
+            switch(stored.state)
+            {
+            case ConfigState::Uninitialized:
+                stored.stamp = this->env_kernelData.highestStamp + this->environmentState.stamp++;
+                break;
+            case ConfigState::Dummy:
+                return;
+            default:
+                std::cout << " config has state: " << config.toString()
+                          << " state: " << static_cast<std::size_t>(stored.state) << std::endl;
+                break;
+            }
+
+            bool flagPre = stored.fullFlag;
+            stored.pushMetric(run.metric);
+            bool flagPost = stored.fullFlag;
+
+            if(!alpaka::tune::hasRunsPerConfig_Env())
+            {
+                if(flagPre != flagPost)
+                {
+                    ++this->environmentState.numberOfCheckedConfigs;
+                    ++this->environmentState.numValidConfigs;
+                    assignBestIfBetter<typename Base::env_metricInterface>(this->environmentState.bestConfig, stored);
+                }
+            }
+            else
+            {
+                if(flagPre != flagPost)
+                {
+                    stored.fullFlag = false;
+                }
+                if(stored.nr_runs >= alpaka::tune::getRunsPerConfig())
+                {
+                    if(!stored.fullFlag)
+                    {
+                        ++this->environmentState.numberOfCheckedConfigs;
+                        ++this->environmentState.numValidConfigs;
+                    }
+                    assignBestIfBetter<typename Base::env_metricInterface>(this->environmentState.bestConfig, stored);
+                    stored.fullFlag = true;
+                }
+            }
+        }
+    };
+} // namespace alpaka::tune
 
 template<typename T_Vec>
 auto makeConformToTVec(T_Vec const&, alpaka::tune::NoTune const&)
@@ -349,7 +592,7 @@ auto makeConformToFrameSpec(T_frameSpec& spec, KernelTuningModel<T_Args...>& ker
     // KernelTuningModel m_run;
     // auto h = makeConformToTVec(spec.m_numFrames, kernelRun.getNumFramesTune());
     return makeActiveKernel(
-        kernelRun.userTuneables,
+        kernelRun.m_userTuneables,
         makeConformToTVec(spec.m_numFrames, kernelRun.getNumFramesTune()),
 
         makeConformToTVec(spec.m_frameExtent, kernelRun.getFrameExtentTune()),
@@ -367,8 +610,7 @@ template<
     typename T_MetricInterface,
     typename T_Constraints,
     typename T_Run,
-    typename T_SessionSpecifier,
-    typename T_History>
+    typename T_SessionSpecifier>
 auto createTuningEnvironment(
     T_Device device,
     T_Exec exec,
@@ -379,51 +621,64 @@ auto createTuningEnvironment(
     T_Constraints& constraint,
     T_Run& run,
     T_SessionSpecifier& sessionSpecifier,
-    T_History& history)
+    std::string const& filename)
 {
+    // Apply spec-based conforming
     auto activeRun = makeConformToFrameSpec(spec, run);
+
+    // Apply HW-specific constraints
     auto retPair = alpaka::tune::applyHwConstraints(device, exec, spec, activeRun);
-    retPair.second.printFull();
-    auto CTuneableBundle = alpaka::tune::trait::constructRuntimeCtuneablesForActivKernel(bundle);
     auto newFrameSpec = retPair.first;
     auto newRun = retPair.second;
-    auto userTuple = extractTuneables(bundle);
-    auto completeRun = KernelTuningModel{userTuple, newRun.frameTuneables, CTuneableBundle};
-    using T_config = decltype(completeRun.toConfig());
-    // static_assert(std::is_same_v<decltype(completeRun), void()>);
+
 #ifdef DEBUG_Singleton
-    printRange(newRun.getNumBlocksTune().idxRange);
+    newRun.getNumBlocksTune().idxRange.print();
 #endif
 
-    auto activePtr = std::make_unique<ALPAKA_TYPEOF(completeRun)>(completeRun);
-    auto sharedParams = makeSharedParameterInterface(*activePtr);
-    auto ptrToHistory = history.getKernelFromHistory(device, exec, bundle, sessionSpecifier);
-    using tuningEnvironmentType = tuningEnvironment<
-        T_Device,
-        T_Exec,
-        T_FrameExtent,
+    // Extract compile-time tuneables for bundle
+    auto CTuneableBundle = alpaka::tune::trait::constructRuntimeCtuneablesForActivKernel(bundle);
+    auto userTuple = extractTuneables(bundle);
+
+    // Combine into kernel model
+    auto completeRun = KernelTuningModel{userTuple, newRun.m_frameTuneables, CTuneableBundle};
+
+    using T_Config = decltype(completeRun.toConfig());
+    auto env_kernelData = createKernelDataFromModel(
+        completeRun,
+        alpaka::core::demangledName(device),
+        alpaka::core::demangledName(exec),
+        alpaka::core::demangledName<decltype(bundle)>(),
+        sessionSpecifier);
+    using kernelModel = decltype(completeRun);
+
+
+    using T_sharedParmeterInterface = decltype(makeSharedParameterInterface(completeRun));
+    using model = KernelTuningModel<
+        decltype(userTuple),
+        decltype(newRun.m_frameTuneables),
+        decltype(CTuneableBundle),
+        T_sharedParmeterInterface>;
+    auto activePtr = std::make_unique<model>(userTuple, newRun.m_frameTuneables, CTuneableBundle);
+    // Final types deduced for environment
+    using tuningEnvironmentType = alpaka::tune::tuningEnvironment<
+        T_Config,
+        decltype(env_kernelData.descriptor),
         T_NumFrames,
-        T_KernelBundle,
+        T_FrameExtent,
         T_Strategy,
         T_MetricInterface,
         T_Constraints,
-        ALPAKA_TYPEOF(activePtr),
-        ALPAKA_TYPEOF(ptrToHistory),
-        ALPAKA_TYPEOF(sharedParams)>;
-
-    return std::make_unique<tuningEnvironmentType>(
+        decltype(activePtr)>;
+    using T_Context = alpaka::tune::TuningContextManager<tuningEnvironmentType>;
+    return std::make_unique<T_Context>(
+        std::move(env_kernelData),
         device,
-        exec,
-        newFrameSpec,
-        bundle,
-        strategy,
-        metric_interface,
-        constraint,
+        std::move(newFrameSpec),
+        std::move(strategy),
+        std::move(metric_interface),
+        std::move(constraint),
         std::move(activePtr),
-        ptrToHistory,
-        std::move(sharedParams),
-        sessionSpecifier,
-        history);
+        filename);
 }
 
 // Static wrapper version
@@ -447,8 +702,7 @@ template<
     typename T_MetricInterface,
     typename T_Constraints,
     typename T_Run,
-    typename T_SessionSpecifier,
-    typename T_History>
+    typename T_SessionSpecifier>
 auto& getTuningEnvironment(
     T_Device device,
     T_Exec exec,
@@ -459,9 +713,9 @@ auto& getTuningEnvironment(
     T_Constraints& constraint,
     T_Run& run,
     T_SessionSpecifier& sessionSpecifier,
-    T_History& history)
+    std::string const& filename)
 {
-    using tuningEnvironmentType = decltype(createTuningEnvironment(
+    using EnvPtr = decltype(createTuningEnvironment(
         device,
         exec,
         spec,
@@ -471,16 +725,13 @@ auto& getTuningEnvironment(
         constraint,
         run,
         sessionSpecifier,
-        history));
+        filename));
 
-    static std::unordered_map<std::string, tuningEnvironmentType> singletonMap;
-    if(auto it = singletonMap.find(flattenSessionSpecifier(sessionSpecifier)); it != singletonMap.end())
-    {
-        return it->second;
-    }
+    static std::unordered_map<std::string, EnvPtr> singletonMap;
 
-    singletonMap.emplace(
-        flattenSessionSpecifier(sessionSpecifier),
+    std::string const key = flattenSessionSpecifier(sessionSpecifier);
+    auto [it, inserted] = singletonMap.try_emplace(
+        key,
         createTuningEnvironment(
             device,
             exec,
@@ -491,8 +742,9 @@ auto& getTuningEnvironment(
             constraint,
             run,
             sessionSpecifier,
-            history));
-    return singletonMap.at(flattenSessionSpecifier(sessionSpecifier));
+            filename));
+
+    return it->second;
 }
 
 #endif // KERNELSINGLETON_H

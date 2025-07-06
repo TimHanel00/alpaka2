@@ -4,7 +4,7 @@
 #ifndef CONSTRAINT_HPP
 #define CONSTRAINT_HPP
 
-#include "activeKernel.hpp"
+#include "kernelTuningModel.hpp"
 
 #include <tuple> // for std::tuple
 #include <utility> // for std::move

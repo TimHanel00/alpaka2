@@ -86,7 +86,8 @@ include(CheckLanguage)
 add_library(alpaka INTERFACE
         include/alpaka/tune/active/Queue.hpp
         include/alpaka/tune/utils/tupleHelper.h
-        include/alpaka/tune/utils/Random.h)
+        include/alpaka/tune/utils/Random.h
+        include/alpaka/tune/IO/metricContainer.hpp)
 target_include_directories(${PROJECT_NAME} INTERFACE $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_20)
 

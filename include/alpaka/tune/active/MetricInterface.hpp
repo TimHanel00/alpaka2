@@ -131,10 +131,10 @@ namespace alpaka::tune
         return b;
     }
 
-    template<typename T_Metric>
+    template<typename T_Metric, typename T_ConfigEntry>
     struct aGTb
     {
-        StorageKernelRun& operator()(StorageKernelRun& a, StorageKernelRun& b)
+        T_ConfigEntry& operator()(T_ConfigEntry& a, T_ConfigEntry& b)
         {
             if constexpr(T_Metric::returnComparison == detail::returnComparison::LowerIsBetter)
             {
@@ -147,10 +147,10 @@ namespace alpaka::tune
         }
     };
 
-    template<typename T_Metric>
+    template<typename T_Metric, typename T_ConfigEntry>
     struct aLTb
     {
-        StorageKernelRun& operator()(StorageKernelRun& a, StorageKernelRun& b)
+        T_ConfigEntry& operator()(T_ConfigEntry& a, T_ConfigEntry& b)
         {
             if constexpr(T_Metric::returnComparison == detail::returnComparison::HigherIsBetter)
             {
@@ -165,21 +165,23 @@ namespace alpaka::tune
 
     namespace strategy::SimulatedAnnealing
     {
-        template<typename T_Metric>
+        template<typename T_Metric, typename T_ConfigEntry>
         struct costDifference
         {
-            auto operator()(StorageKernelRun& a, StorageKernelRun& b)
+            auto operator()(T_ConfigEntry& a, T_ConfigEntry& b)
                 requires(T_Metric::returnComparison == detail::returnComparison::HigherIsBetter)
             {
                 // Default: assume higher is better
-                return a.getMetric<median_t>().as<t_ns>() - b.getMetric<median_t>().as<t_ns>();
+                return a.template getMetric<median_t>().template as<t_ns>()
+                       - b.template getMetric<median_t>().template as<t_ns>();
             }
 
-            auto operator()(StorageKernelRun& a, StorageKernelRun& b)
+            auto operator()(T_ConfigEntry& a, T_ConfigEntry& b)
                 requires(T_Metric::returnComparison == detail::returnComparison::LowerIsBetter)
             {
                 // Default: assume lower is better
-                return b.getMetric<median_t>().as<t_ns>() - a.getMetric<median_t>().as<t_ns>();
+                return b.template getMetric<median_t>().template as<t_ns>()
+                       - a.template getMetric<median_t>().template as<t_ns>();
             }
         };
     } // namespace strategy::SimulatedAnnealing

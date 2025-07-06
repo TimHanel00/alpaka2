@@ -292,17 +292,6 @@ namespace alpaka::tune
         }
     }
 
-    struct StorageTuneable
-    {
-        std::string name;
-        std::string value;
-
-        [[nodiscard]] std::string toHash() const
-        {
-            return name + "*" + value;
-        }
-    };
-
     template<typename T>
     concept isIntegral = std::is_integral_v<T>;
     template<typename T>
@@ -604,7 +593,7 @@ namespace alpaka::tune
         typename dimensionTraversePolicy = DimensionsIndependent>
     struct Tuneable
     {
-        using ValueType = T;
+        using ValueType = T; // alpaka vector per default
         using dimensionTraversePolicy_type = dimensionTraversePolicy;
         T value;
         bool userDef = true;
@@ -779,7 +768,7 @@ namespace alpaka::tune
             }
         }
 
-        [[nodiscard]] std::string toHash() const
+        [[nodiscard]] std::string toString() const
         {
             return m_name + "*" + value.toString();
         }

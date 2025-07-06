@@ -12,41 +12,54 @@
 
 namespace alpaka::tune
 {
-    struct TuningHistory
+    namespace history::detail
     {
-        using T_floating = std::double_t;
+        inline auto parseToml(std::string const& file) -> std::optional<toml::basic_value<toml::type_config>>
+        {
+            try
+            {
+                std::cout << " successfully assigned valeus" << std::endl;
+                return std::make_optional(toml::parse(file));
+            }
+            catch(std::exception const& e)
+            {
+                std::cerr << "Failed to parse TOML file '" << file << "': " << e.what() << '\n';
+                return std::nullopt; // return empty table or consider throwing further
+            }
+        }
+    } // namespace history::detail
 
-        std::unordered_map<std::string, KernelData> m_tuningHistory;
+    class TuningHistory
+    {
+    public:
+        using T_parsedToml = decltype(toml::parse(""));
 
-        static TuningHistory& get(std::string const& config)
+    private:
+        std::mutex fileMutex;
+        std::optional<T_parsedToml> parsed_toml;
+        bool load = false;
+        // nr of times load has to be called before a store overwrites the file
+        std::atomic<long long> nr_StakeHolders;
+        // if true the next time store is called the file is ovewritten
+        bool deleteContent = false;
+
+    public:
+        explicit TuningHistory(std::string const& file)
+            : parsed_toml(history::detail::parseToml(file))
+            , nr_StakeHolders(0)
+            , filename(file)
+        {
+        }
+
+        static TuningHistory& get(std::string const& filename)
         {
             static std::unordered_map<std::string, TuningHistory> instances;
-            return instances[config];
+            auto [it, inserted] = instances.try_emplace(filename, filename);
+
+            ++it->second.nr_StakeHolders;
+            return it->second;
         }
 
-        bool initialized = false;
-        TuningHistory() = default;
-
-        template<typename T_DeviceHandle, typename T_Exec, typename T_KernelBundle>
-        std::shared_ptr<KernelData> getKernelFromHistory(
-            T_DeviceHandle device,
-            T_Exec exec,
-            T_KernelBundle kernelBundle,
-            std::vector<std::string> const& sessionSpecs,
-            std::string const& targetMetric = "time")
-        {
-            std::string lookUpHash = std::string("") + alpaka::core::demangledName(device) + core::demangledName(exec)
-                                     + typeid(kernelBundle).name() + targetMetric
-                                     + std::accumulate(sessionSpecs.begin(), sessionSpecs.end(), std::string());
-            if(m_tuningHistory.contains(lookUpHash))
-            {
-                // Return a non-owning shared_ptr by using a no-op deleter.
-                return {&m_tuningHistory[lookUpHash], [](KernelData*) { /* no deletion performed */ }};
-            }
-            return nullptr;
-        }
-
-        std::unordered_map<std::uintptr_t, KernelData> kernelEvents;
         ~TuningHistory() = default;
 
         auto find_str(auto const& table, auto const& key)
@@ -61,300 +74,257 @@ namespace alpaka::tune
 
         std::string filename;
 
-        template<bool loadMultiple = true>
-        void loadConfig(std::string const& filename)
+        template<typename TDescriptor, typename TConfig>
+        TConfig configFromNameValueList(
+            toml::array const& names,
+            toml::array const& values,
+            TDescriptor const& descriptor)
         {
-            std::cout << filename << std::endl;
-            try
-            {
-                auto config = toml::parse(filename);
-                auto const& config_table = toml::get<toml::table>(config);
+            using TupleType = typename TConfig::TupleType;
 
-                if(!loadMultiple)
+            std::unordered_map<std::string, std::size_t> nameToIndex;
+            for(std::size_t i = 0; i < names.size(); ++i)
+                nameToIndex[names[i].as_string()] = i;
+
+            return [&]<typename... DescEntries>(std::tuple<DescEntries...>)
+            {
+                return TConfig{std::make_tuple(
+                    parseVecFromFlatList<typename DescEntries::type>(
+                        nameToIndex,
+                        names,
+                        values,
+                        DescEntries{}.name)...)};
+            }(typename TDescriptor::entries{});
+        }
+
+        static constexpr auto suffixes = Vec{'x', 'y', 'z', 'w'};
+
+        template<typename T_Config, typename T_ConfigDescriptor>
+        void parseKernelRuns(KernelData<T_Config, T_ConfigDescriptor>& kernelData, toml::table const& kernelTable)
+        {
+            if(!kernelTable.contains("runs"))
+                return;
+
+            auto const& runs = kernelTable.at("runs").as_array();
+            auto const& descriptorEntries = kernelData.descriptor.entries;
+
+            for(auto const& runVal : runs)
+            {
+                auto const& runTable = runVal.as_table();
+
+                auto const& tuneableVals = runTable.at("tuneableVals").as_array();
+                auto const& tuneableNames = runTable.at("tuneableNames").as_array();
+
+                if(tuneableVals.size() != tuneableNames.size())
+                    continue;
+
+                typename T_Config::TupleType typedValues{};
+                std::size_t tuneableIndex = 0;
+                // Use your helper for clean access to each descriptor + index
+                for_each_enumerate(
+                    descriptorEntries,
+                    [&]<std::size_t I, typename T0>(T0 const& entry)
+                    {
+                        using VecType = typename std::remove_cvref_t<T0>::vecType;
+                        constexpr std::size_t dim = std::remove_cvref_t<T0>::dimension;
+                        VecType parsed{};
+                        for(std::size_t k = 0; k < dim; ++k)
+                        {
+                            if(tuneableIndex >= tuneableNames.size())
+                                break;
+                            if(tuneableNames[tuneableIndex].as_string() != entry.name + "_" + suffixes[k])
+                                continue;
+                            if(tuneableVals[tuneableIndex].is_integer())
+                                parsed[k]
+                                    = static_cast<typename VecType::type>(tuneableVals[tuneableIndex].as_integer());
+                            else if(tuneableVals[tuneableIndex].is_floating())
+                                parsed[k]
+                                    = static_cast<typename VecType::type>(tuneableVals[tuneableIndex].as_floating());
+                            else
+                            {
+                                std::cerr << "[parseKernelRuns] Unsupported TOML type for '" << entry.name << "'\n";
+                                return;
+                            }
+                            tuneableIndex++;
+                        }
+
+                        std::get<I>(typedValues) = parsed;
+                    });
+
+                // Insert the config into storage
+                T_Config config{typedValues};
+                auto& entry = kernelData.configEntries.getOrCreate(config);
+
+                // Metrics
+                if(runTable.contains("metric"))
                 {
-                    std::cout << "[DEBUG] loadMultiple is false, clearing tuning history." << std::endl;
-                    m_tuningHistory.clear();
+                    auto const& metricArray = runTable.at("metric").as_array();
+                    for(auto const& val : metricArray)
+                        entry.pushMetric(val.as_floating());
                 }
 
-                for(auto const& [key, value] : config_table)
+                // Run count
+                if(runTable.contains("nrRuns"))
+                    entry.nr_runs = static_cast<std::size_t>(runTable.at("nrRuns").as_integer());
+
+                // Stamp
+                if(runTable.contains("stamp"))
+                {
+                    long long stamp = static_cast<long long>(runTable.at("stamp").as_integer());
+                    kernelData.highestStamp = std::max(kernelData.highestStamp, stamp);
+                }
+
+                ++kernelData.nrOfConfigs;
+            }
+
+            kernelData.highestStamp += 1;
+        }
+
+        template<typename T_Config, typename T_ConfigDescriptor>
+        bool matchKernelMetadata(
+            KernelData<T_Config, T_ConfigDescriptor> const& kernelData,
+            toml::table const& kernelTable)
+        {
+            auto kernel = find_str(kernelTable, "kernel");
+            auto device = find_str(kernelTable, "device");
+            auto executor = find_str(kernelTable, "executor");
+            auto targetMetric = find_str(kernelTable, "targetMetric");
+
+            return kernel == kernelData.kernel && device == kernelData.device && executor == kernelData.executor
+                   && targetMetric == kernelData.targetMetric;
+        }
+
+        template<typename T_Config, typename T_ConfigDescriptor>
+        void loadConfig(KernelData<T_Config, T_ConfigDescriptor>& kernelData)
+        {
+            if(!parsed_toml.has_value())
+                return;
+            if(nr_StakeHolders < 1)
+            {
+                std::cout << " something went wrong, nr of history initializations does not match load calls "
+                             "or called store Config before all load calls"
+                          << std::endl;
+            }
+            --nr_StakeHolders;
+            try
+            {
+                toml::table const& config_table = parsed_toml.value().as_table();
+                for(auto const& value : config_table | std::views::values)
                 {
                     if(!value.is_table())
                         continue;
 
                     auto const& kernelTable = value.as_table();
-                    KernelData kernelData;
 
-                    kernelData.device = find_str(kernelTable, "device");
-                    kernelData.executor = find_str(kernelTable, "executor");
-                    kernelData.kernel = find_str(kernelTable, "kernel");
-                    kernelData.targetMetric = find_str(kernelTable, "targetMetric");
+                    // Only process matching kernels
+                    if(!matchKernelMetadata(kernelData, kernelTable))
+                        continue;
 
-#ifdef DEBUG_Hist
-                    std::cout << "[DEBUG_Hist] Kernel Key: " << key << std::endl;
-                    std::cout << "  - Device: " << kernelData.device << std::endl;
-                    std::cout << "  - Executor: " << kernelData.executor << std::endl;
-                    std::cout << "  - Kernel: " << kernelData.kernel << std::endl;
-                    std::cout << "  - Target Metric: " << kernelData.targetMetric << std::endl;
-#endif
-
-                    long long int highestStamp = 0;
-
+                    // Load optional specifiers
                     if(kernelTable.contains("specifiers"))
                     {
                         try
                         {
-                            toml::array const& specifiers = kernelTable.at("specifiers").as_array();
-                            for(auto const& specifier : specifiers)
+                            for(auto const& spec : kernelTable.at("specifiers").as_array())
                             {
-                                if(specifier.is_string())
-                                {
-                                    kernelData.specifiers.push_back(specifier.as_string());
-                                }
+                                if(spec.is_string())
+                                    kernelData.specifiers.push_back(spec.as_string());
                             }
                         }
-                        catch(std::exception const&)
+                        catch(...)
                         {
-#ifdef DEBUG_Hist
-                            std::cout << "  - Failed to load specifiers." << std::endl;
-#endif
-                        }
+                        } // optional, silent fail
                     }
 
-                    if(kernelTable.contains("runs"))
-                    {
-                        try
-                        {
-                            auto const& runs = kernelTable.at("runs").as_array();
-                            for(auto const& runValue : runs)
-                            {
-                                StorageKernelRun run;
-                                auto const& runTable = runValue.as_table();
-
-                                if(!runTable.at("metric").as_array().empty())
-                                {
-                                    run.state = StorageKernelRun::State::Initialized;
-                                }
-                                if(run.stamp == -1)
-                                {
-                                    run.state = StorageKernelRun::State::Dummy;
-                                }
-                                for(auto const& elem : runTable.at("metric").as_array())
-                                {
-                                    run.pushMetric(elem.as_floating());
-                                }
-
-
-                                run.nr_runs = runTable.at("nrRuns").as_integer();
-                                if(runTable.contains("tuneableNames"))
-                                {
-                                    try
-                                    {
-                                        run.stamp = static_cast<long long int>(runTable.at("stamp").as_integer());
-                                        highestStamp = std::max(highestStamp, run.stamp);
-
-                                        auto const& tuneablesV = runTable.at("tuneableVals").as_array();
-                                        auto const& tuneablesID = runTable.at("tuneableNames").as_array();
-
-                                        for(int i = 0; i < tuneablesID.size(); i++)
-                                        {
-                                            auto tkey = tuneablesID[i].as_string();
-                                            auto value_tuneAble = tuneablesV[i].as_string();
-
-                                            if(std::string_view(tkey) == getNameFromTag<frameTune::numBlocks>())
-                                            {
-                                                run.numBlocksTune
-                                                    = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
-                                            }
-                                            else if(std::string_view(tkey) == getNameFromTag<frameTune::ThreadBlock>())
-                                            {
-                                                run.threadBlockSize
-                                                    = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
-                                            }
-                                            else if(std::string_view(tkey) == getNameFromTag<frameTune::NumFrames>())
-                                            {
-                                                run.numFramesTune
-                                                    = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
-                                            }
-                                            else if(std::string_view(tkey) == getNameFromTag<frameTune::FrameExtent>())
-                                            {
-                                                run.frameExtentTune
-                                                    = alpaka::tune::StorageTuneable{tkey, value_tuneAble};
-                                            }
-                                            else if(std::string_view(tkey).find("CTune") != std::string_view::npos)
-                                            {
-                                                run.Ctuneables.push_back(
-                                                    alpaka::tune::StorageTuneable{tkey, value_tuneAble});
-                                            }
-                                            else
-                                            {
-                                                run.tuneables.push_back(
-                                                    alpaka::tune::StorageTuneable{tkey, value_tuneAble});
-                                            }
-                                        }
-#ifdef DEBUG_Hist
-                                        std::cout << "    - Parsed tuneables: " << run.tuneables.size()
-                                                  << ", CTuneables: " << run.Ctuneables.size() << std::endl;
-#endif
-                                    }
-                                    catch(std::exception const& e)
-                                    {
-                                        std::cout << "exception in parsing tuneables: " << e.what() << std::endl;
-                                    }
-                                }
-
-                                std::string kernelKey = run.toHash();
-                                kernelData.nrOfConfigs++;
-                                kernelData.runs[kernelKey] = std::move(run);
-                            }
-#ifdef DEBUG_Hist
-                            std::cout << "  - Total runs loaded: " << kernelData.runs.size() << std::endl;
-#endif
-                        }
-                        catch(std::exception const& e)
-                        {
-                            std::cout << e.what() << std::endl;
-                        }
-                    }
-
-                    kernelData.highestStamp = highestStamp+1;
-                    std::string dataHash = kernelData.toHash();
-                    m_tuningHistory[dataHash] = std::move(kernelData);
-#ifdef DEBUG_Hist
-                    std::cout << "  - KernelData stored with hash: " << dataHash << std::endl;
-#endif
+                    // Parse and load all valid runs
+                    parseKernelRuns(kernelData, kernelTable);
                 }
             }
             catch(std::exception const& e)
             {
-                std::cout << "[DEBUG] Failed to load or parse config file (" << filename << "): " << e.what()
-                          << std::endl;
-                m_tuningHistory.clear();
+                std::cerr << "[loadConfig] Error loading TOML: " << e.what() << std::endl;
             }
-
-#ifdef DEBUG_Hist
-            std::cout << "[DEBUG_Hist] Final history size: " << m_tuningHistory.size() << std::endl;
-            for(auto const& [k, v] : m_tuningHistory)
-            {
-                std::cout << "  - Kernel hash: " << k << ", Runs: " << v.runs.size() << std::endl;
-                for(auto const& [k1, v1] : v.runs)
-                {
-                    std::cout << "    - Tuneables: " << v1.tuneables.size() << std::endl;
-                }
-            }
-#endif
         }
 
         // #define DEBUG_Hist 1
 
-        void storeConfig(std::string const& filename)
+
+        template<typename T_Config, typename T_ConfigDescriptor>
+        void storeConfig(KernelData<T_Config, T_ConfigDescriptor>& kernelData)
         {
-            toml::table config;
-            for(auto& [key, kernelData] : m_tuningHistory)
+            toml::table result;
+            toml::table kernelTable;
+
+            // Metadata
+            kernelTable["kernel"] = kernelData.kernel;
+            kernelTable["device"] = kernelData.device;
+            kernelTable["executor"] = kernelData.executor;
+            kernelTable["targetMetric"] = kernelData.targetMetric;
+
+            // Specifiers
+            toml::array specArray;
+            for(auto const& spec : kernelData.specifiers)
+                specArray.push_back(spec);
+            kernelTable["specifiers"] = std::move(specArray);
+
+            // Runs
+            toml::array runs;
+            for(auto& [config, entry] : kernelData.configEntries.getAll())
             {
-                toml::table kernelTable;
-#ifdef DEBUG_Hist
-                std::cout << "KernelData properties:" << std::endl;
-                std::cout << "  - Device: " << kernelData.device << std::endl;
-                std::cout << "  - Executor: " << kernelData.executor << std::endl;
-                std::cout << "  - Kernel: " << kernelData.kernel << std::endl;
-                std::cout << "  - Target Metric: " << kernelData.targetMetric << std::endl;
-                std::cout << "Checking kernelData.specifiers size: " << kernelData.specifiers.size() << std::endl;
-#endif
-                kernelTable.emplace("device", kernelData.device);
-                kernelTable.emplace("executor", kernelData.executor);
-                kernelTable.emplace("kernel", kernelData.kernel);
-                kernelTable.emplace("targetMetric", kernelData.targetMetric);
+                auto const& tuple = config.getValues();
 
+                toml::array tuneableNames;
+                toml::array tuneableVals;
 
-                toml::array specifiers_array;
-                for(auto const& vec : kernelData.specifiers)
-                {
-                    specifiers_array.emplace_back(vec);
-                }
-                kernelTable.emplace("specifiers", specifiers_array);
-
-                toml::array runsArray;
-#ifdef DEBUG_Hist
-                std::cout << "Checking kernelData.runs size: " << kernelData.runs.size() << std::endl;
-#endif
-
-                int runIndex = 0;
-                for(auto& run : kernelData.runs)
-                {
-                    StorageKernelRun& storeKernel = run.second;
-                    if(storeKernel.state == StorageKernelRun::State::Uninitialized)
+                for_each_enumerate(
+                    kernelData.descriptor.entries,
+                    [&]<std::size_t I, typename T0>(T0 const& desc)
                     {
-                        continue;
-                    }
-#ifdef DEBUG_Hist
-                    std::cout << "Processing m_run #" << runIndex << std::endl;
-#endif
+                        using VecType = typename std::remove_cvref_t<T0>::vecType;
+                        constexpr std::size_t dim = std::remove_cvref_t<T0>::dimension;
 
-                    toml::table runTable;
-                    if(storeKernel.state == StorageKernelRun::State::WarmUp)
-                    {
-                        runTable.emplace("nrRuns", storeKernel.warm_up_runs);
-                    }
-                    else
-                    {
-                        runTable.emplace("nrRuns", storeKernel.nr_runs);
-                    }
+                        VecType const& vec = std::get<I>(tuple);
+                        for(std::size_t k = 0; k < dim; ++k)
+                        {
+                            tuneableNames.push_back(desc.name + "_" + std::string(1, suffixes[k]));
+                            tuneableVals.push_back(static_cast<double>(vec[k]));
+                        }
+                    });
 
+                toml::table run;
+                run["tuneableNames"] = std::move(tuneableNames);
+                run["tuneableVals"] = std::move(tuneableVals);
+                run["nrRuns"] = static_cast<std::size_t>(entry.getRunCount());
 
-#ifdef DEBUG_Hist
-                    std::cout << "  - nrRuns: " << run.second.nr_runs << std::endl;
-#endif
+                // Optional: stamp handling if available in future
+                // run["stamp"] = ...
 
-                    toml::array metrics;
-                    for(auto const& m : run.second.metricContainer.getAll())
-                    {
-                        metrics.emplace_back(m);
-                    }
-                    runTable.emplace("metric", metrics);
+                toml::array metricArray;
+                for(auto m : entry.getMetrics().getAll())
+                    metricArray.push_back(static_cast<double>(m));
+                run["metric"] = std::move(metricArray);
 
-                    toml::table tuneablesTable;
-                    toml::array tuneableNames;
-                    toml::array tuneableValues;
-#ifdef DEBUG_Hist
-                    std::cout << "  - Checking tuneables size: " << run.second.tuneables.size() << std::endl;
-#endif
-                    for(const auto& tuneable : run.second.view())
-                    {
-#ifdef DEBUG_Hist
-
-                        std::cout << "    - Adding tuneable: " << tuneable.get().name << " = " << tuneable.get().value
-                                  << std::endl;
-#endif
-                        tuneableNames.emplace_back(tuneable.get().name);
-                        tuneableValues.emplace_back(tuneable.get().value);
-                    }
-                    runTable.emplace("tuneableNames", tuneableNames);
-                    runTable.emplace("tuneableVals", tuneableValues);
-                    runTable.emplace("stamp", run.second.stamp);
-
-                    runsArray.emplace_back(runTable);
-
-#ifdef DEBUG_Hist
-                    std::cout << "Finished processing m_run #" << runIndex << std::endl;
-#endif
-                    ++runIndex;
-                }
-
-#ifdef DEBUG_Hist
-                std::cout << "Total runs processed: " << runIndex << std::endl;
-#endif
-                kernelTable.emplace("runs", runsArray);
-                config.emplace(key, kernelTable);
+                runs.push_back(std::move(run));
             }
 
-            std::ofstream file(filename);
-            if(!file)
-            {
-                throw std::runtime_error("Failed to open file for writing: " + filename);
-            }
-            file << toml::format(toml::value(config));
+            kernelTable["runs"] = std::move(runs);
 
-            file.close();
+            // Use identifiable key for the kernel
+            std::string key = kernelData.kernel + "-" + kernelData.device + "-" + kernelData.executor;
+            result[key] = std::move(kernelTable);
+            {
+                std::lock_guard lock(fileMutex);
+                std::cout << filename << " filename" << std::endl;
+                std::ofstream out(filename, nr_StakeHolders == 0 ? std::ios::trunc : std::ios::app);
+
+                if(!out)
+                {
+                    std::cerr << "[storeConfig] Failed to open or create file: " << filename << std::endl;
+                    return; // or throw
+                }
+                out << toml::format(toml::value{result});
+                nr_StakeHolders = -1;
+            }
         }
     };
 } // namespace alpaka::tune

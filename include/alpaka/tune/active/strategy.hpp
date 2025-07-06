@@ -50,16 +50,15 @@ namespace alpaka::tune::strategy
 
     struct randomSample
     {
-        template<typename T_tuneables, typename T_ActiveKernel>
+        template<typename T_TuningModel, typename T_Config>
         auto operator()(
-            concepts::MetricInterface auto& metric_interface,
-            T_tuneables&& tuneables,
-            [[maybe_unused]] T_ActiveKernel& kernelRun,
-            [[maybe_unused]] KernelData& kernel_data,
-            EnvironmentState& state) const
+            concepts::MetricInterface auto& metricInterface, // the user specified metricInterface
+            KernelTuningModelView<T_TuningModel>&& model, // contains tuneables and provides accessors
+            ConfigStorage<T_Config>& config_storage, // this is the history for a specific kernel backend config
+            EnvironmentState<T_Config>& environmentState) // contains global break criterias
         {
             for_each(
-                tuneables,
+                model.getUniformInterface(),
                 [](auto& parameter)
                 {
                     auto val = randomIdx(parameter.getValues());
@@ -160,10 +159,11 @@ namespace alpaka::tune::strategy
             return std::clamp(result, T_final, T_init);
         }
 
-        template<typename T_Metric>
-        bool acceptWorseSolution(StorageKernelRun const& cand, StorageKernelRun const& cur, double temperature)
+        template<typename T_Metric, typename T_ConfigEntry>
+        bool acceptWorseSolution(T_ConfigEntry const& cand, T_ConfigEntry const& cur, double temperature)
         {
-            double delta = alpaka::tune::strategy::SimulatedAnnealing::costDifference<T_Metric>{}(cand, cur);
+            double delta
+                = alpaka::tune::strategy::SimulatedAnnealing::costDifference<T_Metric, T_ConfigEntry>{}(cand, cur);
 
             if(delta <= 0.0)
                 return true; // better or equal → accept
@@ -179,19 +179,22 @@ namespace alpaka::tune::strategy
         /*
          *TODO add genericOperator
          */
-        template<typename T_Metric>
-        bool acceptanceFunction(StorageKernelRun const& cand, StorageKernelRun const& cur, double temperature)
+        template<typename T_Metric, typename T_Config>
+        bool acceptanceFunction(
+            ConfigEntry<T_Config> const& cand,
+            ConfigEntry<T_Config> const& cur,
+            double temperature)
         {
             switch(cand.compare(cur))
             {
             case ::Comparison::Greater:
                 {
-                    auto const& preferred = aGTb<T_Metric>{}(cand, cur);
+                    auto const& preferred = aGTb<T_Metric, T_Config>{}(cand, cur);
                     return (&preferred == &cand) || acceptWorseSolution<T_Metric>(cand, cur, temperature);
                 }
             case ::Comparison::Less:
                 {
-                    auto const& preferred = aLTb<T_Metric>{}(cand, cur);
+                    auto const& preferred = aLTb<T_Metric, T_Config>{}(cand, cur);
                     return (&preferred == &cand) || acceptWorseSolution<T_Metric>(cand, cur, temperature);
                 }
             case ::Comparison::Inconclusive:
@@ -204,22 +207,22 @@ namespace alpaka::tune::strategy
         /*
          * accept a already stored ParameterConfiguration with the likelyhood of the acceptance function
          */
-        template<typename T_Metric, typename T_activeKernel>
+        template<typename T_MetricInterface, typename T_Config, typename T_KernelRun>
         void acceptNewKernel(
-            StorageKernelRun& oldKernel,
-            StorageKernelRun& newKernel,
-            T_activeKernel& activeKernel,
+            ConfigEntry<T_Config>& oldKernel,
+            ConfigEntry<T_Config>& newKernel,
+            KernelTuningModelView<T_KernelRun>&& activeKernel,
             double_t temperature)
         {
-            if(acceptanceFunction<T_Metric>(newKernel, oldKernel, temperature))
+            if(acceptanceFunction<T_MetricInterface>(newKernel, oldKernel, temperature))
             {
-                toActive(activeKernel, newKernel);
+                activeKernel.fromConfig(newKernel);
                 // toActive(activeKernel, newKernel); -> we dont have to do anything since ActiveKernel is already in
                 // the newKernel config
             }
             else
             {
-                toActive(activeKernel, oldKernel);
+                activeKernel.fromConfig(oldKernel);
             }
         }
 
@@ -275,98 +278,65 @@ namespace alpaka::tune::strategy
         std::string previousValidKernel = "";
         std::size_t currentRuns = 0;
 
-        template<typename T_KernelRun>
-        inline bool existsInHistory(T_KernelRun& run, KernelData& kernel_data)
+        /// returns true only if both are valid
+        template<typename T_ConfigEntry>
+        bool handleInvalidCases(T_ConfigEntry& neu, T_ConfigEntry& old, auto& model)
         {
-            if(!kernel_data.runs.contains(run.toHash()))
+            // assumption: model is at the neu config
+            if(neu.state == ConfigState::Dummy || old.state == ConfigState::Dummy)
+            {
+                if(neu.state == ConfigState::Dummy && old.state != ConfigState::Dummy)
+                {
+                    // we revert back to the old state if it was valid while the current is not
+                    model.fromConfig(old);
+                }
+                // this means we automatically accept the "new" state encouraging exploration in case both are invalid
                 return false;
+            }
+            if(neu.state == ConfigState::Dummy)
+            {
+                return false;
+            }
             return true;
         }
 
-        inline bool acceptWorseForEdgeCases(float temperature)
-        {
-            if(temperature <= 0.0f)
-                return false; // never accept worse if temperature is zero or below
-
-            // Generate acceptance probability in [0, 1)
-            double_t probability = std::exp(-4.0 / temperature); // constant "cost" of 1
-
-            std::uniform_real_distribution<double_t> dist(0.0, 1.0);
-            return dist(RNG::get()) < probability;
-        }
-
-        template<typename T_KernelRun>
-        bool handleInvalidCases(
-            StorageKernelRun& current,
-            StorageKernelRun& worse,
-            T_KernelRun& run,
-            float temperature)
-        {
-            if(worse.state == StorageKernelRun::State::Dummy)
-            {
-                if(acceptWorseForEdgeCases(temperature))
-                {
-                    toActive(run, worse);
-                }
-                else
-                {
-                    toActive(run, current);
-                }
-                return true;
-            }
-            if(current.state == StorageKernelRun::State::Dummy)
-            {
-                if(acceptWorseForEdgeCases(temperature))
-                {
-                    toActive(run, current);
-                }
-                else
-                {
-                    toActive(run, worse);
-                }
-                return true;
-            }
-            return false;
-        }
-
-        template<typename T_tuneables, typename T_ActiveKernel>
+        template<typename T_TuningModel, typename T_Config>
         auto operator()(
-            concepts::MetricInterface auto& metricInterface,
-            T_tuneables&& tuneables,
-            T_ActiveKernel& kernelRun,
-            KernelData& kernel_data,
-            EnvironmentState& env_state)
+            concepts::MetricInterface auto& metricInterface, // the user specified metricInterface
+            KernelTuningModelView<T_TuningModel>&& model, // contains tuneables and provides accessors
+            ConfigStorage<T_Config>& config_storage, // this is the history for a specific kernel backend config
+            EnvironmentState<T_Config>& environmentState) // contains global break criterias
         {
             using T_Metric = std::remove_cvref<decltype(metricInterface)>;
-            auto& history = kernel_data.runs;
-            StorageKernelRun& oldRun = kernel_data[kernelRun.toHash()];
-            std::string oldHash = kernelRun.toHash();
+            auto& history = config_storage.runs;
+
             currentRuns = 0;
-            temperature = calcTemperature(env_state.maxConfigsTotal, env_state.numberOfCheckedConfigs);
+            temperature = calcTemperature(environmentState.maxConfigsTotal, environmentState.numberOfCheckedConfigs);
             while(currentRuns < SimA_MaxCachedSteps)
             {
                 // calculateNewTemperature
-                oldHash = kernelRun.toHash();
+                T_Config oldConfig = model.toConfig(); // yep this is a copy operations no view.
                 for_each(
-                    tuneables,
+                    model.getUniformInterface(),
                     [this](auto& parameter)
                     {
                         auto newVal = applyProbabilityFunction(parameter.value, parameter.idxRange, temperature);
-                        parameter.value = newVal;
+                        parameter.value = newVal; // assignment yet still copying values.. not ideal
                     });
-                if(kernelRun.toHash() == oldHash)
+                T_Config newConfig = model.toConfig();
+                if(newConfig == model.toConfig())
                 {
                     currentRuns++;
                     continue;
                 }
-                if(!existsInHistory(kernelRun, kernel_data))
+                if(!config_storage.contains(newConfig))
                 {
                     std::cout << " new config found! " << std::endl;
                     return;
                 }
-                StorageKernelRun& curRun = kernel_data[kernelRun.toHash()];
-                oldRun = kernel_data.runs[oldHash];
-                if(handleInvalidCases<T_Metric>(curRun, oldRun, kernelRun, temperature))
+                ConfigEntry<T_Config>& oldEntry = config_storage.getOrCreate(oldConfig);
+                ConfigEntry<T_Config>& newEntry = config_storage.getOrCreate(newConfig);
+                if(!handleInvalidCases<T_Metric>(newEntry, oldEntry))
                 {
                     currentRuns++;
                     continue;
@@ -375,7 +345,7 @@ namespace alpaka::tune::strategy
                 // so we can decide directly if we want to go there
                 // we accept the new found config always if its better and with a propability of
                 // e^(-new+old)/temp) if its worse (if lower is better)
-                acceptNewKernel<T_Metric>(oldRun, curRun, kernelRun, temperature);
+                acceptNewKernel<T_Metric>(oldEntry, newEntry, model, temperature);
                 ++currentRuns;
                 // here we also count if we accept equal configs.
             }
@@ -403,15 +373,14 @@ namespace alpaka::tune::strategy
      * */
     struct exhaustiveSearch
     {
-        template<typename T_tuneables>
-        auto computeValueIndices(T_tuneables& tuneables, auto& kernelRun)
+        template<auto N, typename T_Model>
+        auto computeValueIndices(KernelTuningModelView<T_Model>& model)
         {
-            constexpr std::size_t N = std::tuple_size_v<std::remove_reference_t<T_tuneables>>;
             using VecT = alpaka::Vec<std::size_t, N>;
             VecT idx;
 
             for_each_enumerate(
-                tuneables,
+                model.getUniformInterface(),
                 [&](auto& t, std::size_t i)
                 {
                     auto& values = t.getValues();
@@ -472,27 +441,28 @@ namespace alpaka::tune::strategy
 #else
         static constexpr bool randomInit = false;
 #endif
-        template<typename T_tuneables, typename T_ActiveKernel>
+        template<typename T_TuningModel, typename T_Config>
         auto operator()(
-            concepts::MetricInterface auto& metricInterface,
-            T_tuneables&& tuneables,
-            T_ActiveKernel& kernelRun,
-            KernelData& kernel_data,
-            EnvironmentState& state)
+            concepts::MetricInterface auto& metricInterface, // the user specified metricInterface
+            KernelTuningModelView<T_TuningModel>&& model, // contains tuneables and provides accessors
+            ConfigStorage<T_Config>& config_storage, // this is the history for a specific kernel backend config
+            EnvironmentState<T_Config>& environmentState) // contains global break criterias
         {
-            constexpr std::size_t N = std::tuple_size<std::remove_reference_t<T_tuneables>>::value;
+            using T_interface = decltype(model.getUniformInterface());
+            constexpr std::size_t N = std::tuple_size_v<std::remove_reference_t<T_interface>>;
             using VecT = alpaka::Vec<std::size_t, N>;
             if(!init)
             {
                 if constexpr(randomInit)
                 {
-                    randomSample{}(metricInterface, tuneables, kernelRun, kernel_data, state);
+                    randomSample{}(metricInterface, std::move(model), config_storage, environmentState);
                 }
 
                 dimsVec.clear();
                 total = 1;
+
                 for_each_enumerate(
-                    tuneables,
+                    model.getUniformInterface(),
                     [&](auto& t, std::size_t i)
                     {
                         std::size_t sz = t.getValues().size();
@@ -500,28 +470,26 @@ namespace alpaka::tune::strategy
                         total *= sz;
                     });
 
-                VecT idx = computeValueIndices(tuneables, kernelRun);
+                VecT idx = computeValueIndices<N>(model);
                 VecT dimsVecAsVec = convertVec<N>(dimsVec);
                 stateCount = 0;
                 init = true;
                 return;
             }
-
             if(stateCount >= total)
             {
-                std::cout << " state count " << stateCount << " numChecked " << state.numberOfCheckedConfigs
+                std::cout << " state count " << stateCount << " numChecked " << environmentState.numberOfCheckedConfigs
                           << std::endl;
-                std::cout << " total " << total << " stateConfigs " << state.maxConfigsTotal << std::endl;
+                std::cout << " total " << total << " stateConfigs " << environmentState.maxConfigsTotal << std::endl;
                 std::cout
                     << " for some reason we rached the total state count, therefore exhaustive must be wrong somehow "
                     << std::endl;
-                state.sessionFinished = true;
+                environmentState.sessionFinished = true;
                 return;
             }
             VecT nd = alpaka::mapToND(convertVec<N>(dimsVec), stateCount++);
-
             for_each_enumerate(
-                tuneables,
+                model.getUniformInterface(),
                 [&](auto& t, std::size_t i)
                 {
                     auto& vals = t.getValues();
@@ -613,27 +581,28 @@ namespace alpaka::tune::strategy
 
         std::size_t curIteration = 0;
 
+        template<typename T_TuningModel, typename T_Config>
         auto operator()(
-            concepts::MetricInterface auto& metricInterface,
-            auto&& tuneables,
-            auto& kernelRun,
-            KernelData& kernel_data,
-            EnvironmentState& state)
+            concepts::MetricInterface auto& metricInterface, // the user specified metricInterface
+            KernelTuningModelView<T_TuningModel>&& model, // contains tuneables and provides accessors
+            ConfigStorage<T_Config>& config_storage, // this is the history for a specific kernel backend config
+            EnvironmentState<T_Config>& environmentState) // contains global break criterias
         {
-            exhaustiveSearch{}(metricInterface, tuneables, kernelRun, kernel_data);
+            exhaustiveSearch{}(metricInterface, model, config_storage, environmentState);
 
-            auto kernelHash = kernelRun.toHash();
-            if(kernel_data.runs.contains(kernelHash))
+            auto config = model.toConfig();
+            if(config_storage.contains(config))
             {
-                exhaustiveSearch{}(metricInterface, tuneables, kernelRun, kernel_data);
+                exhaustiveSearch{}(metricInterface, model, config_storage, environmentState);
             }
 
             if(curIteration < m_numIterations)
             {
-                if(kernel_data.nrOfConfigs + 2 >= kernelRun.maxRuns)
+                if(config_storage.nrOfConfigs + 2 >= environmentState.maxConfigsTotal)
                 {
-                    StorageKernelRun& best = kernel_data.runs[state.bestConfig.toHash()];
-                    toActive(kernelRun, best);
+                    auto& best = config_storage.getOrCreate[environmentState.bestConfig];
+
+                    model.fromConfig(best);
 
                     std::apply(
                         [&]<typename... T>(T&... t)
@@ -646,12 +615,12 @@ namespace alpaka::tune::strategy
                                 }(t),
                                 ...);
                         },
-                        kernelRun.allTuneables());
+                        model.allTuneables());
 
                     curIteration++;
 
-                    alpaka::tune::recalculateMaxRuns(kernelRun);
-                    kernel_data.nrOfConfigs = 0;
+                    // alpaka::tune::recalculateMaxRuns(kernelRun);
+                    config_storage.nrOfConfigs = 0;
 
                     // Optional debug:
                     // std::cout << "[Refinement] Running second exhaustive search...\n";
@@ -663,21 +632,21 @@ namespace alpaka::tune::strategy
 
     struct randomSearch
     {
-        template<typename T_tuneables, typename T_ActiveKernel>
+        template<typename T_TuningModel, typename T_Config>
         auto operator()(
-            concepts::MetricInterface auto& metricInterface,
-            T_tuneables&& tuneables,
-            T_ActiveKernel& kernelRun,
-            KernelData& kernel_data,
-            EnvironmentState& state)
+            concepts::MetricInterface auto& metricInterface, // the user specified metricInterface
+            KernelTuningModelView<T_TuningModel>&& model,
+            ConfigStorage<T_Config>&
+                config_storage, // this already returns the config for a specific kernel backend config
+            EnvironmentState<T_Config>& environmentState) // contains
         {
             using T_Metric = std::remove_cvref_t<decltype(metricInterface)>;
-            auto& history = kernel_data.runs;
-            randomSample{}(metricInterface, tuneables, kernelRun, kernel_data, state);
+            auto& history = config_storage.runs;
+            randomSample{}(metricInterface, std::move(model), config_storage, environmentState);
 
-            if(history.contains(kernelRun.toHash()))
+            if(history.contains(model.toHash()))
             {
-                exhaustiveSearch{}(metricInterface, tuneables, kernelRun, kernel_data, state);
+                exhaustiveSearch{}(metricInterface, model, config_storage, environmentState);
             }
         };
     };

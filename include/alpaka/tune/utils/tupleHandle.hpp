@@ -5,7 +5,7 @@
 #ifndef TUPLEHANDLE_H
 #define TUPLEHANDLE_H
 #include "alpaka/KernelBundle.hpp"
-#include "alpaka/tune/active/activeKernel.hpp"
+#include "alpaka/tune/active/kernelTuningModel.hpp"
 #include "alpaka/tune/active/tuneable.hpp"
 
 #include <string>
@@ -232,15 +232,14 @@ auto makeSharedParameterInterface(T_KernelRun& run)
 {
     auto userDef_tuneableTupleInterface = std::apply(
         [](auto&... elems) { return std::tuple_cat(makeNonOwningTuneableTuple(elems)...); },
-        run.userTuneables);
+        run.m_userTuneables);
     auto CtuneableInterface = std::apply(
         [](auto&... elems) { return std::tuple_cat(makeNonOwningTuneableTuple(elems)...); },
-        run.m_compileTimeTuple);
+        run.m_compileTimeTuneables);
     auto ret = std::tuple_cat(
         userDef_tuneableTupleInterface,
-        makeNonOwningframeSpecTuple(run.frameTuneables),
+        makeNonOwningframeSpecTuple(run.m_frameTuneables),
         CtuneableInterface);
-
     return ret;
 }
 #endif // TUPLEHANDLE_H

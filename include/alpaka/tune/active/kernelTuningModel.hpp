@@ -6,6 +6,7 @@
 #define ACTIVEKERNEL_H
 #include "alpaka/tune/active/tuneable.hpp"
 
+#include <alpaka/tune/IO/storageTypes.hpp>
 #include <alpaka/tune/utils/tupleHandle.hpp>
 
 #include <cmath>
@@ -59,49 +60,188 @@ void outTuple(Tuple&& tuple)
 // T_CompileTimeTuple does not actually contain compile time tuneables but runtime tuneables,
 // but its used to select a compile time instantiated Kernel based on a internal mapping (T_CompiletimeTuple... ->
 // Kernel<Args...>)
+template<typename... Ts>
+struct FirstOrMonostate;
+
+template<>
+struct FirstOrMonostate<>
+{
+    using type = std::monostate;
+};
+
+template<typename T0, typename... Rest>
+struct FirstOrMonostate<T0, Rest...>
+{
+    using type = T0;
+};
+
+template<typename... Ts>
+using FirstOrMonostate_t = typename FirstOrMonostate<Ts...>::type;
+
+template<typename T_KernelRun>
+struct KernelTuningModelView
+{
+    /// The underlying kernel model type.
+    using KernelModel = T_KernelRun;
+
+    /// The shared parameter interfac
+    using SharedInterfaceType = typename KernelModel::SharedInterfaceType;
+
+    /**
+     * @brief Constructor.
+     * @param modelRef Reference to an existing KernelTuningModel instance.
+     */
+    explicit KernelTuningModelView(KernelModel& modelRef) : model(modelRef)
+    {
+    }
+
+    /**
+     * @brief Returns a reference to all tuneables (user, frame, compile).
+     * @return Tuple of tuneable references.
+     */
+    constexpr auto& allTuneables()
+    {
+        return model.allTuneables();
+    }
+
+    /**
+     * @brief Access all parameters based on the specified dimensionTraversePolicy.
+     * @return A reference to the shared parameter interface (tuple of TuneableHandles).
+     * @throws static_assert if the kernel model does not define a shared interface.
+     */
+    constexpr SharedInterfaceType& getUniformInterface()
+    {
+        return model.uniformAccessor();
+    }
+
+    /**
+     * @brief Extract the current configuration (i.e., tuple of .value from each tuneable).
+     * @return A Config object representing the current model state.
+     */
+    auto toConfig() const
+    {
+        return model.toConfig();
+    }
+
+    /**
+     * @brief Apply a configuration from a ConfigEntry wrapper.
+     * @tparam T_Config The underlying config tuple type.
+     * @param entry The ConfigEntry to apply to the model.
+     */
+    template<typename T_Config>
+    void fromConfig(ConfigEntry<T_Config> const& entry)
+    {
+        model.fromConfig(entry);
+    }
+
+    /**
+     * @brief Apply a configuration directly from a Config object.
+     * @tparam Ts The types in the config tuple.
+     * @param config The Config object to apply.
+     */
+    template<typename... Ts>
+    void fromConfig(Config<Ts...> const& config)
+    {
+        model.fromConfig(config);
+    }
+
+private:
+    KernelModel& model;
+};
+
 template<
     typename T_UserTuple = std::tuple<>,
     typename T_FrameTuneables = std::tuple<>,
-    typename T_CompileTimeTuple = std::tuple<>>
+    typename T_CompileTimeTuple = std::tuple<>,
+    typename... T_SharedParameterInterface>
 struct KernelTuningModel
 {
     using T_floating = double_t;
     using T_TuneTuple = decltype(std::tuple_cat(std::declval<T_FrameTuneables>(), std::declval<T_UserTuple>()));
-    T_UserTuple userTuneables;
-    T_FrameTuneables frameTuneables;
+    T_UserTuple m_userTuneables;
+    T_FrameTuneables m_frameTuneables;
 
-    T_CompileTimeTuple m_compileTimeTuple{};
+    T_CompileTimeTuple m_compileTimeTuneables{};
     T_floating metric{};
     std::size_t maxRuns{};
     std::size_t maxRunsDefault{1};
+    using SharedInterfaceType = FirstOrMonostate_t<T_SharedParameterInterface...>;
+    static constexpr bool hasShared = !std::is_same_v<SharedInterfaceType, std::monostate>;
 
+    std::optional<SharedInterfaceType> m_sharedInterface;
 
     bool resetSignal{false};
 
     constexpr KernelTuningModel() = default;
 
     constexpr explicit KernelTuningModel(T_UserTuple userT, T_FrameTuneables frameT)
-        : userTuneables(std::move(userT))
-        , frameTuneables(std::move(frameT))
+        : m_userTuneables(std::move(userT))
+        , m_frameTuneables(std::move(frameT))
         , metric(std::numeric_limits<T_floating>::quiet_NaN())
     {
-        std::apply([&](auto&... t) { ((maxRunsDefault *= t.numSteps()), ...); }, userTuneables);
+        std::apply([&](auto&... t) { ((maxRunsDefault *= t.numSteps()), ...); }, m_userTuneables);
         maxRuns = maxRunsDefault;
+    }
+
+    auto& uniformAccessor()
+    {
+        if constexpr(hasShared)
+        {
+            if(!m_sharedInterface.has_value())
+            {
+                std::cout << " it doesnt have value" << std::endl;
+            }
+            std::cout << " dawok" << std::endl;
+            auto& k = m_sharedInterface.value();
+            std::cout << " j" << std::endl;
+            return k;
+        }
+        else
+        {
+            static_assert(hasShared, "No shared interface present in this KernelTuningModel.");
+        }
     }
 
     constexpr auto compileTimeToFlatValueTuple()
     {
-        return std::apply([](auto&... t) { return std::tuple_cat(std::make_tuple(t.value)...); }, m_compileTimeTuple);
+        return std::apply(
+            [](auto&... t) { return std::tuple_cat(std::make_tuple(t.value)...); },
+            m_compileTimeTuneables);
     }
 
     constexpr explicit KernelTuningModel(T_UserTuple userT, T_FrameTuneables frameT, T_CompileTimeTuple compileT)
-        : userTuneables(std::move(userT))
-        , frameTuneables(std::move(frameT))
-        , m_compileTimeTuple(std::move(compileT))
+        requires(!hasShared)
+        : m_userTuneables(std::move(userT))
+        , m_frameTuneables(std::move(frameT))
+        , m_compileTimeTuneables(std::move(compileT))
+        , metric(std::numeric_limits<T_floating>::quiet_NaN())
+
+    {
+        std::cout << " for some reason this is called" << std::endl;
+        std::apply([&](auto&... t) { ((maxRunsDefault *= t.numSteps()), ...); }, m_userTuneables);
+        std::apply([&](auto&... t) { ((maxRunsDefault *= t.numSteps()), ...); }, m_compileTimeTuneables);
+
+        maxRuns = maxRunsDefault;
+    }
+
+    constexpr explicit KernelTuningModel(T_UserTuple userT, T_FrameTuneables frameT, T_CompileTimeTuple compileT)
+        requires hasShared
+        : m_userTuneables(std::move(userT))
+        , m_frameTuneables(std::move(frameT))
+        , m_compileTimeTuneables(std::move(compileT))
         , metric(std::numeric_limits<T_floating>::quiet_NaN())
     {
-        std::apply([&](auto&... t) { ((maxRunsDefault *= t.numSteps()), ...); }, userTuneables);
-        std::apply([&](auto&... t) { ((maxRunsDefault *= t.numSteps()), ...); }, m_compileTimeTuple);
+        m_sharedInterface = std::make_optional(makeSharedParameterInterface(*this));
+        if(m_sharedInterface.has_value())
+        {
+            std::cout << " IT HAS VALUE" << std::endl;
+        }
+        else
+        {
+            std::cout << " IT HAS NO VALUE" << std::endl;
+        }
+        std::apply([&](auto&... t) { ((maxRunsDefault *= t.numSteps()), ...); }, m_userTuneables);
+        std::apply([&](auto&... t) { ((maxRunsDefault *= t.numSteps()), ...); }, m_compileTimeTuneables);
         maxRuns = maxRunsDefault;
     }
 
@@ -123,6 +263,29 @@ struct KernelTuningModel
         }
     }
 
+    // combined tuple using copy by value
+    constexpr auto allValues() const
+    {
+        return std::apply(
+            [&](auto const&... frameElems)
+            {
+                return std::apply(
+                    [&](auto const&... userElems)
+                    {
+                        return std::apply(
+                            [&](auto const&... compileElems)
+                            {
+                                return std::make_tuple(userElems.value..., frameElems.value..., compileElems.value...);
+                                // here we actually copy by value
+                            },
+                            this->m_compileTimeTuneables);
+                    },
+                    this->m_userTuneables);
+            },
+            this->m_frameTuneables);
+    }
+
+    // access tuple by reference
     constexpr auto allTuneables() &
     {
         return std::apply(
@@ -134,11 +297,16 @@ struct KernelTuningModel
                         return std::apply(
                             [&](auto&... compileElems)
                             { return std::tie(userElems..., frameElems..., compileElems...); },
-                            m_compileTimeTuple);
+                            m_compileTimeTuneables);
                     },
-                    userTuneables);
+                    m_userTuneables);
             },
-            frameTuneables);
+            m_frameTuneables);
+    }
+
+    auto toConfig() const
+    {
+        return Config{allValues()};
     }
 
     constexpr auto allTuneables() const&
@@ -152,11 +320,11 @@ struct KernelTuningModel
                         return std::apply(
                             [&](auto const&... compileElems)
                             { return std::tie(userElems..., frameElems..., compileElems...); },
-                            m_compileTimeTuple);
+                            m_compileTimeTuneables);
                     },
-                    userTuneables);
+                    m_userTuneables);
             },
-            frameTuneables);
+            m_frameTuneables);
     }
 
     void printFull()
@@ -164,19 +332,25 @@ struct KernelTuningModel
         outTuple(allTuneables());
     };
 
-    template<typename ConfigTuple>
-    void fromConfig(ConfigTuple const& config)
+    template<typename T_Config>
+    void fromConfig(ConfigEntry<T_Config> const& config)
     {
         std::apply(
             [&](auto&... tuneables)
-            { std::apply([&](auto const&... values) { ((tuneables.value = values), ...); }, config); },
+            {
+                std::apply(
+                    [&](auto const&... values) { ((tuneables.value = values), ...); },
+                    config.config.getValues());
+            },
             allTuneables());
-    }
+    };
 
-    auto toConfig()
+    template<typename... Ts>
+    void fromConfig(Config<Ts...> const& config)
     {
-        return std::apply(
-            [&](auto const&... tuneables) { return std::make_tuple(tuneables.value...); },
+        std::apply(
+            [&](auto&... tuneables)
+            { std::apply([&](auto const&... values) { ((tuneables.value = values), ...); }, config.getValues()); },
             allTuneables());
     }
 
@@ -293,13 +467,6 @@ struct KernelTuningModel
         auto all = allTuneables();
         return getByIDImpl<0, decltype(all), ID_v>(all);
     }
-
-    std::string toHash() const
-    {
-        std::string hash;
-        std::apply([&](auto const&... t) { ((hash += t.toHash()), ...); }, allTuneables());
-        return hash;
-    }
 };
 
 //--------------------------------------
@@ -345,9 +512,9 @@ auto appendTuning(ExistingKernel const& kernel, NewTuning const& newTuning)
     {
         auto newFrameTuple = std::apply(
             [&](auto const&... elems) { return std::make_tuple(elems..., newTuning); },
-            kernel.frameTuneables);
+            kernel.m_frameTuneables);
 
-        return KernelTuningModel{kernel.userTuneables, std::move(newFrameTuple)};
+        return KernelTuningModel{kernel.m_userTuneables, std::move(newFrameTuple)};
     }
 }
 
@@ -358,8 +525,8 @@ namespace alpaka::tune
     {
         using maxRunsType = decltype(active.maxRuns);
         auto init = maxRunsType{1};
-        std::apply([&](auto&... t) { ((init *= t.numSteps()), ...); }, active.userTuneables);
-        std::apply([&](auto&... t) { ((init *= t.numSteps()), ...); }, active.m_compileTimeTuple);
+        std::apply([&](auto&... t) { ((init *= t.numSteps()), ...); }, active.m_userTuneables);
+        std::apply([&](auto&... t) { ((init *= t.numSteps()), ...); }, active.m_compileTimeTuneables);
         active.maxRuns = init;
         if constexpr(T_ActiveKernel::hasNumBlocksTune())
         {

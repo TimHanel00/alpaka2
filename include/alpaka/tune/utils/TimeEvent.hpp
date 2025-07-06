@@ -4,7 +4,7 @@
 
 #ifndef TIMEEVENT_H
 #define TIMEEVENT_H
-#include <alpaka/tune/active/activeKernel.hpp>
+#include <alpaka/tune/active/kernelTuningModel.hpp>
 
 #include <chrono>
 

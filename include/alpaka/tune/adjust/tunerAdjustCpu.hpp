@@ -32,7 +32,7 @@ namespace alpaka::tune
         T_KernelRun& run)
     { // always apply current frameTuning
         auto newRun = makeActiveKernel(
-            run.userTuneables,
+            run.m_userTuneables,
             run.getNumFramesTune(),
             run.getFrameExtentTune(),
             run.getNumBlocksTune(),
@@ -126,7 +126,7 @@ namespace alpaka::tune
             std::cout << " successfully  found trait spec for cpuSerial: " << core::demangledName<T_Platform>()
                       << std::endl;
             auto newRun = makeActiveKernel(
-                kernelRun.userTuneables,
+                kernelRun.m_userTuneables,
                 kernelRun.getNumFramesTune(),
                 kernelRun.getFrameExtentTune());
             auto numThreads = Vec<typename T_NumThreads::type, T_NumThreads::dim()>::all(1);
@@ -154,7 +154,7 @@ namespace alpaka::tune
                       << std::endl;
             //@TODO add specialization
             auto newRun = makeActiveKernel(
-                kernelRun.userTuneables,
+                kernelRun.m_userTuneables,
                 kernelRun.getNumFramesTune(),
                 kernelRun.getFrameExtentTune(),
                 kernelRun.getNumBlocksTune());

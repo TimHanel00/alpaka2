@@ -23,16 +23,31 @@ void for_each(Tuple&& tup, F&& f)
 }
 
 template<typename Tuple, typename F, std::size_t... Is>
-void for_each_enumerate_impl(Tuple&& tup, F&& f, std::index_sequence<Is...>)
+constexpr void for_each_enumerate_constexpr_impl(Tuple&& tup, F&& f, std::index_sequence<Is...>)
+{
+    (f.template operator()<Is>(std::get<Is>(tup)), ...);
+}
+
+// Entry point
+template<typename Tuple, typename F, std::size_t... Is>
+constexpr void for_each_enumerate_runtime_impl(Tuple&& tup, F&& f, std::index_sequence<Is...>)
 {
     (f(std::get<Is>(tup), Is), ...);
 }
 
 template<typename Tuple, typename F>
-void for_each_enumerate(Tuple&& tup, F&& f)
+constexpr void for_each_enumerate(Tuple&& tup, F&& f)
 {
-    constexpr std::size_t N = std::tuple_size_v<std::remove_reference_t<Tuple>>;
-    for_each_enumerate_impl(std::forward<Tuple>(tup), std::forward<F>(f), std::make_index_sequence<N>{});
+    if constexpr(requires { f.template operator()<0>(std::get<0>(tup)); })
+    {
+        constexpr std::size_t N = std::tuple_size_v<std::remove_reference_t<Tuple>>;
+        for_each_enumerate_constexpr_impl(std::forward<Tuple>(tup), std::forward<F>(f), std::make_index_sequence<N>{});
+    }
+    else
+    {
+        constexpr std::size_t N = std::tuple_size_v<std::remove_reference_t<Tuple>>;
+        for_each_enumerate_runtime_impl(std::forward<Tuple>(tup), std::forward<F>(f), std::make_index_sequence<N>{});
+    }
 }
 
 template<std::size_t I = 0, typename Tuple, typename Func>
