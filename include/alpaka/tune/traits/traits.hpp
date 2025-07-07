@@ -20,7 +20,7 @@ namespace alpaka::tune::trait
                 T_Config& config,
                 T_FrameSpec& frame_spec,
                 T_Metric& metricInterface,
-                alpaka::KernelBundle<KernelFn, args...> const& kernel)
+                KernelBundle<KernelFn, args...> const& kernel)
             {
             }
         };
@@ -52,7 +52,7 @@ namespace alpaka::tune::trait
                 T_Config& config,
                 T_FrameSpec& frame_spec,
                 T_Metric& metricInterface,
-                alpaka::KernelBundle<KernelFn, args...> const& kernel)
+                KernelBundle<KernelFn, args...> const& kernel)
             {
             }
         };

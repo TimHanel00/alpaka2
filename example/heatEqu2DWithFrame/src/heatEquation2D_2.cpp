@@ -281,7 +281,9 @@ auto example(T_Cfg const& cfg, uint32_t i) -> int
         auto endTime_IN = std::chrono::high_resolution_clock::now();
 
         std::chrono::duration<double> elapsedTime_IN = endTime_IN - startTime_IN;
-        std::cout << "[TIME]" << "," << elapsedTime_IN.count() << "," << "\n";
+        auto ns_count = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime_IN - startTime_IN).count();
+        std::cout << "[TUNER]" << "," << ns_count << "," << "\n";
+        std::cout << "[ALPAKA]" << "," << alpaka::tune::global::timingAccessor() << "," << "\n";
         // Apply boundaries
         computeQueue.enqueue(
             exec,

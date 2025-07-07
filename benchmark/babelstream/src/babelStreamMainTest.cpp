@@ -544,7 +544,9 @@ void testKernels(T_Cfg cfg)
         // get duration in seconds
         std::chrono::duration<double> duration = end - start;
         runtime = duration.count();
-        std::cout<<"[TIME]"<<","<<runtime<<","<<kernelLabel<<"\n";
+        auto ns_count = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+        std::cout << "[TUNER]" << "," << ns_count << "," << "\n";
+        std::cout << "[ALPAKA]" << "," << alpaka::tune::global::timingAccessor() << "," << "\n";
         runtimeResults.kernelToRundataMap[kernelLabel]->timingsSuccessiveRuns.push_back(runtime);
     };
 
