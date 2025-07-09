@@ -296,24 +296,37 @@ namespace alpaka::tune::detail::internal
             for(auto& run : data.runs)
             {
                 if(run.second.state == StorageKernelRun::State::Dummy)
-                    continue;
-                StorageKernelRun& stored = run.second;
-
-                bool enough = enoughEvaluationsForConfig<T_MetricInterface>(stored, environment_state);
-
-                if(enough)
                 {
-                    if(bestEvaluated)
+                    ++environment_state.numberOfCheckedConfigs;
+                    continue;
+                }
+                if(run.second.fullFlag)
+                {
+                    ++environment_state.numberOfCheckedConfigs;
+                    ++environment_state.numValidConfigs;
+                    if(!bestEvaluated)
                     {
-                        assignBestIfBetter<T_MetricInterface>(environment_state.bestConfig, stored);
+                        environment_state.bestConfig = run.second;
                         continue;
                     }
-                    environment_state.bestConfig = stored;
+                    assignBestIfBetter<T_MetricInterface>(environment_state.bestConfig, run.second);
+
+
+                    continue;
                 }
-                else
+                if(enoughEvaluationsForConfig<T_MetricInterface>(run.second, environment_state))
                 {
-                    environment_state.config_queue.push_back(stored);
+                    if(!bestEvaluated)
+                    {
+                        environment_state.bestConfig = run.second;
+                        continue;
+                    }
+                    assignBestIfBetter<T_MetricInterface>(environment_state.bestConfig, run.second);
+
+
+                    continue;
                 }
+                environment_state.config_queue.push_back(run.second);
             }
             checkSessionFinishedCondition(environment_state);
         }
@@ -457,8 +470,10 @@ namespace alpaka::tune::detail::internal
         // static_assert(std::is_same_v<decltype(bundle), void()>);
         // we take the original KernelBundle here as userdefined traits are most likely according to the initial
         // KernelBundle Definition
+        std::cout << "launching Kernel: " << run.toHash() << std::endl;
         trait::callPreProcessing(run, spec, interface, kernelBundle);
         using KernelFn = typename getTypeFrom<std::decay_t<decltype(kernelBundle)>>::type;
+
         if constexpr(!trait::hasUserDefinedCTuneable<KernelFn>::value)
         {
             interface.start(run, spec);
@@ -559,8 +574,7 @@ namespace alpaka::tune::detail::internal
 namespace alpaka
 {
 
-#    define MeasureBestRuns                                                                                           \
-        1000 // how many runs after we have the best config will get messured (from the best config)
+#    define MeasureBestRuns 2 // how many runs after we have the best config will get messured (from the best config)
 
     template<typename... T_Args>
     void toDefault(auto& queue, const auto& defaultSpec, KernelTuningModel<T_Args...>& config)
@@ -589,11 +603,54 @@ namespace alpaka
             });
     }
 
+    template<typename T_KernelBundle>
+    struct configStore
+    {
+        std::string defaultHash;
+        std::string configHash;
+        std::string const configFile = "best_default_summary.txt";
+        std::string demangled = "";
+        configStore() = default;
+        configStore(std::string const& configHash, std::string const& defaultHash, std::string const& bundle)
+            : configHash(configHash)
+            , defaultHash(defaultHash)
+            , demangled(bundle) {
+
+            };
+        configStore(configStore const&) = default;
+        configStore& operator=(configStore const&) = default;
+
+        void store()
+        {
+            std::ofstream out(configFile, std::ios::app); // append mode
+            if(out)
+            {
+                out << "\n"; // spacing from previous entry
+
+                // Optional: entry separator
+                out << "==============================\n";
+
+                // Timestamp
+                auto now = std::chrono::system_clock::now();
+                std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+                out << "Timestamp: " << std::put_time(std::localtime(&now_c), "%F %T") << "\n";
+
+                // Config details
+                out << "Demangled: " << demangled << "\n";
+                out << "BestConfigID: " << configHash << "\n";
+                out << "DefaultConfigID: " << defaultHash << "\n";
+
+                out << "==============================\n";
+            }
+        }
+    };
+
     void selectRun(
         auto& queue,
         auto& config,
         KernelData& data,
         auto const& defaultSpec,
+        auto const& kernelbundle,
         int runCount,
         EnvironmentState& state)
     {
@@ -606,6 +663,10 @@ namespace alpaka
         else
         {
             toDefault(queue, defaultSpec, config);
+            if(!data.runs.contains(config.toHash()))
+            {
+                data.runs[config.toHash()] = toStore(config);
+            }
         }
     }
 
@@ -634,7 +695,7 @@ namespace alpaka
         static int runCount = 0;
         static bool write = true;
         // StorageKernelRun& stored = data.runs[state.bestConfig.toHash()];
-        selectRun(queue, config, data, defaultSpec, runCount, state);
+        selectRun(queue, config, data, defaultSpec, kernelBundle, runCount, state);
         tune::detail::internal::applyConfigAndExecuteKernel(queue, exec, kernelBundle, spec, metric_interface, config);
         onHost::wait(queue);
         StorageKernelRun& cur = data.runs[config.toHash()];
@@ -645,6 +706,12 @@ namespace alpaka
 
             if(write && runCount == MeasureBestRuns * 2)
             {
+                {
+                    std::string bestRun = state.bestConfig.toHash();
+                    toDefault(queue, defaultSpec, config);
+                    std::string defaultRun = config.toHash();
+                    configStore<T_KernelBundle>{bestRun, defaultRun, core::demangledName(kernelBundle)}.store();
+                }
                 history.storeConfig(configfile);
                 write = false;
                 ++session.finishedConfigs;

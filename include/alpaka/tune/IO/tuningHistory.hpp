@@ -134,10 +134,16 @@ namespace alpaka::tune
                                 {
                                     run.state = StorageKernelRun::State::Initialized;
                                 }
-                                if(run.stamp == -1)
+                                if(runTable.at("stamp").as_integer() == -1)
                                 {
                                     run.state = StorageKernelRun::State::Dummy;
+                                    run.stamp = -1;
+                                    run.fullFlag = true;
                                 }
+                                if(run.state != StorageKernelRun::State::Initialized
+                                   && run.state != StorageKernelRun::State::Dummy)
+                                    continue;
+
                                 for(auto const& elem : runTable.at("metric").as_array())
                                 {
                                     run.pushMetric(elem.as_floating());

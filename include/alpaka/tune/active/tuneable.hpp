@@ -812,10 +812,18 @@ namespace alpaka::tune
                 dependentList.emplace_back(i);
             }
         }
+        bool v_inList = false;
         for(T const& v : inputList)
         {
+            v_inList = (v == value) ? true : v_inList;
+            std::cout << " inputList for " << this->name() << v.toString() << std::endl;
             dependentList.push_back(v);
         }
+        if(!v_inList)
+        {
+            dependentList.push_back(value);
+        }
+        dependentList.erase(std::unique(dependentList.begin(), dependentList.end()), dependentList.end());
         valueList = dependentList;
         return dependentList;
     }
@@ -848,16 +856,25 @@ namespace alpaka::tune
                 }
             }
         }
-
+        bool v_inList = false;
         for(T const& v : inputList)
         {
+            v_inList = (v == value) ? true : v_inList;
+            std::cout << " inputList for " << this->name() << v.toString() << std::endl;
             for(std::size_t dim = 0; dim < D; ++dim)
             {
                 auto val = v[dim];
                 independentLists[dim].push_back(val);
             }
         }
-
+        if(!v_inList)
+        {
+            for(std::size_t dim = 0; dim < D; ++dim)
+            {
+                auto val = value[dim];
+                independentLists[dim].push_back(val);
+            }
+        }
 
         for(std::size_t dim = 0; dim < D; ++dim)
         {
