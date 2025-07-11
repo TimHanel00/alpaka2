@@ -3,6 +3,9 @@
  */
 
 #pragma once
+#include <alpaka/alpaka.hpp>
+#include <alpaka/onAcc/Acc.hpp>
+#include <alpaka/onHost/mem/ManagedView.hpp>
 
 //! alpaka version of explicit finite-difference 2D heat equation solver
 //!
@@ -19,70 +22,70 @@
 //! \param dx step in x
 //! \param dy step in y
 //! \param dt step in t
-#include <alpaka/tune/active/tuneable.hpp>
 
-#include <iostream>
-
-struct StencilKernel2
+namespace alpaka
 {
-    template<typename TAcc>
-    ALPAKA_FN_ACC auto operator()(
-        TAcc const& acc,
-        auto const uCurrBuf,
-        auto uNextBuf,
-        alpaka::concepts::Vector auto numNodes,
-        double const dx,
-        double const dy,
-        double const dt) const -> void
+    struct StencilKernel2
     {
-        using namespace alpaka;
-        auto frameExtent = acc[frame::extent];
-        auto _0Vec = ALPAKA_TYPEOF(frameExtent)::all(0u);
-
-        auto const blockCount = acc[layer::thread].count();
-
-
-        auto sdata = onAcc::getDynSharedMem<double>(acc);
-        auto span = alpaka::makeMdSpan(
-            sdata,
-            frameExtent,
-            alpaka::onHost::mem::calculatePitchesFromExtents<double>(frameExtent),
-            Alignment<sizeof(double)>{});
-        for(auto bufStartIdx :
-            onAcc::makeIdxMap(acc, onAcc::worker::blocksInGrid, IdxRange{_0Vec, numNodes, frameExtent}))
+        template<typename TAcc>
+        ALPAKA_FN_ACC auto operator()(
+            TAcc const& acc,
+            auto const uCurrBuf,
+            auto uNextBuf,
+            alpaka::concepts::Vector auto numNodes,
+            double const dx,
+            double const dy,
+            double const dt) const -> void
         {
-            onAcc::syncBlockThreads(acc);
+            using namespace alpaka;
+            auto frameExtent = acc[frame::extent];
+            auto _0Vec = ALPAKA_TYPEOF(frameExtent)::all(0u);
 
-            auto traverseOverExtentsWithHalo
-                = onAcc::makeIdxMap(acc, onAcc::worker::threadsInBlock, IdxRange{frameExtent + 2u});
-            for(auto elemIdxInFrame : traverseOverExtentsWithHalo)
+            auto const blockCount = acc[layer::thread].count();
+
+
+            auto sdata = onAcc::getDynSharedMem<double>(acc);
+            auto span = alpaka::makeMdSpan(
+                sdata,
+                frameExtent,
+                alpaka::onHost::mem::calculatePitchesFromExtents<double>(frameExtent),
+                Alignment<sizeof(double)>{});
+            for(auto bufStartIdx :
+                onAcc::makeIdxMap(acc, onAcc::worker::blocksInGrid, IdxRange{_0Vec, numNodes, frameExtent}))
             {
-                auto bufIdx = bufStartIdx + elemIdxInFrame;
-                span[elemIdxInFrame] = uCurrBuf[bufIdx];
-                // writeLoopAccs_Add();
-            }
+                onAcc::syncBlockThreads(acc);
 
-            onAcc::syncBlockThreads(acc);
-            double const rX = dt / (dx * dx);
-            double const rY = dt / (dy * dy);
+                auto traverseOverExtentsWithHalo
+                    = onAcc::makeIdxMap(acc, onAcc::worker::threadsInBlock, IdxRange{frameExtent + 2u});
+                for(auto elemIdxInFrame : traverseOverExtentsWithHalo)
+                {
+                    auto bufIdx = bufStartIdx + elemIdxInFrame;
+                    span[elemIdxInFrame] = uCurrBuf[bufIdx];
+                    // writeLoopAccs_Add();
+                }
 
-            constexpr auto xDir = CVec<uint32_t, 0u, 1u>{};
-            constexpr auto yDir = CVec<uint32_t, 1u, 0u>{};
-            auto traverseOverExtentsWithOutHalo = onAcc::makeIdxMap(
-                acc,
-                onAcc::worker::threadsInBlock,
-                IdxRange{frameExtent} >> 1u,
-                onAcc::traverse::tiled);
-            for(auto idx2D : traverseOverExtentsWithOutHalo)
-            {
-                auto bufIdx = bufStartIdx + idx2D;
-                // computeLoopAccs_Add();
-                uNextBuf[bufIdx] = span[idx2D] * (1.0 - 2.0 * rX - 2.0 * rY) + span[idx2D - xDir] * rX
-                                   + span[idx2D + xDir] * rX + span[idx2D - yDir] * rY + span[idx2D + yDir] * rY;
+                onAcc::syncBlockThreads(acc);
+                double const rX = dt / (dx * dx);
+                double const rY = dt / (dy * dy);
+
+                constexpr auto xDir = CVec<uint32_t, 0u, 1u>{};
+                constexpr auto yDir = CVec<uint32_t, 1u, 0u>{};
+                auto traverseOverExtentsWithOutHalo = onAcc::makeIdxMap(
+                    acc,
+                    onAcc::worker::threadsInBlock,
+                    IdxRange{frameExtent} >> 1u,
+                    onAcc::traverse::tiled);
+                for(auto idx2D : traverseOverExtentsWithOutHalo)
+                {
+                    auto bufIdx = bufStartIdx + idx2D;
+                    // computeLoopAccs_Add();
+                    uNextBuf[bufIdx] = span[idx2D] * (1.0 - 2.0 * rX - 2.0 * rY) + span[idx2D - xDir] * rX
+                                       + span[idx2D + xDir] * rX + span[idx2D - yDir] * rY + span[idx2D + yDir] * rY;
+                }
             }
         }
-    }
-};
+    };
+} // namespace alpaka
 
 /*
 for(alpaka::concepts::Dim<2u> auto blockStartIdx :

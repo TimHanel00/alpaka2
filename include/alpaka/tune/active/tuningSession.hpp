@@ -4,6 +4,7 @@
 #ifndef TUNER_H
 #define TUNER_H
 #define ENABLE_AUTOTUNE
+
 #include <alpaka/math/constants.hpp>
 #include <alpaka/tune/active/constraint.hpp>
 #include <alpaka/tune/utils/TimeEvent.hpp>
@@ -576,21 +577,9 @@ namespace alpaka
 #    define MeasureBestRuns 2 // how many runs after we have the best config will get messured (from the best config)
 
     template<typename... T_Args>
-    void toDefault(auto& queue, const auto& defaultSpec, KernelTuningModel<T_Args...>& config)
+    void defaultSIMD(auto& queue, const auto& defaultSpec, KernelTuningModel<T_Args...>& config)
     {
         auto elementsPerFrameItem = getNumElemPerThread<float_t>(queue);
-        if constexpr(KernelTuningModel<T_Args...>::hasNumBlocksTune())
-        {
-            config.getNumBlocksTune().value = defaultSpec.m_numFrames;
-        }
-        if constexpr(KernelTuningModel<T_Args...>::hasFrameExtentTune())
-        {
-            config.getFrameExtentTune().value = defaultSpec.m_frameExtent;
-        }
-        if constexpr(KernelTuningModel<T_Args...>::hasThreadBlockSizeTune())
-        {
-            config.getThreadBlockSizeTune().value = defaultSpec.m_frameExtent;
-        }
         for_each(
             config.allTuneables(),
             [&](auto& tune)
@@ -643,6 +632,8 @@ namespace alpaka
             }
         }
     };
+    template<typename Dummy>
+    struct DummyH;
 
     void selectRun(
         auto& queue,
@@ -661,7 +652,10 @@ namespace alpaka
         }
         else
         {
-            toDefault(queue, defaultSpec, config);
+            using KernelFn = typename tune::detail::internal::getTypeFrom<std::decay_t<decltype(kernelbundle)>>::type;
+            using Vec_2 = decltype(defaultSpec.m_numFrames);
+            alpaka::tune::trait::getDefault<KernelFn, Vec_2>(queue, config);
+            std::cout << " selected default: " << config.toHash() << std::endl;
             if(!data.runs.contains(config.toHash()))
             {
                 data.runs[config.toHash()] = toStore(config);
@@ -707,7 +701,6 @@ namespace alpaka
             {
                 {
                     std::string bestRun = state.bestConfig.toHash();
-                    toDefault(queue, defaultSpec, config);
                     std::string defaultRun = config.toHash();
                     configStore<T_KernelBundle>{bestRun, defaultRun, core::demangledName(kernelBundle)}.store();
                 }
@@ -765,6 +758,35 @@ namespace alpaka
             this->reRuns = reRuns;
             m_run.metric = MetricUndefined;
         }
+
+        template<typename T_KernelModel, typename... T_Args>
+        class TupleHolder
+        {
+        public:
+            TupleHolder() = default;
+
+            void addDefaults(T_Args&&... args)
+            {
+                data = std::make_tuple(std::forward<T_Args>(args)...);
+            }
+
+            template<std::size_t N>
+            auto& get()
+            {
+                static_assert(N < sizeof...(T_Args), "Index out of bounds");
+                return std::get<N>(data);
+            }
+
+            template<std::size_t N>
+            auto const& get() const
+            {
+                static_assert(N < sizeof...(T_Args), "Index out of bounds");
+                return std::get<N>(data);
+            }
+
+        private:
+            std::tuple<T_Args...> data;
+        };
 
         template<typename... T_Specifiers>
         TuningSession& withRunSpecifiers(T_Specifiers... specifiers)

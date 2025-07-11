@@ -508,6 +508,7 @@ void testKernels(T_Cfg cfg)
     uint32_t elementsPerFrameItem = getNumElemPerThread<DataType>(queue);
 
 	std::cout<<"ELEMENTSPERFRAME "<<elementsPerFrameItem<<std::endl;
+    accessArraySize<idxVec>(arraySize);
     auto numFramesInit = arraySize/ (static_cast<Idx>(blockThreadExtentMain) * elementsPerFrameItem);
     auto dataBlockingInit=onHost::FrameSpec{
         idxVec{static_cast<Idx>(numFramesInit)},

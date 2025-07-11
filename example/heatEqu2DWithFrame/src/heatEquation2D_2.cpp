@@ -21,7 +21,6 @@
 #include <cstdint>
 #include <iostream>
 #include <utility>
-
 /*
 template<typename T_Kernel, typename T_Spec>
 struct BlockDynSharedMemBytes;
@@ -178,9 +177,9 @@ auto example(T_Cfg const& cfg, uint32_t i) -> int
     // fVec{1}}}).//#cpu
 
     IdxVec numNodes = {i, i};
+    accessArraySize<IdxVec>(numNodes);
     constexpr IdxVec haloSize{2, 2};
     IdxVec extent = numNodes + haloSize;
-
     constexpr uint32_t numTimeSteps = 4000 * 32 * 4;
     constexpr double tMax = 0.000005;
     // GPU settings
