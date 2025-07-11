@@ -36,24 +36,10 @@ struct StencilKernel2
         double const dt) const -> void
     {
         using namespace alpaka;
-        auto numFrames = acc[frame::count];
         auto frameExtent = acc[frame::extent];
-        auto frameDomain = numFrames * frameExtent;
-        auto _0Vec = ALPAKA_TYPEOF(frameExtent){0u, 0u};
-        auto traverseOverFrames = onAcc::makeIdxMap(acc, onAcc::worker::blocksInGrid, IdxRange{_0Vec, numFrames});
-
-
-        using _2Vec = alpaka::Vec<u_int32_t, 2u>;
+        auto _0Vec = ALPAKA_TYPEOF(frameExtent)::all(0u);
 
         auto const blockCount = acc[layer::thread].count();
-        auto traverseOverExtentsWithHalo = onAcc::makeIdxMap(
-            acc,
-            onAcc::worker::threadsInBlock,
-            IdxRange{Vec{0u, 0u}, alpaka::Vec{frameExtent[0] + 2, frameExtent[1] + 2}, Vec{1u, 1u}});
-        auto traverseOverExtentsWithOutHalo = onAcc::makeIdxMap(
-            acc,
-            onAcc::worker::threadsInBlock,
-            IdxRange{Vec{0u, 0u}, alpaka::Vec{frameExtent[0], frameExtent[1]}, Vec{1u, 1u}});
 
 
         auto sdata = onAcc::getDynSharedMem<double>(acc);
@@ -67,7 +53,8 @@ struct StencilKernel2
         {
             onAcc::syncBlockThreads(acc);
 
-
+            auto traverseOverExtentsWithHalo
+                = onAcc::makeIdxMap(acc, onAcc::worker::threadsInBlock, IdxRange{frameExtent + 2u});
             for(auto elemIdxInFrame : traverseOverExtentsWithHalo)
             {
                 auto bufIdx = bufStartIdx + elemIdxInFrame;
@@ -81,10 +68,13 @@ struct StencilKernel2
 
             constexpr auto xDir = CVec<uint32_t, 0u, 1u>{};
             constexpr auto yDir = CVec<uint32_t, 1u, 0u>{};
-
-            for(auto elemIdxInFrame : traverseOverExtentsWithOutHalo)
+            auto traverseOverExtentsWithOutHalo = onAcc::makeIdxMap(
+                acc,
+                onAcc::worker::threadsInBlock,
+                IdxRange{frameExtent} >> 1u,
+                onAcc::traverse::tiled);
+            for(auto idx2D : traverseOverExtentsWithOutHalo)
             {
-                auto idx2D = elemIdxInFrame + Vec{1u, 1u};
                 auto bufIdx = bufStartIdx + idx2D;
                 // computeLoopAccs_Add();
                 uNextBuf[bufIdx] = span[idx2D] * (1.0 - 2.0 * rX - 2.0 * rY) + span[idx2D - xDir] * rX
