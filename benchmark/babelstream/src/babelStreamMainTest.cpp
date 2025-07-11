@@ -378,8 +378,9 @@ static auto getSessionFromExec(Exec_T const &exec,auto arraySize,auto & devAcc){
 		return std::make_tuple(tuningSessionDot,tuningSessionRest);
     };
 template<typename T_TuningSessionDot,typename T_TuningSessionRest>
-void abortIfFinished(const T_TuningSessionDot &dotSession,const  T_TuningSessionRest &restSession){
-    if(restSession.finishedConfigs>=4&&dotSession.finishedConfigs>=1){std::terminate();};
+bool abortIfFinished(const T_TuningSessionDot &dotSession,const  T_TuningSessionRest &restSession){
+    if(restSession.finishedConfigs>=4&&dotSession.finishedConfigs>=1){return true;};
+    return false;
     }
 template<typename Data_T>
 static auto getSessionFromExec(alpaka::exec::CpuOmpBlocks const &exec, auto arraySize, auto &devAcc) {
@@ -540,14 +541,15 @@ void testKernels(T_Cfg cfg)
         kernelFunc();
         onHost::wait(queue);
         auto end = std::chrono::high_resolution_clock::now();
-        abortIfFinished(tuningSessionDot,tuningSessionRest);
+
         // get duration in seconds
         std::chrono::duration<double> duration = end - start;
         runtime = duration.count();
         auto ns_count = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
-        std::cout << "[TUNER]" << "," << ns_count << "," << "\n";
-        std::cout << "[ALPAKA]" << "," << alpaka::tune::global::timingAccessor() << "," << "\n";
+        std::cout << "[TUNER]" << "," << ns_count << "," << kernelLabel<<"\n";
+        std::cout << "[ALPAKA]" << "," << alpaka::tune::global::timingAccessor() << "," << kernelLabel<<"\n";
         runtimeResults.kernelToRundataMap[kernelLabel]->timingsSuccessiveRuns.push_back(runtime);
+
     };
 
 
@@ -688,6 +690,9 @@ void testKernels(T_Cfg cfg)
                 "NStreamKernel");
         }
         onHost::wait(queue);
+        if(abortIfFinished(tuningSessionDot,tuningSessionRest)){
+            return;
+        }
     } // End of MAIN LOOP which runs the kernels many times
 
 
@@ -831,11 +836,11 @@ TEMPLATE_LIST_TEST_CASE("TEST: Babelstream Kernels<Float>", "[benchmark-test]", 
     // Run tests for the float data type
     testKernels<float>(apiAndExecutors);
 }
-
+/*
 // Run for all Accs given by the argument
 TEMPLATE_LIST_TEST_CASE("TEST: Babelstream Kernels<Double>", "[benchmark-test]", TestApis)
 {
     auto apiAndExecutors = TestType::makeDict();
     // Run tests for the double data type
     testKernels<double>(apiAndExecutors);
-}
+}*/

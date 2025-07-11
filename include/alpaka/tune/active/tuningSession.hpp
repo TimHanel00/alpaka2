@@ -192,7 +192,6 @@ namespace alpaka::tune::detail::internal
             }
         case ::Comparison::Inconclusive:
             {
-                std::cout << " inconclusive " << std::endl;
                 if(!stored.fullFlag)
                 {
                     return false;
@@ -354,7 +353,7 @@ namespace alpaka::tune::detail::internal
             });
         if(!valid)
         {
-            std::cout << " constraint violated for : " << runHash << std::endl;
+            // std::cout << " constraint violated for : " << runHash << std::endl;
             using T_state = ALPAKA_TYPEOF(stored.state);
             ++state.numberOfCheckedConfigs;
             stored.metricContainer.clear();
@@ -470,7 +469,7 @@ namespace alpaka::tune::detail::internal
         // static_assert(std::is_same_v<decltype(bundle), void()>);
         // we take the original KernelBundle here as userdefined traits are most likely according to the initial
         // KernelBundle Definition
-        std::cout << "launching Kernel: " << run.toHash() << std::endl;
+        // std::cout << "launching Kernel: " << run.toHash() << std::endl;
         trait::callPreProcessing(run, spec, interface, kernelBundle);
         using KernelFn = typename getTypeFrom<std::decay_t<decltype(kernelBundle)>>::type;
 
