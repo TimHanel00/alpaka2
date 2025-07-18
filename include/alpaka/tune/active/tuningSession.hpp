@@ -457,6 +457,58 @@ namespace alpaka::tune::detail::internal
         using type = KernelFn;
     };
 
+    template<typename numBlocks, typename numThreads, typename... Args>
+    struct ConfigContext
+    {
+        onHost::FrameSpec<numBlocks, numThreads> spec;
+        KernelBundle<Args...> kernelBundle;
+        ConfigContext(onHost::FrameSpec<numBlocks, numThreads> const& spec, KernelBundle<Args...> const& bundle)
+            : spec(spec)
+            , kernelBundle(bundle) {};
+
+        auto getFrameSpec()
+        {
+            return spec;
+        };
+
+        auto getKernelBundle()
+        {
+            return kernelBundle;
+        };
+    };
+
+    auto getbestHelper(auto const& kernelBundle, auto& spec, auto& run)
+    {
+        applyCustomThreadSpec(run, spec);
+        auto bundle = recreate(kernelBundle, run.userTuneables);
+        // static_assert(std::is_same_v<decltype(bundle), void()>);
+        // we take the original KernelBundle here as userdefined traits are most likely according to the initial
+        // KernelBundle Definition
+        // std::cout << "launching Kernel: " << run.toHash() << std::endl;
+        using KernelFn = typename getTypeFrom<std::decay_t<decltype(kernelBundle)>>::type;
+
+        if constexpr(!trait::hasUserDefinedCTuneable<KernelFn>::value)
+        {
+            return ConfigContext{spec, bundle};
+        }
+        else
+        {
+            std::size_t i = trait::getRtimeIndexMap(kernelBundle)[run.compileTimeToFlatValueTuple()]; // kernelFn index
+            static auto variants = typename trait::RegisteredCTuneables<std::decay_t<KernelFn>>::T_KernelVariants{};
+            alpaka::tune::runtime_Kernel_dispatch(
+                i,
+                variants,
+                [&i, &bundle, spec](auto&& element)
+                {
+                    auto newBundle = std::apply(
+                        [&element]<typename... T0>(T0&&... args)
+                        { return KernelBundle{element, std::forward<T0>(args)...}; },
+                        bundle.m_args);
+                    return ConfigContext{spec, newBundle};
+                });
+        }
+    }
+
     inline void applyConfigAndExecuteKernel(
         auto const& queue,
         auto exec,
@@ -574,7 +626,8 @@ namespace alpaka::tune::detail::internal
 namespace alpaka
 {
 
-#    define MeasureBestRuns 2 // how many runs after we have the best config will get messured (from the best config)
+#    define MeasureBestRuns                                                                                           \
+        1000 // how many runs after we have the best config will get messured (from the best config)
 
     template<typename... T_Args>
     void defaultSIMD(auto& queue, const auto& defaultSpec, KernelTuningModel<T_Args...>& config)
@@ -655,7 +708,6 @@ namespace alpaka
             using KernelFn = typename tune::detail::internal::getTypeFrom<std::decay_t<decltype(kernelbundle)>>::type;
             using Vec_2 = decltype(defaultSpec.m_numFrames);
             alpaka::tune::trait::getDefault<KernelFn, Vec_2>(queue, config);
-            std::cout << " selected default: " << config.toHash() << std::endl;
             if(!data.runs.contains(config.toHash()))
             {
                 data.runs[config.toHash()] = toStore(config);
@@ -705,7 +757,6 @@ namespace alpaka
                     configStore<T_KernelBundle>{bestRun, defaultRun, core::demangledName(kernelBundle)}.store();
                 }
                 history.storeConfig(configfile);
-                write = false;
                 ++session.finishedConfigs;
             }
         }
@@ -812,6 +863,38 @@ namespace alpaka
         auto copyTuple(std::tuple<Ts...> const& t)
         {
             return copyTupleImpl(t, std::index_sequence_for<Ts...>{});
+        }
+
+        template<
+            typename T_Device,
+            typename T_Queue,
+            typename T_Exec,
+            typename T_NumFrames,
+            typename T_FrameExtent,
+            typename T_KernelBundle>
+        auto getbest(
+            T_Device device,
+            T_Queue& queue,
+            T_Exec exec,
+            onHost::FrameSpec<T_NumFrames, T_FrameExtent> const& frameSpec,
+            T_KernelBundle const& kernelBundle)
+        {
+            auto* kernelptr = tune::detail::internal::setup_enqueue<T_MetricInterface>(
+                device,
+                exec,
+                frameSpec,
+                kernelBundle,
+                this->m_strategy,
+                this->m_metricInterface,
+                this->m_constraint,
+                this->m_run,
+                sessionSpecifier,
+                history,
+                config);
+            EnvironmentState& environment_state = kernelptr->environmentState;
+            auto& activeRun = *kernelptr->activeRunPtr;
+            toActive(activeRun, environment_state.bestConfig);
+            return tune::detail::internal::getbestHelper(kernelBundle, kernelptr->frameSpec, activeRun);
         }
 
         /** Enqueue and Execute a kernel for the tuning session

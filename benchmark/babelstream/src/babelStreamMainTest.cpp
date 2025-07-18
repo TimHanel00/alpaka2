@@ -364,7 +364,7 @@ static auto getSessionFromExec(Exec_T const &exec,auto arraySize,auto & devAcc){
 
                       return condZ&&isPowerOfTwo(concurrentElements[0]);
                   })
-              .withConfig("./config/BabelstreamGPU_"+std::to_string(arraySize)+"_"+".toml")
+              .withConfig("./config/Babelstream_CPU_"+std::to_string(arraySize)+"_"+".toml")
               .build();
     static auto tuningSessionRest
         = tune::TuningBuilder{}
@@ -373,7 +373,7 @@ static auto getSessionFromExec(Exec_T const &exec,auto arraySize,auto & devAcc){
               .withBlockSizeTune(tune::Tuneable(IdxRange{idxVec{64}, idxVec{maxThreads}, idxVec{64}}))
               .withNumBlocksTune()
               .template withConstraint<_0T>(  [arraySize](auto concurrentElements){return isPowerOfTwo(concurrentElements[0]);})
-              .withConfig("./config/BabelstreamGPU_"+std::to_string(arraySize)+"_"+".toml")
+              .withConfig("./config/Babelstream_CPU_"+std::to_string(arraySize)+"_"+".toml")
               .build();
 		return std::make_tuple(tuningSessionDot,tuningSessionRest);
     };
@@ -410,12 +410,12 @@ using Idx = std::uint32_t;
                       return condZ&&isPowerOfTwo(concurrentElements[0]);
                   })
               .withNumBlocksTune()
-    .withConfig("./config/BabelstreamCPU_Dot_"+std::to_string(arraySize)+"_.toml").build();
+    .withConfig("./config/Babelstream_CPU_"+std::to_string(arraySize)+"_.toml").build();
 	static auto sessionRest= tune::TuningBuilder{}
           .withRunSpecifiers(std::to_string(arraySize),data)
           .withNumBlocksTune()
           .template withConstraint<_0T>(  [arraySize](auto concurrentElements){return isPowerOfTwo(concurrentElements[0]);})
-          .withConfig("./config/BabelstreamCPU_Dot_"+std::to_string(arraySize)+"_.toml")
+          .withConfig("./config/Babelstream_CPU_"+std::to_string(arraySize)+"_.toml")
           .build();
 
 		return std::make_tuple(sessionDot,sessionRest);

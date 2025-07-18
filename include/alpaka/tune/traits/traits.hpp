@@ -87,25 +87,28 @@ namespace alpaka::tune::trait
             metricInterface,
             KernelBundle);
     }
+
     template<typename T_KernelBundle, typename Vec_2, typename T_Queue, typename T_Config>
-struct GetDefaultImpl
+    struct GetDefaultImpl
     {
         static void apply(T_Queue const& queue, T_Config& config)
         {
-            static_assert(
-                sizeof(T_KernelBundle) == 0,
-                "❌ No specialization of getDefault for this kernel bundle — check your KernelBundle type!"); // fallback
+#pragma message("[Warning] No specialization of getDefault for this kernel bundle — check your KernelBundle type!")
+            std::cout << " selected wrong SPECIALIZATION " << std::endl;
+            // Optional fallback code
             // or
             // error
             // trigger
         }
     };
+
     template<typename T_KernelBundle, typename Vec_2, typename T_Queue, typename T_Config>
     auto getDefault(T_Queue const& queue, T_Config& config)
 
     {
         GetDefaultImpl<T_KernelBundle, Vec_2, T_Queue, T_Config>::apply(queue, config);
     }
+
     template<typename Kernel>
     struct CompileTimeTuneableTrait
     {

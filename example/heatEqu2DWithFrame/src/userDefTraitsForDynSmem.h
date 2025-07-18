@@ -49,7 +49,7 @@ namespace alpaka::tune::trait
                 [&](auto& tune, auto i)
                 {
                     auto& tuneVal = tune.value;
-                    if(std::string_view name = tune.name(); name == "FrameExtentTune")
+                    if(std::string name = tune.name(); name == "FrameExtentTune")
                     {
                         tuneVal = Vec_2{16u, 16u};
                     }

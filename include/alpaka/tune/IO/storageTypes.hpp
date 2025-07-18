@@ -192,7 +192,7 @@ class timingsContainer
 {
 public:
     template<std::size_t stepsUntilCICheck = 10>
-    bool push(double_t val)
+    bool push(double_t val, bool fullFlag)
     {
         history.push_back(val); // to track the order of incoming metrics
 
@@ -219,7 +219,7 @@ public:
             lower.push(upper.top());
             upper.pop();
         }
-        if(history.size() % stepsUntilCICheck == 0)
+        if(!fullFlag && history.size() % stepsUntilCICheck == 0)
         {
             // perform CI (confidence Intervall) check
             return ciWithinTolerance();
@@ -460,7 +460,7 @@ struct StorageKernelRun
 
     void pushMetric(double_t const& m)
     {
-        if(metricContainer.push<StepsUntilCICheck>(m))
+        if(metricContainer.push<StepsUntilCICheck>(m, fullFlag))
         {
             fullFlag = true;
         }
@@ -479,7 +479,7 @@ struct StorageKernelRun
             else
             {
                 this->metricContainer.clear();
-                metricContainer.push<StepsUntilCICheck>(m);
+                metricContainer.push<StepsUntilCICheck>(m, fullFlag);
                 this->state = State::Initialized;
                 this->nr_runs = 1;
             }

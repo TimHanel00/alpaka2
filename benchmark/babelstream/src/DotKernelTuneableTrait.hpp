@@ -169,7 +169,7 @@ namespace alpaka::tune::trait
                 [&](auto& tune, auto i)
                 {
                     auto& tuneVal = tune.value;
-                    std::string_view name = tune.name();
+                    std::string name = tune.name();
                      if(name == "NumBlocksTune")
                     {
                         tuneVal = numFrames;
@@ -233,7 +233,7 @@ template<typename CTuneable, typename Data, typename Vec_2, typename T_Config, t
                 [&](auto& tune, auto i)
                 {
                     auto& tuneVal = tune.value;
-                    if(std::string_view name = tune.name(); name == "FrameExtentTune")
+                    if(std::string name = tune.name(); name == "FrameExtentTune")
                     {
                         tuneVal = frameExtent;
                     }
