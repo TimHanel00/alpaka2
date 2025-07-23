@@ -420,6 +420,16 @@ using Idx = std::uint32_t;
 
 		return std::make_tuple(sessionDot,sessionRest);
 }
+void log_event(const std::string& label) {
+    auto now = std::chrono::system_clock::now();
+    std::time_t t_c = std::chrono::system_clock::to_time_t(now);
+    auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        now.time_since_epoch()).count() % 1'000'000'000;
+
+    std::tm* tm = std::localtime(&t_c);
+    std::cout << "[" << std::put_time(tm, "%F %T") << "." << std::setfill('0') << std::setw(9) << ns
+              << "]," << label << std::endl;
+}
 //! \brief The Function for testing babelstream kernels for given Acc type and data type.
 //! \tparam TAcc the accelerator type
 //! \tparam DataType The data type to differentiate single or double data type based tests.
@@ -550,6 +560,8 @@ void testKernels(T_Cfg cfg)
         std::cout << "[TUNER]" << "," << ns_count << "," << kernelLabel<<"\n";
         std::cout << "[ALPAKA]" << "," << alpaka::tune::global::timingAccessor() << "," << kernelLabel<<"\n";
         runtimeResults.kernelToRundataMap[kernelLabel]->timingsSuccessiveRuns.push_back(runtime);
+
+		log_event(kernelLabel);
 
     };
 

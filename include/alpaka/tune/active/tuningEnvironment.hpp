@@ -247,7 +247,8 @@ public:
             ptrToHistory = history.getKernelFromHistory(device, exec, kernelBundle, sessionSpecifier_);
         }
         KernelData& h = *ptrToHistory;
-        std::cout<<" blocks: "<<defaultFrameSpec.m_threadSpec.m_numBlocks<< " vs "<<frameSpec.m_threadSpec.m_numBlocks<<std::endl;
+        std::cout << " blocks: " << defaultFrameSpec.m_threadSpec.m_numBlocks << " vs "
+                  << frameSpec.m_threadSpec.m_numBlocks << std::endl;
         // acts like a guard only valid configs are used for the device
         alpaka::tune::clampToSpec(device, frameSpec, *activeRunPtr);
         makeListsForAllTuneables(activeRunPtr->allTuneables());

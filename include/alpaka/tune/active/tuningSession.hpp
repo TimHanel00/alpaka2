@@ -697,14 +697,16 @@ namespace alpaka
         int runCount,
         EnvironmentState& state)
     {
-        if(runCount < MeasureBestRuns)
+        if((runCount / 4) % 2 == 0)
         {
             // run Best
+            std::cout << "Best" << std::endl;
             StorageKernelRun& best = data.runs[state.bestConfig.toHash()];
             toActive(config, best);
         }
         else
         {
+            std::cout << "Default" << std::endl;
             using KernelFn = typename tune::detail::internal::getTypeFrom<std::decay_t<decltype(kernelbundle)>>::type;
             using Vec_2 = decltype(defaultSpec.m_numFrames);
             alpaka::tune::trait::getDefault<KernelFn, Vec_2>(queue, config);
@@ -738,17 +740,21 @@ namespace alpaka
         T_MetricInterface& metric_interface)
     {
         static int runCount = 0;
+        static int storedRuns = 0;
         static bool write = true;
         // StorageKernelRun& stored = data.runs[state.bestConfig.toHash()];
         selectRun(queue, config, data, defaultSpec, kernelBundle, runCount, state);
         tune::detail::internal::applyConfigAndExecuteKernel(queue, exec, kernelBundle, spec, metric_interface, config);
         onHost::wait(queue);
         StorageKernelRun& cur = data.runs[config.toHash()];
-        if(runCount < MeasureBestRuns * 2)
+        if(storedRuns < MeasureBestRuns * 2)
         {
-            cur.pushMetric(config.metric);
+            if(((runCount / 2) % 4) != 0)
+            {
+                cur.pushMetric(config.metric);
+                storedRuns++;
+            }
             ++runCount;
-
             if(write && runCount == MeasureBestRuns * 2)
             {
                 {

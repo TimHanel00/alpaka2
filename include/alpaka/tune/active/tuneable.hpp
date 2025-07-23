@@ -79,6 +79,112 @@ namespace alpaka::tune
         return ((tuneable.idxRange.m_end - tuneable.idxRange.m_begin) / tuneable.idxRange.m_stride).product() + 1;
     }
 
+    auto safeDivExZero(std::integral auto val, std::integral auto val2)
+    {
+        if(val2 == 0)
+            return val;
+        return divExZero(val, val2);
+    }
+
+    template<typename Tuneable, typename maxVec>
+    void extendInputListFromPartition(
+        Tuneable& tuneable,
+        maxVec const& maxVal,
+        maxVec const& partitionedVec,
+        std::size_t minSteps = defaultMinSteps,
+        std::size_t maxSteps = defaultMaxSteps)
+    {
+        using Vec = typename Tuneable::ValueType;
+        using Scalar = typename Vec::type;
+
+        std::cout << "========== [DEBUG] extendInputListFromPartition ==========\n";
+        std::cout << "maxVal        = " << maxVal.toString() << "\n";
+        std::cout << "partitionedVec= " << partitionedVec.toString() << "\n";
+        std::cout << "minSteps = " << minSteps << ", maxSteps = " << maxSteps << "\n";
+
+        if(minSteps == 0 || maxSteps == 0)
+        {
+            std::cerr << "[Error] minSteps or maxSteps is zero.\n";
+            return;
+        }
+
+        // Early exit: if partition is already larger than maxVal, just use maxVal
+        if(!allTrue(partitionedVec < maxVal))
+        {
+            std::cout << "[Early Exit] partitionedVec >= maxVal → using single value: " << maxVal.toString() << "\n";
+            tuneable.extendInputList({maxVal});
+            std::cout << "==========================================================\n";
+            return;
+        }
+
+        Vec baseStep = partitionedVec;
+        Vec step;
+
+        for(std::size_t i = 0; i < alpaka::getDim(step); ++i)
+        {
+            Scalar base = baseStep[i];
+            if(base == 0)
+            {
+                std::cerr << "[Warning] baseStep[" << i << "] = 0, forcing to 1.\n";
+                base = 1;
+            }
+
+            Scalar rawStep = maxVal[i] / static_cast<Scalar>(maxSteps);
+            double divDown = static_cast<double>(rawStep) / static_cast<double>(base);
+            Scalar nDown = static_cast<Scalar>(std::floor(divDown));
+            Scalar candidate = std::max(nDown * base, base);
+            step[i] = candidate;
+
+            std::cout << "[Step Calc] Dim " << i << ": rawStep = " << rawStep << ", base = " << base
+                      << ", divDown = " << divDown << ", nDown = " << nDown << ", step = " << step[i] << "\n";
+
+            Scalar numSteps = maxVal[i] / step[i];
+            std::cout << "[Check] numSteps = " << numSteps << " (vs minSteps = " << minSteps << ")\n";
+
+            if(numSteps < minSteps)
+            {
+                Scalar minStep = maxVal[i] / static_cast<Scalar>(minSteps);
+                double divUp = static_cast<double>(minStep) / static_cast<double>(base);
+                Scalar nUp = static_cast<Scalar>(std::ceil(divUp));
+                step[i] = std::max(nUp * base, base);
+
+                std::cout << "[Fallback] minStep = " << minStep << ", divUp = " << divUp << ", nUp = " << nUp
+                          << ", adjusted step = " << step[i] << "\n";
+            }
+
+            if(step[i] == 0)
+            {
+                std::cerr << "[Error] Final step[" << i << "] is 0! Forcing to 1.\n";
+                step[i] = 1;
+            }
+        }
+
+        std::cout << "Final step vector = " << step.toString() << "\n";
+
+        std::vector<Vec> values;
+        Vec current = step;
+        std::size_t count = 0;
+
+        while(allTrue(current < maxVal) && values.size() < maxSteps)
+        {
+            std::cout << "[Iter " << count << "] current = " << current.toString() << "\n";
+            values.emplace_back(current);
+            current = current + step;
+            ++count;
+        }
+
+        std::cout << "Total values generated: " << values.size() << "\n";
+        if(values.empty())
+        {
+            std::cout << "[Warning] No values generated!\n";
+        }
+
+        tuneable.extendInputList(std::move(values));
+        std::cout << "==========================================================\n";
+
+        tuneable.extendInputList(std::move(values));
+    }
+
     template<typename Tuneable, typename maxVec, typename ScalarPartitioning>
     void adaptRangeToNumSteps(
         Tuneable& tuneable, // the tuneable we want to partition
@@ -628,6 +734,12 @@ namespace alpaka::tune
         friend constexpr bool isSameTuneable(TuneableA const& a, TuneableB const& b);
         using ValueList = typename ValueListType<T, dimensionTraversePolicy>::type;
         ValueList valueList;
+
+        void extendInputList(std::vector<T>&& baseInputList)
+        {
+            inputList.reserve(inputList.size() + baseInputList.size());
+            std::move(baseInputList.begin(), baseInputList.end(), std::back_inserter(inputList));
+        }
 
         std::string name() const
         {

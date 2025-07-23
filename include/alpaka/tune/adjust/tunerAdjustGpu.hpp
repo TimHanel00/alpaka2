@@ -52,10 +52,21 @@ namespace alpaka::tune
             {
                 if(!newRun.getNumBlocksTune().userDef)
                 {
-                    adaptRangeToNumSteps(
+                    std::cout << " NUMBER OF BLOCKSA:D:AMD :    " << device.getDeviceProperties().m_multiProcessorCount
+                              << std::endl;
+                    extendInputListFromPartition(
                         newRun.getNumBlocksTune(),
                         dataBlocking.m_numFrames,
-                        device.getDeviceProperties().m_multiProcessorCount);
+                        partitionedCores,
+                        4,
+                        8);
+                    extendInputListFromPartition(
+                        newRun.getNumBlocksTune(),
+                        dataBlocking.m_numFrames,
+                        dataBlocking.m_numFrames / 8,
+                        4,
+                        8);
+                    newRun.getNumBlocksTune().hasRange = false;
                 }
             }
             return std::make_pair(dataBlocking.getThreadSpec(), newRun);
