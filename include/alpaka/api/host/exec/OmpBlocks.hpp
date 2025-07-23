@@ -81,7 +81,7 @@ namespace alpaka::onHost
                         additionalDict));
 
                     using ThreadIdxType = typename NumThreadsVecType::type;
-#    pragma omp for nowait
+#    pragma omp for schedule(static) nowait
                     for(ThreadIdxType i = 0; i < blockCount.product(); ++i)
                     {
                         blockIdx = mapToND(blockCount, i);
