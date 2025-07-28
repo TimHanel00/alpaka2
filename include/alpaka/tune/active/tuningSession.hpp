@@ -96,6 +96,8 @@ namespace alpaka::tune::detail::internal
             best = stored;
             return;
         }
+        if(!best.fullFlag || !stored.fullFlag) // not yet fully evaluated both configs
+            return;
         bool storedIsSmaller
             = (stored.metricContainer.get(median_t{}).as<t_ns>() < best.metricContainer.get(median_t{}).as<t_ns>());
         if(storedIsSmaller)
@@ -120,18 +122,6 @@ namespace alpaka::tune::detail::internal
             return false;
         }
 
-        if(stored.nr_runs >= alpaka::tune::getRunsPerConfig())
-        {
-            if(!stored.fullFlag)
-            {
-                ++environment.numberOfCheckedConfigs;
-                ++environment.numValidConfigs;
-                stored.fullFlag = true;
-            }
-
-            return true;
-        }
-
         StorageKernelRun& best = environment.bestConfig;
 
         if(best.toHash() == stored.toHash())
@@ -143,69 +133,49 @@ namespace alpaka::tune::detail::internal
             }
             return true;
         }
-        auto res = best.compare(stored);
-
-        switch(res)
+        return false;
+        if(allowPrematureConfigSkip)
         {
-        case ::Comparison::Greater:
+            auto res = best.compare(stored); // kruskal wallis comparison
+
+            switch(res)
             {
-                // best is higher then stored
-                std::string bestHashTmp = best.toHash();
-                best = aGTb<T_MetricInterface>{}(best, stored);
-                if(bestHashTmp != best.toHash())
+            case ::Comparison::Greater:
                 {
-                    if(allowPrematureConfigSkip && !stored.fullFlag)
+                    // best is higher then stored
+                    std::string bestHashTmp = best.toHash();
+                    best = aGTb<T_MetricInterface>{}(best, stored);
+                    if(bestHashTmp == best.toHash())
                     {
                         ++environment.numberOfCheckedConfigs;
                         ++environment.numValidConfigs;
                         stored.fullFlag = true;
                         return true;
                     }
-                }
-
-
-                if(!stored.fullFlag)
-                {
                     return false;
                 }
-                return true;
-            }
-        case ::Comparison::Less:
-            {
-                // best is lower then stored
-                std::string bestHashTmp = best.toHash();
-                best = aLTb<T_MetricInterface>{}(best, stored);
-                if(bestHashTmp != best.toHash())
+            case ::Comparison::Less:
                 {
-                    if(allowPrematureConfigSkip && !stored.fullFlag)
+                    // best is lower then stored
+                    std::string bestHashTmp = best.toHash();
+                    best = aLTb<T_MetricInterface>{}(best, stored);
+                    if(bestHashTmp == best.toHash())
                     {
                         ++environment.numberOfCheckedConfigs;
                         ++environment.numValidConfigs;
                         stored.fullFlag = true;
                         return true;
                     }
+                    return false;
                 }
-                if(!stored.fullFlag)
+            case ::Comparison::Inconclusive:
                 {
                     return false;
                 }
-                return true;
+            default:
+                break;
             }
-        case ::Comparison::Inconclusive:
-            {
-                if(!stored.fullFlag)
-                {
-                    return false;
-                }
-                assignBestIfBetter<T_MetricInterface>(best, stored);
-                return true;
-            }
-        default:
-            break;
         }
-
-        std::cout << " this should not be reachable " << std::endl;
-        std::terminate();
     }
 
     inline void checkSessionFinishedCondition(EnvironmentState& state)
@@ -592,11 +562,12 @@ namespace alpaka::tune::detail::internal
         stored.pushMetric(run.metric);
         bool flagPost = stored.fullFlag;
 
-
+        bool CIcriteriaReached = (flagPre != flagPost);
+        bool customCriteriaReached = (stored.nr_runs >= alpaka::tune::getRunsPerConfig());
         // update stopping criteria
         if(!alpaka::tune::hasRunsPerConfig_Env())
         {
-            if(flagPre != flagPost)
+            if(CIcriteriaReached)
             {
                 ++state.numberOfCheckedConfigs;
                 ++state.numValidConfigs;
@@ -605,19 +576,16 @@ namespace alpaka::tune::detail::internal
         }
         else
         {
-            if(flagPre != flagPost)
+            if(CIcriteriaReached)
             {
                 stored.fullFlag = false;
             }
-            if(stored.nr_runs >= alpaka::tune::getRunsPerConfig())
+            if(customCriteriaReached)
             {
-                if(!stored.fullFlag)
-                {
-                    ++state.numberOfCheckedConfigs;
-                    ++state.numValidConfigs;
-                }
-                assignBestIfBetter<T_MetricInterface>(state.bestConfig, stored);
+                ++state.numberOfCheckedConfigs;
+                ++state.numValidConfigs;
                 stored.fullFlag = true;
+                assignBestIfBetter<T_MetricInterface>(state.bestConfig, stored);
             }
         }
     }
