@@ -665,7 +665,7 @@ namespace alpaka
         int runCount,
         EnvironmentState& state)
     {
-        if((runCount / 4) % 2 == 0)
+        if(static_cast<uint32_t>(runCount / 4) % 2 == 0)
         {
             // run Best
             std::cout << "Best" << std::endl;
@@ -717,7 +717,7 @@ namespace alpaka
         StorageKernelRun& cur = data.runs[config.toHash()];
         if(storedRuns < MeasureBestRuns * 2)
         {
-            if(((runCount / 2) % 4) != 0)
+            if(runCount %4 > 1)
             {
                 cur.pushMetric(config.metric);
                 storedRuns++;

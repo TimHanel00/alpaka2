@@ -69,7 +69,7 @@ namespace alpaka::tune
             }
             return upperBoundForRunsPerConfig;
         }
-
+    #define maxDefaultNumberOfConfigs 32768
         static std::size_t getMaxConfigs_Env()
         {
             if(char const* var = std::getenv("TunerMaxConfigs"))
@@ -84,7 +84,7 @@ namespace alpaka::tune
                     std::cerr << "Invalid value for TunerReRuns: " << e.what() << std::endl;
                 }
             }
-            return UINT64_MAX;
+            return maxDefaultNumberOfConfigs;
         }
     } // namespace internal
 

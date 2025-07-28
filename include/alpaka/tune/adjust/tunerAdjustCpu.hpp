@@ -168,16 +168,10 @@ namespace alpaka::tune
                     auto nonConstnumFrames = dataBlocking.m_numFrames;
                     extendInputListFromPartition(
                         newRun.getNumBlocksTune(),
-                        partitionedCores * decltype(nonConstnumFrames)::all(8),
-                        partitionedCores,
-                        4,
-                        8);
-                    extendInputListFromPartition(
-                        newRun.getNumBlocksTune(),
                         dataBlocking.m_numFrames,
-                        nonConstnumFrames / decltype(nonConstnumFrames)::all(8),
-                        4,
-                        8);
+                        partitionedCores,
+                        8,
+                        124);
                     newRun.getNumBlocksTune().hasRange = false;
                 }
             }

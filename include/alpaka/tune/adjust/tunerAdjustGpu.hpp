@@ -52,20 +52,14 @@ namespace alpaka::tune
             {
                 if(!newRun.getNumBlocksTune().userDef)
                 {
-                    std::cout << " NUMBER OF BLOCKSA:D:AMD :    " << device.getDeviceProperties().m_multiProcessorCount
-                              << std::endl;
+                    auto partitionedMultiprocessors = primeFactorPartitioning(device.getDeviceProperties().m_multiProcessorCount, T_NumBlocks{});
+                    auto nonConstnumFrames = dataBlocking.m_numFrames;
                     extendInputListFromPartition(
                         newRun.getNumBlocksTune(),
                         dataBlocking.m_numFrames,
-                        partitionedCores,
-                        4,
-                        8);
-                    extendInputListFromPartition(
-                        newRun.getNumBlocksTune(),
-                        dataBlocking.m_numFrames,
-                        dataBlocking.m_numFrames / 8,
-                        4,
-                        8);
+                        partitionedMultiprocessors,
+                        8,
+                        124);
                     newRun.getNumBlocksTune().hasRange = false;
                 }
             }

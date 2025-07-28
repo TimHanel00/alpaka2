@@ -97,33 +97,33 @@ namespace alpaka::tune
         using Vec = typename Tuneable::ValueType;
         using Scalar = typename Vec::type;
 
-        std::cout << "========== [DEBUG] extendInputListFromPartition ==========\n";
-        std::cout << "maxVal        = " << maxVal.toString() << "\n";
-        std::cout << "partitionedVec= " << partitionedVec.toString() << "\n";
-        std::cout << "minSteps = " << minSteps << ", maxSteps = " << maxSteps << "\n";
 
-        if(minSteps == 0 || maxSteps == 0)
+        std::cout << "[TuneStep] minSteps = " << minSteps << ", maxSteps = " << maxSteps << "\n";
+        std::cout << "[TuneStep] maxVal = " << maxVal << ", partitionedVec = " << partitionedVec << "\n";
+
+        if (minSteps == 0 || maxSteps == 0)
         {
-            std::cerr << "[Error] minSteps or maxSteps is zero.\n";
+            std::cout << "[EarlyExit] Skipping due to minSteps or maxSteps being 0.\n";
             return;
         }
-
+        /*
         // Early exit: if partition is already larger than maxVal, just use maxVal
-        if(!allTrue(partitionedVec < maxVal))
+        if (!allTrue(partitionedVec < maxVal))
         {
-            std::cout << "[Early Exit] partitionedVec >= maxVal → using single value: " << maxVal.toString() << "\n";
+            std::cout << "[EarlyExit] partitionedVec >= maxVal in at least one dim. Using maxVal directly.\n";
             tuneable.extendInputList({maxVal});
-            std::cout << "==========================================================\n";
             return;
-        }
+        }*/
 
         Vec baseStep = partitionedVec;
         Vec step;
 
-        for(std::size_t i = 0; i < alpaka::getDim(step); ++i)
+        std::cout << "[StepCalc] Starting step computation loop...\n";
+
+        for (std::size_t i = 0; i < alpaka::getDim(step); ++i)
         {
             Scalar base = baseStep[i];
-            if(base == 0)
+            if (base == 0)
             {
                 std::cerr << "[Warning] baseStep[" << i << "] = 0, forcing to 1.\n";
                 base = 1;
@@ -135,53 +135,56 @@ namespace alpaka::tune
             Scalar candidate = std::max(nDown * base, base);
             step[i] = candidate;
 
-            std::cout << "[Step Calc] Dim " << i << ": rawStep = " << rawStep << ", base = " << base
-                      << ", divDown = " << divDown << ", nDown = " << nDown << ", step = " << step[i] << "\n";
+            std::cout << "[StepCalc] Dim " << i << ":\n";
+            std::cout << "  baseStep = " << baseStep[i] << ", maxVal = " << maxVal[i] << "\n";
+            std::cout << "  rawStep = " << rawStep << ", divDown = " << divDown << ", nDown = " << nDown << "\n";
+            std::cout << "  Initial step = " << step[i] << "\n";
 
             Scalar numSteps = maxVal[i] / step[i];
-            std::cout << "[Check] numSteps = " << numSteps << " (vs minSteps = " << minSteps << ")\n";
+            std::cout << "  numSteps = " << numSteps << " (vs minSteps = " << minSteps << ")\n";
 
-            if(numSteps < minSteps)
+            if (numSteps < minSteps)
             {
                 Scalar minStep = maxVal[i] / static_cast<Scalar>(minSteps);
                 double divUp = static_cast<double>(minStep) / static_cast<double>(base);
                 Scalar nUp = static_cast<Scalar>(std::ceil(divUp));
-                step[i] = std::max(nUp * base, base);
+                Scalar adjusted = nUp * base;
+                step[i] = std::max(adjusted, Scalar(1));
 
-                std::cout << "[Fallback] minStep = " << minStep << ", divUp = " << divUp << ", nUp = " << nUp
-                          << ", adjusted step = " << step[i] << "\n";
+                std::cout << "  [Fallback] minStep = " << minStep << ", divUp = " << divUp
+                          << ", nUp = " << nUp << ", adjusted = " << adjusted
+                          << ", final fallback step = " << step[i] << "\n";
+
+                if (adjusted >= maxVal[i])
+                {
+                    step[i] = std::max(minStep, Scalar(1));
+                    std::cout << "  [Adjusted] Step too large. Using minStep fallback: " << step[i] << "\n";
+                }
             }
 
-            if(step[i] == 0)
+            if (step[i] == 0)
             {
                 std::cerr << "[Error] Final step[" << i << "] is 0! Forcing to 1.\n";
                 step[i] = 1;
             }
         }
 
-        std::cout << "Final step vector = " << step.toString() << "\n";
-
         std::vector<Vec> values;
         Vec current = step;
         std::size_t count = 0;
 
-        while(allTrue(current < maxVal) && values.size() < maxSteps)
+        std::cout << "[ValueGen] Generating values starting from step: " << step << "\n";
+
+        while (allTrue(current < maxVal) && values.size() < maxSteps)
         {
-            std::cout << "[Iter " << count << "] current = " << current.toString() << "\n";
+            std::cout << "  Adding value: " << current << "\n";
             values.emplace_back(current);
             current = current + step;
             ++count;
         }
 
-        std::cout << "Total values generated: " << values.size() << "\n";
-        if(values.empty())
-        {
-            std::cout << "[Warning] No values generated!\n";
-        }
-
-        tuneable.extendInputList(std::move(values));
-        std::cout << "==========================================================\n";
-
+        std::cout<<"NumblocksTune "<<std::endl;
+        std::ranges::for_each(values, [](const auto& v) { std::cout << v << ' '; });
         tuneable.extendInputList(std::move(values));
     }
 

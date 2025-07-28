@@ -115,22 +115,20 @@ namespace
             {
                 // Get argument to determine which kernels will be run
                 auto const kernelsString = arg.substr(14);
-                if(kernelsString == "nstream")
-                {
-                    std::cout << "Only nstream kernel will be executed." << std::endl;
-                    kernelsToBeExecuted = KernelsToRun::NStream;
-                }
-                else if(kernelsString == "triad")
-                {
-                    kernelsToBeExecuted = KernelsToRun::Triad;
-                    std::cout << "Only triad kernel will be executed." << std::endl;
-                }
-                else if(kernelsString == "all")
-                {
-                    // The variable kernelsToBeExecuted default value is  "all";
+                if(runKernelsStr == "all")
                     kernelsToBeExecuted = KernelsToRun::All;
-                    std::cout << "All 5 babelstream kernels are going to be executed." << std::endl;
-                }
+                else if(runKernelsStr == "nstream")
+                    kernelsToBeExecuted = KernelsToRun::NStream;
+                else if(runKernelsStr == "triad")
+                    kernelsToBeExecuted = KernelsToRun::Triad;
+                else if(runKernelsStr == "add")
+                    kernelsToBeExecuted = KernelsToRun::Add;
+                else if(runKernelsStr == "dot")
+                    kernelsToBeExecuted = KernelsToRun::Dot;
+                else if(runKernelsStr == "copy")
+                    kernelsToBeExecuted = KernelsToRun::Copy;
+                else if(runKernelsStr == "mult")
+                    kernelsToBeExecuted = KernelsToRun::Mult;
             }
             else
             {

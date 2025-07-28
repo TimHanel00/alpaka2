@@ -577,14 +577,14 @@ void testKernels(T_Cfg cfg)
         runtimeResults.addKernelTimingsVec("MultKernel");
         runtimeResults.addKernelTimingsVec("DotKernel");
     }
-    else if(kernelsToBeExecuted == KernelsToRun::NStream)
-    {
-        runtimeResults.addKernelTimingsVec("NStreamKernel");
-    }
-    else if(kernelsToBeExecuted == KernelsToRun::Triad)
-    {
-        runtimeResults.addKernelTimingsVec("TriadKernel");
-    }
+    if(kernelsToBeExecuted == KernelsToRun::Copy)
+        runtimeResults.addKernelTimingsVec("CopyKernel");
+    if(kernelsToBeExecuted == KernelsToRun::Mult)
+        runtimeResults.addKernelTimingsVec("MultKernel");
+    if(kernelsToBeExecuted == KernelsToRun::Add)
+        runtimeResults.addKernelTimingsVec("AddKernel");
+    if(kernelsToBeExecuted == KernelsToRun::Dot)
+        runtimeResults.addKernelTimingsVec("DotKernel");
 
     // Init kernel
     measureKernelExec(
@@ -606,9 +606,8 @@ void testKernels(T_Cfg cfg)
     // Main for loop to run the kernel-sequence
     for(auto i = 0; i < numberOfRuns; i++)
     {
-        if(kernelsToBeExecuted == KernelsToRun::All)
+        if(kernelsToBeExecuted == KernelsToRun::All || kernelsToBeExecuted == KernelsToRun::Copy)
         {
-            // Test the copy-kernel. Copy A one by one to C.
             measureKernelExec(
                 [&]() {
                     tuningSessionRest.enqueue(
@@ -616,65 +615,51 @@ void testKernels(T_Cfg cfg)
                         queue,
                         exec,
                         dataBlocking,
-                        KernelBundle{SimdForEachKernel_Copy<CVec<std::uint32_t, 1>,DataType>{}, SimdCopyOp{}, bufAccInputA, bufAccOutputC});
+                        KernelBundle{SimdForEachKernel_Copy<CVec<std::uint32_t, 1>, DataType>{}, SimdCopyOp{}, bufAccInputA, bufAccOutputC});
                 },
                 "CopyKernel");
+        }
 
-            // Test the scaling-kernel. Calculate B=scalar*C. Where C = A.
+        if(kernelsToBeExecuted == KernelsToRun::All || kernelsToBeExecuted == KernelsToRun::Mult)
+        {
             measureKernelExec(
-                [&]()
-                { tuningSessionRest.enqueue(devAcc,
-                        queue,exec, dataBlocking, KernelBundle{SimdForEachKernel_Mult<CVec<std::uint32_t, 1>,DataType>{}, SimdMultOp{}, bufAccInputB, bufAccOutputC}); },
-                "MultKernel");
-
-            // Test the addition-kernel. Calculate C=A+B. Where B=scalar*C or B=scalar*A.
-            measureKernelExec(
-                [&]()
-                {
-                    tuningSessionRest.enqueue(devAcc,
+                [&]() {
+                    tuningSessionRest.enqueue(
+                        devAcc,
                         queue,
                         exec,
                         dataBlocking,
-                        KernelBundle{SimdForEachKernel_Add<CVec<std::uint32_t, 1>,DataType>{}, SimdAddOp{}, bufAccInputA, bufAccInputB, bufAccOutputC});
+                        KernelBundle{SimdForEachKernel_Mult<CVec<std::uint32_t, 1>, DataType>{}, SimdMultOp{}, bufAccInputB, bufAccOutputC});
+                },
+                "MultKernel");
+        }
+
+        if(kernelsToBeExecuted == KernelsToRun::All || kernelsToBeExecuted == KernelsToRun::Add)
+        {
+            measureKernelExec(
+                [&]() {
+                    tuningSessionRest.enqueue(
+                        devAcc,
+                        queue,
+                        exec,
+                        dataBlocking,
+                        KernelBundle{SimdForEachKernel_Add<CVec<std::uint32_t, 1>, DataType>{}, SimdAddOp{}, bufAccInputA, bufAccInputB, bufAccOutputC});
                 },
                 "AddKernel");
         }
-        // Triad kernel is run for 2 command line arguments
-        if(kernelsToBeExecuted == KernelsToRun::All || kernelsToBeExecuted == KernelsToRun::Triad)
+
+        if(kernelsToBeExecuted == KernelsToRun::All || kernelsToBeExecuted == KernelsToRun::Dot)
         {
-            // Test the Triad-kernel. Calculate A=B+scalar*C. Where C is A+scalar*A.
             measureKernelExec(
-                [&]()
-                {
-                    tuningSessionRest.enqueue(devAcc,
-                        queue,
-                        exec,
-                        dataBlocking,
-                        KernelBundle{SimdForEachKernel_Triad<CVec<std::uint32_t, 1>,DataType>{}, SimdTriadOp{}, bufAccInputA, bufAccInputB, bufAccOutputC});
-                },
-                "TriadKernel");
-        }
-        if(kernelsToBeExecuted == KernelsToRun::All)
-        {
-            uint32_t elementsPerFrameItem = getNumElemPerThread<DataType>(queue);
-
-
-            // Vector of sums of each block
-            auto bufAccSumPerBlock = onHost::alloc<DataType>(devAcc, 1u);
-            auto bufHostSumPerBlock = onHost::allocHostMirror(bufAccSumPerBlock);
-
-            // Test Dot kernel with specific blocksize which is larger than one
-            measureKernelExec(
-                [&]()
-                {
-                    // set initial value of the sum to 0
+                [&]() {
                     onHost::memset(queue, bufAccSumPerBlock, 0);
-                    tuningSessionDot.enqueue(devAcc,
+                    tuningSessionDot.enqueue(
+                        devAcc,
                         queue,
                         exec,
                         dataBlockingDot,
                         KernelBundle{
-                            DotKernel<CVec<std::uint32_t, 1>,DataType>{}, // Dot kernel
+                            DotKernel<CVec<std::uint32_t, 1>, DataType>{},
                             bufAccInputA,
                             bufAccInputB,
                             bufAccSumPerBlock,
@@ -682,11 +667,11 @@ void testKernels(T_Cfg cfg)
                     onHost::memcpy(queue, bufHostSumPerBlock, bufAccSumPerBlock);
                     onHost::wait(queue);
                     resultDot = bufHostSumPerBlock[0u];
-                },
-                "DotKernel");
-
+        },
+        "DotKernel");
             // Add workdiv to the list of workdivs to print later
             metaData.setItem(BMInfoDataType::WorkDivDot, dataBlockingDot);
+            }
         }
         // NStream kernel is run only for one command line argument
         if(kernelsToBeExecuted == KernelsToRun::NStream)
