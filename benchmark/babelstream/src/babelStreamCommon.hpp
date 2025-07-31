@@ -50,9 +50,13 @@ namespace
     //! Values corresponding to the command line argument run-kernels
     enum class KernelsToRun
     {
-        All, // init, add, copy, mul, triad, dot
-        Triad, // only init and triad
-        NStream // only init and nstream
+        All,     // init, add, copy, mul, triad, dot
+        NStream, // only init and nstream
+        Add,    // only init and triad
+        Copy,
+        Mult,
+        Triad,
+        Dot
     };
 
     // Define the variable showing the kernel(s) being run
@@ -114,7 +118,7 @@ namespace
             else if(arg.rfind("--run-kernels=", 0) == 0)
             {
                 // Get argument to determine which kernels will be run
-                auto const kernelsString = arg.substr(14);
+                auto const runKernelsStr = arg.substr(14);
                 if(runKernelsStr == "all")
                     kernelsToBeExecuted = KernelsToRun::All;
                 else if(runKernelsStr == "nstream")

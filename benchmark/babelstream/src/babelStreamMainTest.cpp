@@ -649,7 +649,18 @@ void testKernels(T_Cfg cfg)
         }
 
         if(kernelsToBeExecuted == KernelsToRun::All || kernelsToBeExecuted == KernelsToRun::Dot)
+
         {
+            uint32_t elementsPerFrameItem = getNumElemPerThread<DataType>(queue);
+            auto numFrames = std::min(
+                static_cast<Idx>(dotGridBlockExtent),
+                alpaka::divExZero(arraySize, (static_cast<Idx>(blockThreadExtentMain) * elementsPerFrameItem)));
+
+            auto dataBlockingDot = onHost::FrameSpec{numFrames, static_cast<Idx>(blockThreadExtentMain)};
+
+            // Vector of sums of each block
+            auto bufAccSumPerBlock = onHost::alloc<DataType>(devAcc, 1u);
+            auto bufHostSumPerBlock = onHost::allocHostMirror(bufAccSumPerBlock);
             measureKernelExec(
                 [&]() {
                     onHost::memset(queue, bufAccSumPerBlock, 0);
@@ -691,8 +702,6 @@ void testKernels(T_Cfg cfg)
         if(abortIfFinished(tuningSessionDot,tuningSessionRest)){
             return;
         }
-    } // End of MAIN LOOP which runs the kernels many times
-
 
     // Copy results back to the host, measure copy time
     {
