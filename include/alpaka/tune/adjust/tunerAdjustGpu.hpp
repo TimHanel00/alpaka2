@@ -52,10 +52,15 @@ namespace alpaka::tune
             {
                 if(!newRun.getNumBlocksTune().userDef)
                 {
-                    adaptRangeToNumSteps(
+                    auto partitionedMultiprocessors = primeFactorPartitioning(device.getDeviceProperties().m_multiProcessorCount, T_NumBlocks{});
+                    auto nonConstnumFrames = dataBlocking.m_numFrames;
+                    extendInputListFromPartition(
                         newRun.getNumBlocksTune(),
                         dataBlocking.m_numFrames,
-                        device.getDeviceProperties().m_multiProcessorCount);
+                        partitionedMultiprocessors,
+                        8,
+                        124);
+                    newRun.getNumBlocksTune().hasRange = false;
                 }
             }
             return std::make_pair(dataBlocking.getThreadSpec(), newRun);

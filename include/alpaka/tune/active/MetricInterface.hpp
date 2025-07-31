@@ -26,6 +26,17 @@ namespace alpaka::tune
         };
     } // namespace detail
 
+    namespace global
+    {
+        inline auto timingAccessor(std::optional<double_t> value = std::nullopt)
+        {
+            static double_t m_value = 0.0;
+            if(value.has_value())
+                m_value = value.value();
+            return m_value;
+        };
+    } // namespace global
+
     namespace metricInterface
     {
         struct Timing
@@ -45,6 +56,7 @@ namespace alpaka::tune
                 auto endTime = std::chrono::high_resolution_clock::now();
                 auto const timeDuration = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime - startTime);
                 kernelRun.metric = static_cast<decltype(kernelRun.metric)>(timeDuration.count());
+                global::timingAccessor(kernelRun.metric);
             }
         };
 
@@ -101,12 +113,12 @@ namespace alpaka::tune
             {
                 t.start(
                     std::declval<KernelTuningModel<>&>(),
-                    std::declval<onHost::FrameSpec<alpaka::Vec<uint32_t, 1>, alpaka::Vec<uint32_t, 1>>&>())
+                    std::declval<onHost::FrameSpec<Vec<uint32_t, 1>, Vec<uint32_t, 1>>&>())
             } -> std::same_as<void>;
             {
                 t.end(
                     std::declval<KernelTuningModel<>&>(),
-                    std::declval<onHost::FrameSpec<alpaka::Vec<uint32_t, 1>, alpaka::Vec<uint32_t, 1>>&>())
+                    std::declval<onHost::FrameSpec<Vec<uint32_t, 1>, Vec<uint32_t, 1>>&>())
             } -> std::same_as<void>;
             //{ t.end(std::declval<R&>(), std::declval<S&>()) } -> std::same_as<void>;
         }; // namespace concepts

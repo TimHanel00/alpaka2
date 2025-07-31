@@ -19,31 +19,53 @@
 
 #include <any>
 #include <utility>
+#define Tuner_MaxConsecutiveStrategyFailures 200
 
 template<typename T_Config>
 struct EnvironmentState
 {
-    bool sessionFinished{false};
+    bool enironmentFinished{false};
+    bool strategyFinished{false};
     uint32_t numberOfCheckedConfigs{0};
     uint32_t numValidConfigs{0};
     uint32_t maxValidEvaluations{0};
     uint32_t maxConfigsTotal{0};
     uint32_t stamp{0};
+    uint32_t strategyLimit = Tuner_MaxConsecutiveStrategyFailures;
 
-    bool strategyCriteriaReached()
+    bool setStrategyFinished()
     {
+        strategyFinished = true;
+    }
+
+    bool strategyCriteriaReached(std::optional<uint32_t> currentIndex)
+    {
+        if(currentIndex.has_value())
+        {
+            if(currentIndex > strategyLimit)
+            {
+                strategyFinished = true;
+            }
+        }
+        return strategyFinished;
     }
 
     ConfigEntry<T_Config> bestConfig;
 
-    bool globalBreakCriteriaFinished(auto const& config)
+    bool globalBreakCriteriaFinished()
     {
-        return false;
+        if(enironmentFinished)
+        {
+            return true;
+        }
+        enironmentFinished
+            = alpaka::tune::getMaxRuns() <= maxConfigsTotal || numberOfCheckedConfigs <= maxConfigsTotal;
+        return enironmentFinished;
     }
 
     bool localBreakCriteriaFinished(auto const& config)
     {
-        return false;
+        return config.fullFlag;
     }
 };
 
@@ -133,8 +155,6 @@ bool removeAllMatchingIndices(
 template<typename... Tuneables>
 void shrinkTuningSpace(std::tuple<Tuneables...>&& allTuneables, std::size_t initialMaxRuns)
 {
-    std::cout << initialMaxRuns << " runs initial\n";
-
     auto expandedTuneables = expand(allTuneables);
 
     while(initialMaxRuns > alpaka::tune::getMaxConfigs())
@@ -189,14 +209,6 @@ void shrinkTuningSpace(std::tuple<Tuneables...>&& allTuneables, std::size_t init
     }
     printTuneableDimensions(allTuneables, expandedTuneables);
 }
-template<typename T>
-struct KernelModelForSPI;
-#define REGISTER_SPI_TYPE(S_Type, ModelType)                                                                          \
-    template<>                                                                                                        \
-    struct KernelModelForSPI<S_Type>                                                                                  \
-    {                                                                                                                 \
-        using type = ModelType;                                                                                       \
-    };
 
 namespace alpaka::tune
 {
@@ -221,7 +233,7 @@ namespace alpaka::tune
         T_KernelTuningModel env_kernelTuningPtr;
         KernelData<T_Config, T_ConfigDescriptor> env_kernelData;
         EnvironmentState<T_Config> environmentState;
-        alpaka::tune::ConfigQueue<ConfigEntry<T_Config>> env_config_queue;
+        ConfigQueue<ConfigEntry<T_Config>> env_config_queue;
         tuningEnvironment(tuningEnvironment const&) = delete;
         tuningEnvironment& operator=(tuningEnvironment const&) = delete;
         tuningEnvironment(tuningEnvironment&&) = delete;
@@ -286,8 +298,7 @@ namespace alpaka::tune
 
             if(handleFullQueue(std::forward<T_Args...>(launchArgs...)))
                 return;
-
-            while(!this->environmentState.strategyCriteriaReached())
+            for(int i = 0; !this->environmentState.strategyCriteriaReached(i); i++)
             {
                 if(this->env_config_queue.empty())
                 {

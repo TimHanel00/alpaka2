@@ -163,13 +163,16 @@ namespace alpaka::tune
             {
                 if(!newRun.getNumBlocksTune().userDef)
                 {
-                    newRun.getNumBlocksTune().idxRange.m_begin
-                        = primeFactorPartitioning(device.getDeviceProperties().m_multiProcessorCount, T_NumThreads{});
-                    newRun.getNumBlocksTune().idxRange.m_end = primeFactorPartitioning(
-                        device.getDeviceProperties().m_multiProcessorCount * 8u,
-                        T_NumThreads{});
-                    newRun.getNumBlocksTune().idxRange.m_stride
-                        = primeFactorPartitioning(device.getDeviceProperties().m_multiProcessorCount, T_NumThreads{});
+#define nr_ofAvailCoresAMD 56
+                    auto partitionedCores = primeFactorPartitioning(nr_ofAvailCoresAMD, T_NumBlocks{});
+                    auto nonConstnumFrames = dataBlocking.m_numFrames;
+                    extendInputListFromPartition(
+                        newRun.getNumBlocksTune(),
+                        dataBlocking.m_numFrames,
+                        partitionedCores,
+                        8,
+                        124);
+                    newRun.getNumBlocksTune().hasRange = false;
                 }
             }
 

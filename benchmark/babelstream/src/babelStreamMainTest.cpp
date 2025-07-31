@@ -364,7 +364,7 @@ static auto getSessionFromExec(Exec_T const &exec,auto arraySize,auto & devAcc){
 
                       return condZ&&isPowerOfTwo(concurrentElements[0]);
                   })
-              .withConfig("./config/realBabelstreamGPU_"+std::to_string(arraySize)+"_"+data+".toml")
+              .withConfig("./config/realBabelstreamGPU_"+std::to_string(arraySize)+"_.toml")
               .build();
     static auto tuningSessionRest
         = tune::TuningBuilder{}
@@ -373,15 +373,14 @@ static auto getSessionFromExec(Exec_T const &exec,auto arraySize,auto & devAcc){
               .withBlockSizeTune(tune::Tuneable(IdxRange{idxVec{64}, idxVec{maxThreads}, idxVec{64}}))
               .withNumBlocksTune()
               .template withConstraint<_0T>(  [arraySize](auto concurrentElements){return isPowerOfTwo(concurrentElements[0]);})
-              .withConfig("./config/realBabelstreamGPU_Rest_"+std::to_string(arraySize)+"_"+data+".toml")
+              .withConfig("./config/realBabelstreamGPU_Rest_"+std::to_string(arraySize)+"_.toml")
               .build();
 		return std::make_tuple(tuningSessionDot,tuningSessionRest);
     };
 template<typename T_TuningSessionDot,typename T_TuningSessionRest>
-void abortIfFinished(const T_TuningSessionDot &dotSession,const  T_TuningSessionRest &restSession){
-    std::cout<<" rest "<<restSession.finishedConfigs<<std::endl;
-    std::cout<<" dot "<<dotSession.finishedConfigs<<std::endl;
-    if(restSession.finishedConfigs>=4&&dotSession.finishedConfigs>=1){std::terminate();};
+bool abortIfFinished(const T_TuningSessionDot &dotSession,const  T_TuningSessionRest &restSession){
+    if(restSession.finishedConfigs>=4&&dotSession.finishedConfigs>=1){return true;};
+    return false;
     }
 template<typename Data_T>
 static auto getSessionFromExec(alpaka::exec::CpuOmpBlocks const &exec, auto arraySize, auto &devAcc) {
@@ -411,15 +410,25 @@ using Idx = std::uint32_t;
                       return condZ&&isPowerOfTwo(concurrentElements[0]);
                   })
               .withNumBlocksTune()
-    .withConfig("./config/babelstream_OMPBlocks_Dot_"+std::to_string(arraySize)+"_"+data+".toml").build();
+    .withConfig("./config/Babelstream_CPU_"+std::to_string(arraySize)+"_.toml").build();
 	static auto sessionRest= tune::TuningBuilder{}
           .withRunSpecifiers(std::to_string(arraySize),data)
           .withNumBlocksTune()
           .template withConstraint<_0T>(  [arraySize](auto concurrentElements){return isPowerOfTwo(concurrentElements[0]);})
-          .withConfig("./config/babelstream_OMPBlocks_Rest_"+std::to_string(arraySize)+"_"+data+".toml")
+          .withConfig("./config/Babelstream_CPU_"+std::to_string(arraySize)+"_.toml")
           .build();
 
 		return std::make_tuple(sessionDot,sessionRest);
+}
+void log_event(const std::string& label) {
+    auto now = std::chrono::system_clock::now();
+    std::time_t t_c = std::chrono::system_clock::to_time_t(now);
+    auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        now.time_since_epoch()).count() % 1'000'000'000;
+
+    std::tm* tm = std::localtime(&t_c);
+    std::cout << "[" << std::put_time(tm, "%F %T") << "." << std::setfill('0') << std::setw(9) << ns
+              << "]," << label << std::endl;
 }
 //! \brief The Function for testing babelstream kernels for given Acc type and data type.
 //! \tparam TAcc the accelerator type
@@ -509,6 +518,7 @@ void testKernels(T_Cfg cfg)
     uint32_t elementsPerFrameItem = getNumElemPerThread<DataType>(queue);
 
 	std::cout<<"ELEMENTSPERFRAME "<<elementsPerFrameItem<<std::endl;
+    accessArraySize<idxVec>(arraySize);
     auto numFramesInit = arraySize/ (static_cast<Idx>(blockThreadExtentMain) * elementsPerFrameItem);
     auto dataBlockingInit=onHost::FrameSpec{
         idxVec{static_cast<Idx>(numFramesInit)},
@@ -546,7 +556,13 @@ void testKernels(T_Cfg cfg)
         // get duration in seconds
         std::chrono::duration<double> duration = end - start;
         runtime = duration.count();
+        auto ns_count = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+        std::cout << "[TUNER]" << "," << ns_count << "," << kernelLabel<<"\n";
+        std::cout << "[ALPAKA]" << "," << alpaka::tune::global::timingAccessor() << "," << kernelLabel<<"\n";
         runtimeResults.kernelToRundataMap[kernelLabel]->timingsSuccessiveRuns.push_back(runtime);
+
+		log_event(kernelLabel);
+
     };
 
 
@@ -561,14 +577,14 @@ void testKernels(T_Cfg cfg)
         runtimeResults.addKernelTimingsVec("MultKernel");
         runtimeResults.addKernelTimingsVec("DotKernel");
     }
-    else if(kernelsToBeExecuted == KernelsToRun::NStream)
-    {
-        runtimeResults.addKernelTimingsVec("NStreamKernel");
-    }
-    else if(kernelsToBeExecuted == KernelsToRun::Triad)
-    {
-        runtimeResults.addKernelTimingsVec("TriadKernel");
-    }
+    if(kernelsToBeExecuted == KernelsToRun::Copy)
+        runtimeResults.addKernelTimingsVec("CopyKernel");
+    if(kernelsToBeExecuted == KernelsToRun::Mult)
+        runtimeResults.addKernelTimingsVec("MultKernel");
+    if(kernelsToBeExecuted == KernelsToRun::Add)
+        runtimeResults.addKernelTimingsVec("AddKernel");
+    if(kernelsToBeExecuted == KernelsToRun::Dot)
+        runtimeResults.addKernelTimingsVec("DotKernel");
 
     // Init kernel
     measureKernelExec(
@@ -590,7 +606,7 @@ void testKernels(T_Cfg cfg)
     // Main for loop to run the kernel-sequence
     for(auto i = 0; i < numberOfRuns; i++)
     {
-        if(kernelsToBeExecuted == KernelsToRun::All)
+        if(kernelsToBeExecuted == KernelsToRun::All || kernelsToBeExecuted == KernelsToRun::Copy)
         {
             // Test the copy-kernel. Copy A one by one to C.
             measureKernelExec(
@@ -600,65 +616,62 @@ void testKernels(T_Cfg cfg)
                         queue,
                         exec,
                         dataBlocking,
-                        KernelBundle{SimdForEachKernel_Copy<CVec<std::uint32_t, 1>,DataType>{}, SimdCopyOp{}, bufAccInputA, bufAccOutputC});
+                        KernelBundle{SimdForEachKernel_Copy<CVec<std::uint32_t, 1>, DataType>{}, SimdCopyOp{}, bufAccInputA, bufAccOutputC});
                 },
                 "CopyKernel");
+        }
 
-            // Test the scaling-kernel. Calculate B=scalar*C. Where C = A.
+        if(kernelsToBeExecuted == KernelsToRun::All || kernelsToBeExecuted == KernelsToRun::Mult)
+        {
             measureKernelExec(
-                [&]()
-                { tuningSessionRest.enqueue(devAcc,
-                        queue,exec, dataBlocking, KernelBundle{SimdForEachKernel_Mult<CVec<std::uint32_t, 1>,DataType>{}, SimdMultOp{}, bufAccInputB, bufAccOutputC}); },
-                "MultKernel");
-
-            // Test the addition-kernel. Calculate C=A+B. Where B=scalar*C or B=scalar*A.
-            measureKernelExec(
-                [&]()
-                {
-                    tuningSessionRest.enqueue(devAcc,
+                [&]() {
+                    tuningSessionRest.enqueue(
+                        devAcc,
                         queue,
                         exec,
                         dataBlocking,
-                        KernelBundle{SimdForEachKernel_Add<CVec<std::uint32_t, 1>,DataType>{}, SimdAddOp{}, bufAccInputA, bufAccInputB, bufAccOutputC});
+                        KernelBundle{SimdForEachKernel_Mult<CVec<std::uint32_t, 1>, DataType>{}, SimdMultOp{}, bufAccInputB, bufAccOutputC});
+                },
+                "MultKernel");
+        }
+
+        if(kernelsToBeExecuted == KernelsToRun::All || kernelsToBeExecuted == KernelsToRun::Add)
+        {
+            measureKernelExec(
+                [&]() {
+                    tuningSessionRest.enqueue(
+                        devAcc,
+                        queue,
+                        exec,
+                        dataBlocking,
+                        KernelBundle{SimdForEachKernel_Add<CVec<std::uint32_t, 1>, DataType>{}, SimdAddOp{}, bufAccInputA, bufAccInputB, bufAccOutputC});
                 },
                 "AddKernel");
         }
-        // Triad kernel is run for 2 command line arguments
-        if(kernelsToBeExecuted == KernelsToRun::All || kernelsToBeExecuted == KernelsToRun::Triad)
-        {
-            // Test the Triad-kernel. Calculate A=B+scalar*C. Where C is A+scalar*A.
-            measureKernelExec(
-                [&]()
-                {
-                    tuningSessionRest.enqueue(devAcc,
-                        queue,
-                        exec,
-                        dataBlocking,
-                        KernelBundle{SimdForEachKernel_Triad<CVec<std::uint32_t, 1>,DataType>{}, SimdTriadOp{}, bufAccInputA, bufAccInputB, bufAccOutputC});
-                },
-                "TriadKernel");
-        }
-        if(kernelsToBeExecuted == KernelsToRun::All)
+
+        if(kernelsToBeExecuted == KernelsToRun::All || kernelsToBeExecuted == KernelsToRun::Dot)
+
         {
             uint32_t elementsPerFrameItem = getNumElemPerThread<DataType>(queue);
+            auto numFrames = std::min(
+                static_cast<Idx>(dotGridBlockExtent),
+                alpaka::divExZero(arraySize, (static_cast<Idx>(blockThreadExtentMain) * elementsPerFrameItem)));
 
+            auto dataBlockingDot = onHost::FrameSpec{numFrames, static_cast<Idx>(blockThreadExtentMain)};
 
             // Vector of sums of each block
             auto bufAccSumPerBlock = onHost::alloc<DataType>(devAcc, 1u);
             auto bufHostSumPerBlock = onHost::allocHostMirror(bufAccSumPerBlock);
-
-            // Test Dot kernel with specific blocksize which is larger than one
             measureKernelExec(
-                [&]()
-                {
-                    // set initial value of the sum to 0
+                [&]() {
                     onHost::memset(queue, bufAccSumPerBlock, 0);
-                    tuningSessionDot.enqueue(devAcc,
+                    tuningSessionDot.enqueue(
+                        devAcc,
                         queue,
                         exec,
                         dataBlockingDot,
                         KernelBundle{
-                            DotKernel<CVec<std::uint32_t, 1>,DataType>{}, // Dot kernel
+                            DotKernel<CVec<std::uint32_t, 1>, DataType>{},
                             bufAccInputA,
                             bufAccInputB,
                             bufAccSumPerBlock,
@@ -666,11 +679,11 @@ void testKernels(T_Cfg cfg)
                     onHost::memcpy(queue, bufHostSumPerBlock, bufAccSumPerBlock);
                     onHost::wait(queue);
                     resultDot = bufHostSumPerBlock[0u];
-                },
-                "DotKernel");
-
+        },
+        "DotKernel");
             // Add workdiv to the list of workdivs to print later
             metaData.setItem(BMInfoDataType::WorkDivDot, dataBlockingDot);
+            }
         }
         // NStream kernel is run only for one command line argument
         if(kernelsToBeExecuted == KernelsToRun::NStream)
@@ -687,8 +700,9 @@ void testKernels(T_Cfg cfg)
                 "NStreamKernel");
         }
         onHost::wait(queue);
-    } // End of MAIN LOOP which runs the kernels many times
-
+        if(abortIfFinished(tuningSessionDot,tuningSessionRest)){
+            return;
+        }
 
     // Copy results back to the host, measure copy time
     {

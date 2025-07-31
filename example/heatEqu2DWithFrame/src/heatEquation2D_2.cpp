@@ -137,12 +137,13 @@ constexpr auto getNumNodes(alpaka::exec::CpuOmpBlocks const& exec)
 }
 
 template<typename T_TuningSession>
-void abortIfFinished(T_TuningSession const& session)
+bool abortIfFinished(T_TuningSession const& session)
 {
     if(session.finishedConfigs >= 1)
     {
-        std::terminate();
+        return true;
     };
+    return false;
 }
 
 // namespace alpaka::onHost::trait
@@ -177,6 +178,7 @@ auto example(T_Cfg const& cfg, uint32_t i) -> int
     // fVec{1}}}).//#cpu
 
     IdxVec numNodes = {i, i};
+    accessArraySize<IdxVec>(numNodes);
     constexpr IdxVec haloSize{2, 2};
     IdxVec extent = numNodes + haloSize;
 
@@ -270,12 +272,20 @@ auto example(T_Cfg const& cfg, uint32_t i) -> int
                 dx,
                 dy,
         */
+        auto startTime_IN = std::chrono::high_resolution_clock::now();
         tuningSession.enqueue(
             devAcc,
             computeQueue,
             exec,
             toRTime,
             KernelBundle{stencilKernel, uCurrBufAcc.getMdSpan(), uNextBufAcc.getMdSpan(), numNodes, dx, dy, dt});
+        auto startTime_OUT = std::chrono::high_resolution_clock::now();
+        auto endTime_IN = std::chrono::high_resolution_clock::now();
+
+        std::chrono::duration<double> elapsedTime_IN = endTime_IN - startTime_IN;
+        auto ns_count = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime_IN - startTime_IN).count();
+        std::cout << "[TUNER]" << "," << ns_count << "," << "\n";
+        std::cout << "[ALPAKA]" << "," << alpaka::tune::global::timingAccessor() << "," << "\n";
         // Apply boundaries
         computeQueue.enqueue(
             exec,
@@ -294,7 +304,8 @@ auto example(T_Cfg const& cfg, uint32_t i) -> int
 
         // So we just swap next and curr (shallow copy)
         std::swap(uNextBufAcc, uCurrBufAcc);
-        abortIfFinished(tuningSession);
+        if(abortIfFinished(tuningSession))
+            return 0;
     }
 
     alpaka::onHost::wait(computeQueue);
