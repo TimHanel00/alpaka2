@@ -126,7 +126,7 @@ namespace alpaka::tune
 
     // wraps any type of metric (usually double) and adds overloads according to
     template<typename T_Metric>
-    static auto compareGetBest(T_Metric metric, auto&& a, auto&& b)
+    static auto const& compareGetBest(auto const& a, auto const& b)
         requires(T_Metric::returnComparison == detail::returnComparison::HigherIsBetter)
     {
         if(a > b)
@@ -135,7 +135,16 @@ namespace alpaka::tune
     }
 
     template<typename T_Metric>
-    static auto compareGetBest(T_Metric metric, auto&& a, auto&& b)
+    static auto const& compareGetWorst(auto const& a, auto const& b)
+        requires(T_Metric::returnComparison == detail::returnComparison::HigherIsBetter)
+    {
+        if(a < b)
+            return a;
+        return b;
+    }
+
+    template<typename T_Metric>
+    static auto const& compareGetBest(auto const& a, auto const& b)
         requires(T_Metric::returnComparison == detail::returnComparison::LowerIsBetter)
     {
         if(a < b)
@@ -143,57 +152,32 @@ namespace alpaka::tune
         return b;
     }
 
-    template<typename T_Metric, typename T_ConfigEntry>
-    struct aGTb
+    template<typename T_Metric>
+    static auto const& compareGetWorst(auto const& a, auto const& b)
+        requires(T_Metric::returnComparison == detail::returnComparison::LowerIsBetter)
     {
-        T_ConfigEntry& operator()(T_ConfigEntry& a, T_ConfigEntry& b)
-        {
-            if constexpr(T_Metric::returnComparison == detail::returnComparison::LowerIsBetter)
-            {
-                return b;
-            }
-            else
-            {
-                return a;
-            }
-        }
-    };
-
-    template<typename T_Metric, typename T_ConfigEntry>
-    struct aLTb
-    {
-        T_ConfigEntry& operator()(T_ConfigEntry& a, T_ConfigEntry& b)
-        {
-            if constexpr(T_Metric::returnComparison == detail::returnComparison::HigherIsBetter)
-            {
-                return b;
-            }
-            else
-            {
-                return a;
-            }
-        }
-    };
+        if(a > b)
+            return a;
+        return b;
+    }
 
     namespace strategy::SimulatedAnnealing
     {
         template<typename T_Metric, typename T_ConfigEntry>
         struct costDifference
         {
-            auto operator()(T_ConfigEntry& a, T_ConfigEntry& b)
+            auto operator()(T_ConfigEntry const& a, T_ConfigEntry const& b)
                 requires(T_Metric::returnComparison == detail::returnComparison::HigherIsBetter)
             {
-                // Default: assume higher is better
-                return a.template getMetric<median_t>().template as<t_ns>()
-                       - b.template getMetric<median_t>().template as<t_ns>();
+                // assume higher is better
+                return a.getMedian() - b.getMedian();
             }
 
-            auto operator()(T_ConfigEntry& a, T_ConfigEntry& b)
+            auto operator()(T_ConfigEntry const& a, T_ConfigEntry const& b)
                 requires(T_Metric::returnComparison == detail::returnComparison::LowerIsBetter)
             {
-                // Default: assume lower is better
-                return b.template getMetric<median_t>().template as<t_ns>()
-                       - a.template getMetric<median_t>().template as<t_ns>();
+                // assume lower is better flip the sign -- writing it like this make the intend more obvious
+                return -(a.getMedian() - b.getMedian());
             }
         };
     } // namespace strategy::SimulatedAnnealing

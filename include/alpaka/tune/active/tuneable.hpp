@@ -79,6 +79,114 @@ namespace alpaka::tune
         return ((tuneable.idxRange.m_end - tuneable.idxRange.m_begin) / tuneable.idxRange.m_stride).product() + 1;
     }
 
+    auto safeDivExZero(std::integral auto val, std::integral auto val2)
+    {
+        if(val2 == 0)
+            return val;
+        return divExZero(val, val2);
+    }
+
+    template<typename Tuneable, typename maxVec>
+    void extendInputListFromPartition(
+        Tuneable& tuneable,
+        maxVec const& maxVal,
+        maxVec const& partitionedVec,
+        std::size_t minSteps = defaultMinSteps,
+        std::size_t maxSteps = defaultMaxSteps)
+    {
+        using Vec = typename Tuneable::ValueType;
+        using Scalar = typename Vec::type;
+
+
+        std::cout << "[TuneStep] minSteps = " << minSteps << ", maxSteps = " << maxSteps << "\n";
+        std::cout << "[TuneStep] maxVal = " << maxVal << ", partitionedVec = " << partitionedVec << "\n";
+
+        if(minSteps == 0 || maxSteps == 0)
+        {
+            std::cout << "[EarlyExit] Skipping due to minSteps or maxSteps being 0.\n";
+            return;
+        }
+        /*
+        // Early exit: if partition is already larger than maxVal, just use maxVal
+        if (!allTrue(partitionedVec < maxVal))
+        {
+            std::cout << "[EarlyExit] partitionedVec >= maxVal in at least one dim. Using maxVal directly.\n";
+            tuneable.extendInputList({maxVal});
+            return;
+        }*/
+
+        Vec baseStep = partitionedVec;
+        Vec step;
+
+        std::cout << "[StepCalc] Starting step computation loop...\n";
+
+        for(std::size_t i = 0; i < alpaka::getDim(step); ++i)
+        {
+            Scalar base = baseStep[i];
+            if(base == 0)
+            {
+                std::cerr << "[Warning] baseStep[" << i << "] = 0, forcing to 1.\n";
+                base = 1;
+            }
+
+            Scalar rawStep = maxVal[i] / static_cast<Scalar>(maxSteps);
+            double divDown = static_cast<double>(rawStep) / static_cast<double>(base);
+            Scalar nDown = static_cast<Scalar>(std::floor(divDown));
+            Scalar candidate = std::max(nDown * base, base);
+            step[i] = candidate;
+
+            std::cout << "[StepCalc] Dim " << i << ":\n";
+            std::cout << "  baseStep = " << baseStep[i] << ", maxVal = " << maxVal[i] << "\n";
+            std::cout << "  rawStep = " << rawStep << ", divDown = " << divDown << ", nDown = " << nDown << "\n";
+            std::cout << "  Initial step = " << step[i] << "\n";
+
+            Scalar numSteps = maxVal[i] / step[i];
+            std::cout << "  numSteps = " << numSteps << " (vs minSteps = " << minSteps << ")\n";
+
+            if(numSteps < minSteps)
+            {
+                Scalar minStep = maxVal[i] / static_cast<Scalar>(minSteps);
+                double divUp = static_cast<double>(minStep) / static_cast<double>(base);
+                Scalar nUp = static_cast<Scalar>(std::ceil(divUp));
+                Scalar adjusted = nUp * base;
+                step[i] = std::max(adjusted, Scalar(1));
+
+                std::cout << "  [Fallback] minStep = " << minStep << ", divUp = " << divUp << ", nUp = " << nUp
+                          << ", adjusted = " << adjusted << ", final fallback step = " << step[i] << "\n";
+
+                if(adjusted >= maxVal[i])
+                {
+                    step[i] = std::max(minStep, Scalar(1));
+                    std::cout << "  [Adjusted] Step too large. Using minStep fallback: " << step[i] << "\n";
+                }
+            }
+
+            if(step[i] == 0)
+            {
+                std::cerr << "[Error] Final step[" << i << "] is 0! Forcing to 1.\n";
+                step[i] = 1;
+            }
+        }
+
+        std::vector<Vec> values;
+        Vec current = step;
+        std::size_t count = 0;
+
+        std::cout << "[ValueGen] Generating values starting from step: " << step << "\n";
+
+        while(allTrue(current < maxVal) && values.size() < maxSteps)
+        {
+            std::cout << "  Adding value: " << current << "\n";
+            values.emplace_back(current);
+            current = current + step;
+            ++count;
+        }
+
+        std::cout << "NumblocksTune " << std::endl;
+        std::ranges::for_each(values, [](auto const& v) { std::cout << v << ' '; });
+        tuneable.extendInputList(std::move(values));
+    }
+
     template<typename Tuneable, typename maxVec, typename ScalarPartitioning>
     void adaptRangeToNumSteps(
         Tuneable& tuneable, // the tuneable we want to partition
@@ -352,6 +460,67 @@ namespace alpaka::tune
     template<typename T, bool = alpaka::isVector_v<T>>
     struct TuneableHandle;
 
+    inline auto absDiff(std::integral auto& a, std::integral auto& b)
+    {
+        return std::max(a, b) - std::min(a, b);
+    }
+
+    // manhattendistance
+    template<typename TVec>
+    auto l1_distance(TVec const& a, TVec const& b)
+    {
+        typename TVec::type sum = 0;
+        for(uint32_t i = 0; i < alpaka::getDim(TVec{}); ++i)
+            sum += absDiff(a[i], b[i]);
+        // using std::abs causes errors on unsigned types and I want to avoid casting or taking a non std impl
+
+        return sum;
+    }
+
+    template<typename T>
+    requires(!isVector_v<T>)
+    std::size_t findNearestIndex(std::vector<T> const& sortedVec, T const& target)
+    {
+        if(sortedVec.empty())
+            throw std::runtime_error("Cannot search in an empty vector.");
+
+        auto lower = std::lower_bound(sortedVec.begin(), sortedVec.end(), target);
+
+        if(lower == sortedVec.begin())
+            return 0;
+
+        if(lower == sortedVec.end())
+            return sortedVec.size() - 1;
+
+        std::size_t idx = std::distance(sortedVec.begin(), lower);
+        T const& high = *lower;
+        T const& low = *(lower - 1);
+        return absDiff(high, target) < absDiff(low, target) ? idx : idx - 1;
+    }
+
+    template<typename TVec>
+    requires isVector_v<TVec>
+    std::size_t findNearestIndex(std::vector<TVec> const& vecList, TVec const& target)
+    {
+        if(vecList.empty())
+            throw std::runtime_error("Cannot search in an empty vector.");
+
+        std::size_t bestIndex = 0;
+        auto bestDist = l1_distance(vecList[0], target);
+
+        for(std::size_t i = 1; i < vecList.size(); ++i)
+        {
+            auto dist = l1_distance(vecList[i], target);
+            if(dist < bestDist)
+            {
+                bestDist = dist;
+                bestIndex = i;
+            }
+        }
+
+        return bestIndex;
+    }
+
     template<typename T>
     struct TuneableHandle<T, true>
     {
@@ -361,10 +530,10 @@ namespace alpaka::tune
         using T_Storage = RefStorage<typename T::type, alpaka::getDim(T{})>;
         using T_Vec = Vec<typename T::type, alpaka::getDim(T{}), T_Storage>;
         static constexpr auto dim = alpaka::getDim(T{});
-
         IdxRangeHandle<T_Vec> idxRange;
         std::reference_wrapper<std::vector<T>> valList;
         T_Vec value;
+        uint32_t index;
 
         auto& getValues()
         {
@@ -378,6 +547,7 @@ namespace alpaka::tune
             , valList(vec)
             , value(T_Storage(val)) // moved last for safe order
         {
+            this->index = findNearestIndex(valList.get(), val);
         }
     };
 
@@ -392,6 +562,7 @@ namespace alpaka::tune
         IdxRangeHandle<T_Vec> idxRange;
         std::reference_wrapper<std::vector<T>> valList;
         T_Vec value;
+        uint32_t index;
 
         auto& getValues()
         {
@@ -405,6 +576,7 @@ namespace alpaka::tune
             , valList(vec)
             , value(T_Vec(T_Storage(val))) // moved to the end
         {
+            this->index = findNearestIndex(valList.get(), val);
         }
     };
 
@@ -618,6 +790,12 @@ namespace alpaka::tune
         using ValueList = typename ValueListType<T, dimensionTraversePolicy>::type;
         ValueList valueList;
 
+        void extendInputList(std::vector<T>&& baseInputList)
+        {
+            inputList.reserve(inputList.size() + baseInputList.size());
+            std::move(baseInputList.begin(), baseInputList.end(), std::back_inserter(inputList));
+        }
+
         std::string name() const
         {
             return m_name;
@@ -801,10 +979,18 @@ namespace alpaka::tune
                 dependentList.emplace_back(i);
             }
         }
+        bool v_inList = false;
         for(T const& v : inputList)
         {
+            v_inList = (v == value) ? true : v_inList;
+            std::cout << " inputList for " << this->name() << v.toString() << std::endl;
             dependentList.push_back(v);
         }
+        if(!v_inList)
+        {
+            dependentList.push_back(value);
+        }
+        dependentList.erase(std::unique(dependentList.begin(), dependentList.end()), dependentList.end());
         valueList = dependentList;
         return dependentList;
     }
@@ -837,16 +1023,25 @@ namespace alpaka::tune
                 }
             }
         }
-
+        bool v_inList = false;
         for(T const& v : inputList)
         {
+            v_inList = (v == value) ? true : v_inList;
+            std::cout << " inputList for " << this->name() << v.toString() << std::endl;
             for(std::size_t dim = 0; dim < D; ++dim)
             {
                 auto val = v[dim];
                 independentLists[dim].push_back(val);
             }
         }
-
+        if(!v_inList)
+        {
+            for(std::size_t dim = 0; dim < D; ++dim)
+            {
+                auto val = value[dim];
+                independentLists[dim].push_back(val);
+            }
+        }
 
         for(std::size_t dim = 0; dim < D; ++dim)
         {

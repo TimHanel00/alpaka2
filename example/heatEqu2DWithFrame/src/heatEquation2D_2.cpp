@@ -73,7 +73,7 @@ static auto getSessionFromExec(Exec_T const& exec, auto frameSpec, auto& devAcc,
 
                       return condX && condY;
                   })
-              .withStrategy(alpaka::tune::strategy::exhaustiveSearch{})
+              .withStrategy(tune::strategy::exhaustiveSearch{})
               /*
               .template withConstraint<tune::frameTune::NumFrames, tune::frameTune::FrameExtent>(
               [toRTime, numNodes](auto a, auto b) { return numNodes > (a * b); })*/
@@ -108,7 +108,7 @@ static auto getSessionFromExec(alpaka::exec::CpuOmpBlocks const& exec, auto fram
 
                       return condX && condY;
                   })
-              .withStrategy(alpaka::tune::strategy::exhaustiveSearch{})
+              .withStrategy(tune::strategy::exhaustiveSearch{})
               /*
               .template withConstraint<tune::frameTune::NumFrames, tune::frameTune::FrameExtent>(
               [toRTime, numNodes](auto a, auto b) { return numNodes > (a * b); })*/
@@ -240,7 +240,6 @@ auto example(T_Cfg const& cfg, uint32_t i) -> int
     assert(
         numNodes[0] % chunkSize[0] == 0 && numNodes[1] % chunkSize[1] == 0
         && "Domain must be divisible by chunk size");
-    auto sharedMemExtents = CVec<uint32_t, ySize + halo, xSize + halo>{};
     StencilKernel2 stencilKernel;
     BoundaryKernel2 boundaryKernel;
     auto dataBlockingStencil = FrameSpec{numChunks, chunkSize};

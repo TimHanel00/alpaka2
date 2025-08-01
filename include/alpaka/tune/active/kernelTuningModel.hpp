@@ -191,9 +191,7 @@ struct KernelTuningModel
             {
                 std::cout << " it doesnt have value" << std::endl;
             }
-            std::cout << " dawok" << std::endl;
             auto& k = m_sharedInterface.value();
-            std::cout << " j" << std::endl;
             return k;
         }
         else
@@ -276,7 +274,6 @@ struct KernelTuningModel
                             [&](auto const&... compileElems)
                             {
                                 return std::make_tuple(userElems.value..., frameElems.value..., compileElems.value...);
-                                // here we actually copy by value
                             },
                             this->m_compileTimeTuneables);
                     },
@@ -306,7 +303,7 @@ struct KernelTuningModel
 
     auto toConfig() const
     {
-        return Config{allValues()};
+        return std::move(Config{allValues()}); // should be auto moved but dunno
     }
 
     constexpr auto allTuneables() const&

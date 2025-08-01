@@ -1,34 +1,31 @@
 # strategyConfig.cmake
 
 # === STRATEGY SELECTION ===
-set(STRATEGY "randomSearch" CACHE STRING "Tuning strategy to use")
-set_property(CACHE STRATEGY PROPERTY STRINGS randomSearch exhaustiveSearch simulatedAnnealing randomSample)
+# Allow user to set this from the command line
+set(DTuner_Strategy "randomExplore" CACHE STRING "Tuning strategy (randomExplore, exhaustive, simulatedAnnealing, randomSample, bayesianOptimization)")
+set_property(CACHE DTuner_Strategy PROPERTY STRINGS randomExplore exhaustive simulatedAnnealing randomSample bayesianOptimization)
 
-# Clear all strategy flags (defensive)
-unset(strategy_randomSearch CACHE)
-unset(strategy_exhaustiveSearch CACHE)
-unset(strategy_simulatedAnnealing CACHE)
-unset(strategy_randomSample CACHE)
+# Strategy selection macro
+if (DTuner_Strategy STREQUAL "randomExplore")
+    set(DTUNER_STRATEGY_MACRO strategy_randomSearch)
+elseif (DTuner_Strategy STREQUAL "exhaustive")
+    set(DTUNER_STRATEGY_MACRO strategy_exhaustiveSearch)
+elseif (DTuner_Strategy STREQUAL "simulatedAnnealing")
+    set(DTUNER_STRATEGY_MACRO strategy_simulatedAnnealing)
+elseif (DTuner_Strategy STREQUAL "randomSample")
+    set(DTUNER_STRATEGY_MACRO strategy_randomSample)
+elseif (DTuner_Strategy STREQUAL "bayesianOptimization")
+    set(DTUNER_STRATEGY_MACRO strategy_bayesianOptimization)
 
-# Define the selected strategy
-if (STRATEGY STREQUAL "randomSearch")
-    add_compile_definitions(strategy_randomSearch)
-elseif (STRATEGY STREQUAL "exhaustiveSearch")
-    add_compile_definitions(strategy_exhaustiveSearch)
-elseif (STRATEGY STREQUAL "simulatedAnnealing")
-    add_compile_definitions(strategy_simulatedAnnealing)
-elseif (STRATEGY STREQUAL "randomSample")
-    add_compile_definitions(strategy_randomSample)
+    include(FetchContent)
+    FetchContent_Declare(
+            eigen
+            GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
+            GIT_TAG 3.4.0
+            GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(eigen)
 else ()
-    message(FATAL_ERROR "Unknown STRATEGY: ${STRATEGY}")
+    message(FATAL_ERROR "Invalid DTuner_Strategy: ${DTuner_Strategy}")
 endif ()
 
-# === OPTIONAL FEATURE FLAGS ===
-
-# This flag defaults to OFF if not specified
-option(ExhaustiveSearchRandomInitialization "Enable random initialization for exhaustive search" OFF)
-
-if (ExhaustiveSearchRandomInitialization)
-    add_definitions(-DExhaustiveSearchRandomInitialization)
-    add_compile_definitions(ExhaustiveSearchRandomInitialization)
-endif ()

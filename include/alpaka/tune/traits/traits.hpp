@@ -93,7 +93,8 @@ namespace alpaka::tune::trait
     {
         static void apply(T_Queue const& queue, T_Config& config)
         {
-#pragma message("[Warning] No specialization of getDefault for this kernel bundle — check your KernelBundle type!")
+            // #pragma message("[Warning] No specialization of getDefault for this kernel bundle — check your
+            // KernelBundle type!")
             std::cout << " selected wrong SPECIALIZATION " << std::endl;
             // Optional fallback code
             // or

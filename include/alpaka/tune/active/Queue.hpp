@@ -10,6 +10,8 @@
 
 namespace alpaka::tune
 {
+#define maxQueueSize
+
     template<typename T_Configs>
     struct ConfigQueue
     {
@@ -79,15 +81,14 @@ namespace alpaka::tune
                     roundRobinIndex = (idx + 1) % configs.size();
                     return cfg;
                 }
-                else
-                {
-                    configs.erase(configs.begin() + idx);
 
-                    if(idx < roundRobinIndex && roundRobinIndex > 0)
-                        roundRobinIndex--;
-                    if(configs.empty())
-                        return std::nullopt;
-                }
+                configs.erase(configs.begin() + idx);
+
+                if(idx < roundRobinIndex && roundRobinIndex > 0)
+                    roundRobinIndex--;
+                if(configs.empty())
+                    return std::nullopt;
+
                 attempts++;
             }
             return std::nullopt;

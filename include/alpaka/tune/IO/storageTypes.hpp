@@ -19,29 +19,30 @@
 #include <span>
 #include <variant>
 
-template<typename... Ts>
+template<typename T_ConfigTuple>
 struct Config
 
 {
-    using TupleType = std::tuple<Ts...>;
-
+    using TupleType = T_ConfigTuple;
     Config() = default;
 
-    explicit Config(TupleType const& vals)
+    explicit Config(T_ConfigTuple&& vals) : values(std::forward<T_ConfigTuple>(vals))
     {
-        std::cout << "Constructo called" << hashVal << "\n";
-        this->values = vals;
         this->hashVal = computeHash(this->values);
     }
 
-    std::string toString()
+    explicit Config(T_ConfigTuple const& vals) : values(vals)
     {
-        return std::apply([&](auto&... args) { return (args.toString(), ...); }, values);
+        this->hashVal = computeHash(this->values);
+    }
+
+    std::string toString() const
+    {
+        return std::apply([](auto const&... args) { return (std::string{} + ... + args.toString()); }, values);
     };
 
     std::size_t toHash() const
     {
-        std::cout << "Hash" << "\n";
         return hashVal;
     }
 
@@ -52,13 +53,11 @@ struct Config
 
     bool operator==(Config const& other) const
     {
-        std::cout << " comparison called \n" << std::endl;
         return this->toHash() == other.toHash() && this->values == other.values;
     }
 
     bool operator!=(Config const& other) const
     {
-        std::cout << " comparison called \n" << std::endl;
         return !(*this == other);
     }
 
@@ -124,7 +123,7 @@ enum class ConfigState
 // Shared helper to perform Kruskal-Wallis comparison
 enum class Comparison;
 template<typename TConfig>
-class ConfigEntry;
+struct ConfigEntry;
 template<typename T_Config>
 Comparison kruskalCompare(ConfigEntry<T_Config> const& current, ConfigEntry<T_Config> const& other);
 
@@ -180,7 +179,7 @@ struct ConfigEntry
 
     ConfigState state = ConfigState::Uninitialized;
 
-    bool operator==(ConfigEntry const& other)
+    bool operator==(ConfigEntry const& other) const
     {
         return this->toHash() == config.toHash() && this->config == other.config;
     }
@@ -190,7 +189,7 @@ struct ConfigEntry
         return !(*this == other);
     }
 
-    auto toHash()
+    auto toHash() const
     {
         return config.toHash();
     }
@@ -198,6 +197,21 @@ struct ConfigEntry
     TConfig const& getConfig() const
     {
         return config;
+    }
+
+    bool operator<(ConfigEntry const& entry) const
+    {
+        return this->getMedian() < entry.getMedian();
+    }
+
+    bool operator>(ConfigEntry const& entry) const
+    {
+        return this->getMedian() > entry.getMedian();
+    }
+
+    auto getMedian() const
+    {
+        return metrics.get(median_t{}).as<t_ns>();
     }
 
     MetricContainer& getMetrics()
@@ -303,6 +317,12 @@ class ConfigStorage
 public:
     using Entry = ConfigEntry<TConfig>;
 
+    Entry& getOrCreate(TConfig&& config)
+    {
+        auto [iter, h] = entries.try_emplace(config, config);
+        return iter->second;
+    }
+
     Entry& getOrCreate(TConfig const& config)
     {
         auto [iter, h] = entries.try_emplace(config, config);
@@ -312,6 +332,11 @@ public:
     std::unordered_map<TConfig, Entry>& getAll()
     {
         return entries;
+    }
+
+    bool contains(ConfigEntry<TConfig> const& config) const
+    {
+        return entries.contains(config.config);
     }
 
     bool contains(TConfig const& config) const
@@ -330,9 +355,7 @@ namespace std
     {
         std::size_t operator()(Config<Ts...> const& c) const
         {
-            std::cout << "koko \n" << std::endl;
             auto hash = c.toHash();
-            std::cout << "loko " << hash << "\n" << std::endl;
             return hash;
         }
     };
@@ -420,7 +443,6 @@ auto createKernelDataFromModel(
     auto all = model.allTuneables(); // tuple<Tuneable<T_Vec, ...>...>
 
     // Step 2: Build Config<Ts...> and Descriptor<...> from tuneables
-    constexpr std::size_t N = std::tuple_size_v<decltype(all)>;
     using TConfig = decltype(Config{model.allValues()});
     using TupleOfVecs = decltype(std::apply(
         [](auto const&... t) { return std::tuple<typename std::remove_cvref_t<decltype(t)>::ValueType...>{}; },

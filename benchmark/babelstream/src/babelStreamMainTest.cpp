@@ -329,6 +329,13 @@ struct DotKernel
 constexpr bool isPowerOfTwo(std::size_t x) {
     return x != 0 && (x & (x - 1)) == 0;
 }
+template<typename T_1, typename T_2>
+struct Sessions{
+    T_1 &DotSession;
+    T_2 &RestSession;
+    Sessions(T_1 &DotSession, T_2 &RestSession):DotSession(DotSession), RestSession(RestSession){};
+};
+
 template<typename Data_T,typename Exec_T>
 static auto getSessionFromExec(Exec_T const &exec,auto arraySize,auto & devAcc){
 
@@ -347,11 +354,9 @@ static auto getSessionFromExec(Exec_T const &exec,auto arraySize,auto & devAcc){
     std::cout << "max Threads" << maxThreads << std::endl;
     auto mpVec = idxVec{static_cast<Idx>(setFixedNumBlocks_) * static_cast<Idx>(8u)};
     static constexpr auto _0T = std::size_t{0};
-    static constexpr std::size_t index0 = 0;
     // alpaka::tune::Tuneable{uVec{56*2}, IdxRange{uVec{56*2}, uVec{dataBlocking.m_numFrames}, uVec{56*2}}})
     static auto tuningSessionDot
         = tune::TuningBuilder{}
-              .withStrategy(tune::strategy::exhaustiveSearch{})
               .withRunSpecifiers(std::to_string(arraySize))
               .withFrameExtentTune(tune::Tuneable(IdxRange{idxVec{64}, idxVec{64 * 16}, idxVec{64}}))
               .withBlockSizeTune(tune::Tuneable(IdxRange{idxVec{64}, idxVec{maxThreads}, idxVec{64}}))
@@ -368,14 +373,13 @@ static auto getSessionFromExec(Exec_T const &exec,auto arraySize,auto & devAcc){
               .build();
     static auto tuningSessionRest
         = tune::TuningBuilder{}
-              .withStrategy(alpaka::tune::strategy::exhaustiveSearch{})
               .withRunSpecifiers(std::to_string(arraySize))
               .withBlockSizeTune(tune::Tuneable(IdxRange{idxVec{64}, idxVec{maxThreads}, idxVec{64}}))
               .withNumBlocksTune()
               .template withConstraint<_0T>(  [arraySize](auto concurrentElements){return isPowerOfTwo(concurrentElements[0]);})
               .withConfig("./config/realBabelstreamGPU_Rest_"+std::to_string(arraySize)+"_.toml")
               .build();
-		return std::make_tuple(tuningSessionDot,tuningSessionRest);
+		return Sessions(tuningSessionDot,tuningSessionRest);
     };
 template<typename T_TuningSessionDot,typename T_TuningSessionRest>
 bool abortIfFinished(const T_TuningSessionDot &dotSession,const  T_TuningSessionRest &restSession){
@@ -418,7 +422,7 @@ using Idx = std::uint32_t;
           .withConfig("./config/Babelstream_CPU_"+std::to_string(arraySize)+"_.toml")
           .build();
 
-		return std::make_tuple(sessionDot,sessionRest);
+		return Sessions(sessionDot,sessionRest);
 }
 void log_event(const std::string& label) {
     auto now = std::chrono::system_clock::now();
@@ -533,11 +537,9 @@ void testKernels(T_Cfg cfg)
     // alpaka::tune::Tuneable{uVec{56*2}, IdxRange{uVec{56*2}, uVec{dataBlocking.m_numFrames}, uVec{56*2}}})
     auto tuningSessions
         = getSessionFromExec<DataType>(exec,arraySize,devAcc);
-    using TuningSessionDotType = decltype(std::get<0>(tuningSessions));
-    using TuningSessionRestType = decltype(std::get<1>(tuningSessions));
 
-    TuningSessionDotType tuningSessionDot = std::get<0>(tuningSessions);
-	TuningSessionRestType tuningSessionRest = std::get<1>(tuningSessions);
+    auto& tuningSessionDot = tuningSessions.sessionDot;
+    auto &tuningSessionRest = tuningSessions.sessionRest;
 
 
     // To record runtime data generated while running the kernels
@@ -558,7 +560,7 @@ void testKernels(T_Cfg cfg)
         runtime = duration.count();
         auto ns_count = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
         std::cout << "[TUNER]" << "," << ns_count << "," << kernelLabel<<"\n";
-        std::cout << "[ALPAKA]" << "," << alpaka::tune::global::timingAccessor() << "," << kernelLabel<<"\n";
+        std::cout << "[ALPAKA]" << "," << static_cast<uint32_t>(alpaka::tune::global::timingAccessor()) << "," << kernelLabel<<"\n";
         runtimeResults.kernelToRundataMap[kernelLabel]->timingsSuccessiveRuns.push_back(runtime);
 
 		log_event(kernelLabel);

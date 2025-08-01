@@ -439,16 +439,16 @@ namespace alpaka::tune
         template<typename T>
         using toFirstType_t = typename toFirstType<T>::type;
 
-        template<typename Definition>
-        auto makeTuneable(std::size_t index, auto const& initialValue)
+        template<typename Definition, typename InitVal>
+        auto makeTuneable(std::size_t index, InitVal const& initialValue)
         {
             using Decayed = std::decay_t<Definition>;
 
             if constexpr(requires { typename Decayed::T_Begin; }) // old form
             {
                 using Scalar = decltype(CompileTimeHelpers::toRuntimeVec(typename Decayed::T_Begin{}));
-                return ::alpaka::tune::Tuneable<Scalar, Decayed::tag, ::alpaka::tune::DimensionsDependent>{
-                    ::alpaka::IdxRange{
+                return ::alpaka::tune::Tuneable<Scalar, Decayed::tag, DimensionsDependent>{
+                    IdxRange{
                         CompileTimeHelpers::toRuntimeVec(typename Decayed::T_Begin{}),
                         CompileTimeHelpers::toRuntimeVec(typename Decayed::T_End{}),
                         CompileTimeHelpers::toRuntimeVec(typename Decayed::T_Stride{})},
@@ -462,16 +462,15 @@ namespace alpaka::tune
                 constexpr std::size_t N = std::tuple_size_v<ValueTuple>;
                 auto vec = [&]<std::size_t... Is>(std::index_sequence<Is...>)
                 {
-                    return std::vector<alpaka::Vec<Scalar, Decayed::dim>>{
+                    return std::vector<Vec<Scalar, Decayed::dim>>{
                         CompileTimeHelpers::toRuntimeVec(std::tuple_element_t<Is, ValueTuple>{})...};
                 }(std::make_index_sequence<N>{});
 
                 // Now construct Tuneable from the vector
-                return ::alpaka::tune::
-                    Tuneable<alpaka::Vec<Scalar, Decayed::dim>, Decayed::tag, ::alpaka::tune::DimensionsDependent>{
-                        vec,
-                        CompileTimeHelpers::toRuntimeVec(initialValue),
-                        "CTune_" + std::to_string(index)};
+                return ::alpaka::tune::Tuneable<Vec<Scalar, Decayed::dim>, Decayed::tag, DimensionsDependent>{
+                    vec,
+                    CompileTimeHelpers::toRuntimeVec(initialValue),
+                    "CTune_" + std::to_string(index)};
             }
         }
 
@@ -563,7 +562,7 @@ namespace alpaka::tune
             else
             {
                 constexpr auto ctune = trait::registeredCTuneables<KernelFn>();
-                constexpr auto& definitions = decltype(ctune)::tuneAbleDefinitions;
+                constexpr auto definitions = decltype(ctune)::tuneAbleDefinitions;
                 using KernelInitialValues_t = decltype(decltype(ctune)::KernelInitialValues);
                 constexpr KernelInitialValues_t KernelInitialValues = decltype(ctune)::KernelInitialValues;
 
@@ -573,9 +572,8 @@ namespace alpaka::tune
                 {
                     return std::make_tuple(
                         alpaka::tune::CompileTimeHelpers::makeTuneable<
-                            std::decay_t<decltype(std::get<Is>(definitions))>>(
-                            Is,
-                            std::get<Is>(KernelInitialValues))...);
+                            std::decay_t<decltype(std::get<Is>(definitions))>,
+                            decltype(std::get<Is>(KernelInitialValues))>(Is, std::get<Is>(KernelInitialValues))...);
                 }(std::make_index_sequence<N>{});
             }
         }

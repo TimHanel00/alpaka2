@@ -118,7 +118,7 @@ namespace alpaka::tune
                 if(tuneableVals.size() != tuneableNames.size())
                     continue;
 
-                typename T_Config::TupleType typedValues{};
+                typename T_Config::TupleType tuple{};
                 std::size_t tuneableIndex = 0;
                 // Use your helper for clean access to each descriptor + index
                 for_each_enumerate(
@@ -148,12 +148,11 @@ namespace alpaka::tune
                             tuneableIndex++;
                         }
 
-                        std::get<I>(typedValues) = parsed;
+                        std::get<I>(tuple) = parsed;
                     });
-
+                auto config = Config<decltype(tuple)>{std::move(tuple)};
                 // Insert the config into storage
-                T_Config config{typedValues};
-                auto& entry = kernelData.configEntries.getOrCreate(config);
+                auto& entry = kernelData.configEntries.getOrCreate(std::move(config));
 
                 // Metrics
                 if(runTable.contains("metric"))

@@ -82,20 +82,29 @@ include("${_alpaka_ROOT_DIR}/cmake/addLibrary.cmake")
 
 # check for CUDA/HIP language support
 include(CheckLanguage)
-
+include(include/alpaka/tune/config.cmake)
 add_library(alpaka INTERFACE
         include/alpaka/tune/active/Queue.hpp
         include/alpaka/tune/utils/tupleHelper.h
         include/alpaka/tune/utils/Random.h
-        include/alpaka/tune/IO/metricContainer.hpp)
+        include/alpaka/tune/IO/metricContainer.hpp
+        include/alpaka/tune/active/bayesianOptimizer.hpp)
 target_include_directories(${PROJECT_NAME} INTERFACE $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_20)
+target_compile_definitions(alpaka INTERFACE ${DTUNER_STRATEGY_MACRO})
+
+if (DTuner_Strategy STREQUAL "bayesianOptimization")
+    target_include_directories(alpaka INTERFACE
+            ${eigen_SOURCE_DIR}
+            $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+    target_include_directories(alpaka INTERFACE ${eigen_SOURCE_DIR})
+endif ()
 
 option(alpaka_DEP_CUDA "Enable the CUDA as dependency, allows the usage of api::Cuda and exec::GpuCuda." OFF)
 option(alpaka_DEP_HIP "Enable the HIP as dependency, allows the usage of api::Hip and exec::GpuHip" OFF)
 option(alpaka_DEP_OMP "Enable the OMP as dependency, allows the usage of exec::CpuOmpBlocks and exec::OmpBlocksAndThreads" ON)
 option(alpaka_DEP_ONEAPI "Enable the Intel OneAPI SYCL CPU dependency, allows using exec::cpuIntelSycl" OFF)
-
 ## OpenMP
 if (alpaka_DEP_OMP)
     find_package(OpenMP REQUIRED COMPONENTS CXX)

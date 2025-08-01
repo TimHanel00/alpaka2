@@ -4,6 +4,7 @@
 
 #ifndef KERNELSINGLETON_H
 #define KERNELSINGLETON_H
+
 #include "../utils/environmentVars.hpp"
 #include "alpaka/core/decay.hpp"
 #include "alpaka/tune/adjust/adjust.hpp"
@@ -24,16 +25,16 @@
 template<typename T_Config>
 struct EnvironmentState
 {
-    bool enironmentFinished{false};
+    bool sessionFinished{false};
     bool strategyFinished{false};
     uint32_t numberOfCheckedConfigs{0};
     uint32_t numValidConfigs{0};
-    uint32_t maxValidEvaluations{0};
+    uint32_t maxValidEvaluations{UINT32_MAX};
     uint32_t maxConfigsTotal{0};
     uint32_t stamp{0};
     uint32_t strategyLimit = Tuner_MaxConsecutiveStrategyFailures;
 
-    bool setStrategyFinished()
+    auto setStrategyFinished() -> void
     {
         strategyFinished = true;
     }
@@ -52,15 +53,19 @@ struct EnvironmentState
 
     ConfigEntry<T_Config> bestConfig;
 
+    bool getMaxEvals() const
+    {
+        return std::min(maxValidEvaluations, maxConfigsTotal);
+    }
+
     bool globalBreakCriteriaFinished()
     {
-        if(enironmentFinished)
+        if(sessionFinished)
         {
             return true;
         }
-        enironmentFinished
-            = alpaka::tune::getMaxRuns() <= maxConfigsTotal || numberOfCheckedConfigs <= maxConfigsTotal;
-        return enironmentFinished;
+        sessionFinished = numValidConfigs <= maxValidEvaluations || numberOfCheckedConfigs <= maxConfigsTotal;
+        return sessionFinished;
     }
 
     bool localBreakCriteriaFinished(auto const& config)
@@ -263,18 +268,16 @@ namespace alpaka::tune
         {
             auto& history = alpaka::tune::TuningHistory::get(filename);
             history.loadConfig(env_kernelData);
+            alpaka::tune::recalculateMaxRuns(*env_kernelTuningPtr);
             // 1. Clamp to spec
-            alpaka::tune::clampToSpec(device_, frameSpec_, *env_kernelTuningPtr);
             // 2. Generate value lists
-            makeListsForAllTuneables(env_kernelTuningPtr->allTuneables());
+
 
             // 3. Initial max runs
-            alpaka::tune::recalculateMaxRuns(*env_kernelTuningPtr);
-            shrinkTuningSpace(env_kernelTuningPtr->allTuneables(), env_kernelTuningPtr->maxRuns);
-            alpaka::tune::recalculateMaxRuns(*env_kernelTuningPtr);
+
             environmentState.bestConfig = getConfigStorage().getOrCreate(env_kernelTuningPtr->toConfig());
             environmentState.maxConfigsTotal = env_kernelTuningPtr->maxRuns;
-            environmentState.maxValidEvaluations = alpaka::tune::getMaxRuns();
+            environmentState.maxValidEvaluations = getMaxRuns();
         }
 
         // Prevent copy/move
@@ -415,13 +418,19 @@ namespace alpaka::tune
             return false;
         }
 
-        template<typename T_Queue, typename T_Exec, typename T_Spec, typename T_Kernelbundle>
+        template<
+            typename T_Queue,
+            typename T_Exec,
+            typename T_NumBlocks,
+            typename T_NumThreads,
+            typename T_Kernelbundle,
+            typename T_Config>
         void applyAndExecute(
             T_Queue&& queue,
             T_Exec&& exec,
-            T_Spec&& spec,
+            alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads>&& spec,
             T_Kernelbundle&& kernelbundle,
-            auto const& config)
+            T_Config const& config)
         {
             auto& run = *this->env_kernelTuningPtr;
             run.fromConfig(config);
@@ -431,7 +440,6 @@ namespace alpaka::tune
             trait::callPreProcessing(run, spec, this->env_metricInterface, bundle);
 
             using KernelFn = typename decltype(this->env_kernelTuningPtr->kernelBundle)::KernelFn;
-            std::cout << " try to launch kernel with " << run.toConfig().toString() << std::endl;
 
             if constexpr(!trait::hasUserDefinedCTuneable<KernelFn>::value)
             {
@@ -468,7 +476,6 @@ namespace alpaka::tune
         void update(auto const& config)
         {
             auto& run = *this->env_kernelTuningPtr;
-            std::cout << " ran config: " << config.toHash() << " time " << run.metric << std::endl;
             auto& stored = this->getConfigStorage().getOrCreate(config);
 
             switch(stored.state)
@@ -479,8 +486,6 @@ namespace alpaka::tune
             case ConfigState::Dummy:
                 return;
             default:
-                std::cout << " config has state: " << config.toString()
-                          << " state: " << static_cast<std::size_t>(stored.state) << std::endl;
                 break;
             }
 
@@ -654,23 +659,32 @@ auto createTuningEnvironment(
     auto completeRun = KernelTuningModel{userTuple, newRun.m_frameTuneables, CTuneableBundle};
 
     using T_Config = decltype(completeRun.toConfig());
-    auto env_kernelData = createKernelDataFromModel(
-        completeRun,
-        alpaka::core::demangledName(device),
-        alpaka::core::demangledName(exec),
-        alpaka::core::demangledName<decltype(bundle)>(),
-        sessionSpecifier);
+
     using kernelModel = decltype(completeRun);
-
-
+    //---- reconfigure kerneltuningModel --- //
+    alpaka::tune::clampToSpec(device, newFrameSpec, completeRun);
+    alpaka::tune::recalculateMaxRuns(completeRun);
+    shrinkTuningSpace(completeRun.allTuneables(), completeRun.maxRuns);
+    alpaka::tune::recalculateMaxRuns(completeRun);
+    makeListsForAllTuneables(completeRun.allTuneables()); // make lists for all tuneables
+    //---- reconfigure kerneltuningModel --- //
     using T_sharedParmeterInterface = decltype(makeSharedParameterInterface(completeRun));
     using model = KernelTuningModel<
-        decltype(userTuple),
-        decltype(newRun.m_frameTuneables),
-        decltype(CTuneableBundle),
+        decltype(completeRun.m_userTuneables),
+        decltype(completeRun.m_frameTuneables),
+        decltype(completeRun.m_compileTimeTuneables),
         T_sharedParmeterInterface>;
-    auto activePtr = std::make_unique<model>(userTuple, newRun.m_frameTuneables, CTuneableBundle);
+    auto activePtr = std::make_unique<model>(
+        completeRun.m_userTuneables,
+        completeRun.m_frameTuneables,
+        completeRun.m_compileTimeTuneables);
     // Final types deduced for environment
+    auto env_kernelData = createKernelDataFromModel(
+        *activePtr,
+        alpaka::core::demangledName(device),
+        alpaka::core::demangledName(exec),
+        alpaka::core::demangledName<model>(),
+        sessionSpecifier);
     using tuningEnvironmentType = alpaka::tune::tuningEnvironment<
         T_Config,
         decltype(env_kernelData.descriptor),

@@ -120,7 +120,7 @@ auto example(T_Cfg const& cfg, size_t numElements) -> int
     auto dataBlocking = onHost::FrameSpec{divCeil(extent, chunkSize * elementsPerWorker), chunkSize};
     auto frameTune=alpaka::tune::Tuneable(IdxRange{dataBlocking.m_frameExtent/VecType{2}, dataBlocking.m_frameExtent,dataBlocking.m_frameExtent/VecType{2}});
     static auto tuningSession= tune::TuningBuilder{}.withNumBlocksTune().withFrameExtentTune(frameTune).withConfig("./config/tuningSession_.toml")
-             .withStrategy(tune::strategy::exhaustiveSearch{}).build();
+             .withStrategy().build();
     #define NUM_EXECUTIONS 40000
     // Enqueue the kernel execution task
     {

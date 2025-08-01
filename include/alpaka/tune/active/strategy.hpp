@@ -8,6 +8,7 @@
 #include "alpaka/tune/utils/Random.h"
 #include "alpaka/tune/utils/environmentVars.hpp"
 #include "alpaka/tune/utils/tupleHelper.h"
+#include "bayesianOptimizer.hpp"
 
 #include <alpaka/tune/active/MetricInterface.hpp>
 
@@ -50,9 +51,9 @@ namespace alpaka::tune::strategy
 
     struct randomSample
     {
-        template<typename T_TuningModel, typename T_Config>
+        template<concepts::MetricInterface T_metricInterface, typename T_TuningModel, typename T_Config>
         auto operator()(
-            concepts::MetricInterface auto& metricInterface, // the user specified metricInterface
+            T_metricInterface& metricInterface, // the user specified metricInterface
             KernelTuningModelView<T_TuningModel>&& model, // contains tuneables and provides accessors
             ConfigStorage<T_Config>& config_storage, // this is the history for a specific kernel backend config
             EnvironmentState<T_Config>& environmentState) // contains global break criterias
@@ -176,32 +177,34 @@ namespace alpaka::tune::strategy
             return dist(rng) < prob;
         }
 
+        template<typename T_Config>
+        struct isConfig
+        {
+            ConfigEntry<T_Config> const& config;
+            explicit isConfig(ConfigEntry<T_Config> const& config) : config(config) {};
+
+            template<typename MetricInterface>
+            bool betterThan(ConfigEntry<T_Config> const& other)
+            {
+                auto const& preferred = compareGetBest<MetricInterface>(this->config, other);
+                return (&preferred == &this->config);
+            }
+        };
+
         /*
          *TODO add genericOperator
          */
         template<typename T_Metric, typename T_Config>
         bool acceptanceFunction(
-            ConfigEntry<T_Config> const& cand,
+            ConfigEntry<T_Config> const& neu_,
             ConfigEntry<T_Config> const& cur,
             double temperature)
         {
-            switch(cand.compare(cur))
+            if(isConfig{neu_}.template betterThan<T_Metric>(cur))
             {
-            case ::Comparison::Greater:
-                {
-                    auto const& preferred = aGTb<T_Metric, T_Config>{}(cand, cur);
-                    return (&preferred == &cand) || acceptWorseSolution<T_Metric>(cand, cur, temperature);
-                }
-            case ::Comparison::Less:
-                {
-                    auto const& preferred = aLTb<T_Metric, T_Config>{}(cand, cur);
-                    return (&preferred == &cand) || acceptWorseSolution<T_Metric>(cand, cur, temperature);
-                }
-            case ::Comparison::Inconclusive:
-                return true; // always explore
-            default:
-                return false;
+                return true;
             }
+            return acceptWorseSolution<T_Metric>(neu_, cur, temperature);
         }
 
         /*
@@ -211,14 +214,14 @@ namespace alpaka::tune::strategy
         void acceptNewKernel(
             ConfigEntry<T_Config>& oldKernel,
             ConfigEntry<T_Config>& newKernel,
-            KernelTuningModelView<T_KernelRun>&& activeKernel,
+            KernelTuningModelView<T_KernelRun>& activeKernel,
             double_t temperature)
         {
             if(acceptanceFunction<T_MetricInterface>(newKernel, oldKernel, temperature))
             {
                 activeKernel.fromConfig(newKernel);
-                // toActive(activeKernel, newKernel); -> we dont have to do anything since ActiveKernel is already in
-                // the newKernel config
+                // toActive(activeKernel, newKernel); -> we dont have to do anything since ActiveKernel is already
+                // in the newKernel config
             }
             else
             {
@@ -234,44 +237,52 @@ namespace alpaka::tune::strategy
          * in the paper they use the hamming distance between two configurations which would include all parameters
          * but applying it per parameter simplifies the computation and algorithm
          */
-        auto applyProbabilityFunction(auto currentValue, auto const& range, double_t temperature)
+        template<typename T>
+        auto applyProbabilityFunction(std::size_t currentIndex, std::vector<T> const& valueList, double temperature)
         {
-            using type = typename decltype(currentValue)::type; // this is a primitive type
-            auto backwardSteps
-                = utils::min_element((currentValue - range.m_begin) / range.m_stride); // this is a n dim vector dim>=1
-            auto forwardSteps
-                = utils::min_element((range.m_end - currentValue) / range.m_stride); // this is a n dim vector dim>=1
+            using type = std::size_t;
+
+            type backwardSteps = currentIndex;
+            type forwardSteps = valueList.size() - currentIndex - 1;
 
             std::vector<double> weights(backwardSteps + forwardSteps + 1);
             double total = 0.0;
 
+            // Fill weights: backward (including current) to front
             for(type i = 0; i <= backwardSteps; ++i)
             {
-                weights[backwardSteps - i] = T_propabilityFunction{}(i, temperature); // backward
+                weights[backwardSteps - i] = T_propabilityFunction{}(i, temperature);
                 total += weights[backwardSteps - i];
             }
+
+            // Fill weights: forward direction
             for(type i = 1; i <= forwardSteps; ++i)
             {
-                weights[backwardSteps + i] = T_propabilityFunction{}(i, temperature); // forward
+                weights[backwardSteps + i] = T_propabilityFunction{}(i, temperature);
                 total += weights[backwardSteps + i];
             }
 
+            // Normalize
             for(auto& w : weights)
                 w /= total;
+
             std::discrete_distribution<type> dist(weights.begin(), weights.end());
             type sampledIndex = dist(RNG::get());
+
+            // Compute new index
+            type newIndex;
             if(sampledIndex < backwardSteps)
             {
                 type stepsBack = backwardSteps - sampledIndex;
-                auto backwardsStepVec = utils::toRTime<decltype(currentValue)>::get::all(stepsBack);
-
-                return currentValue - backwardsStepVec * range.m_stride; // this is a correct calculation if stepsBack
-                                                                         // has the same dimension as curVal
+                newIndex = currentIndex - stepsBack;
             }
-            type stepsForward = sampledIndex - backwardSteps;
-            auto forwardsStepVec = utils::toRTime<decltype(currentValue)>::get::all(stepsForward);
-            return currentValue + forwardsStepVec * range.m_stride; // this is a correct calculation if stepsBack has
-                                                                    // the same dimension as curVal
+            else
+            {
+                type stepsForward = sampledIndex - backwardSteps;
+                newIndex = currentIndex + stepsForward;
+            }
+
+            return newIndex;
         }
 
 #define SimA_MaxCachedSteps 300
@@ -279,8 +290,8 @@ namespace alpaka::tune::strategy
         std::size_t currentRuns = 0;
 
         /// returns true only if both are valid
-        template<typename T_ConfigEntry>
-        bool handleInvalidCases(T_ConfigEntry& neu, T_ConfigEntry& old, auto& model)
+        template<typename T_Config>
+        bool handleInvalidCases(ConfigEntry<T_Config>& neu, ConfigEntry<T_Config>& old, auto& model)
         {
             // assumption: model is at the neu config
             if(neu.state == ConfigState::Dummy || old.state == ConfigState::Dummy)
@@ -290,7 +301,8 @@ namespace alpaka::tune::strategy
                     // we revert back to the old state if it was valid while the current is not
                     model.fromConfig(old);
                 }
-                // this means we automatically accept the "new" state encouraging exploration in case both are invalid
+                // this means we automatically accept the "new" state encouraging exploration in case both are
+                // invalid
                 return false;
             }
             if(neu.state == ConfigState::Dummy)
@@ -300,65 +312,382 @@ namespace alpaka::tune::strategy
             return true;
         }
 
-        template<typename T_TuningModel, typename T_Config>
+        template<concepts::MetricInterface T_metricInterface, typename T_TuningModel, typename T_Config>
         auto operator()(
-            concepts::MetricInterface auto& metricInterface, // the user specified metricInterface
+            T_metricInterface&, // the user specified metricInterface
             KernelTuningModelView<T_TuningModel>&& model, // contains tuneables and provides accessors
             ConfigStorage<T_Config>& config_storage, // this is the history for a specific kernel backend config
             EnvironmentState<T_Config>& environmentState) // contains global break criterias
         {
-            using T_Metric = std::remove_cvref<decltype(metricInterface)>;
-            auto& history = config_storage.runs;
-
             currentRuns = 0;
-            temperature = calcTemperature(environmentState.maxConfigsTotal, environmentState.numberOfCheckedConfigs);
+            temperature = calcTemperature(environmentState.getMaxEvals(), environmentState.numberOfCheckedConfigs);
             while(currentRuns < SimA_MaxCachedSteps)
             {
-                // calculateNewTemperature
-                T_Config oldConfig = model.toConfig(); // yep this is a copy operations no view.
+                // Snapshot current configuration
+                T_Config oldConfig = model.toConfig();
+
+                // Apply mutation via probability function
                 for_each(
                     model.getUniformInterface(),
                     [this](auto& parameter)
                     {
-                        auto newVal = applyProbabilityFunction(parameter.value, parameter.idxRange, temperature);
-                        parameter.value = newVal; // assignment yet still copying values.. not ideal
+                        auto oldIndex = parameter.index;
+                        auto oldValue = parameter.value;
+
+                        parameter.index
+                            = applyProbabilityFunction(parameter.index, parameter.getValues(), temperature);
+                        parameter.value = parameter.getValues()[parameter.index];
                     });
+
+                // Snapshot new configuration
                 T_Config newConfig = model.toConfig();
-                if(newConfig == model.toConfig())
+
+                if(newConfig == oldConfig)
                 {
-                    currentRuns++;
+                    ++currentRuns;
                     continue;
                 }
+
                 if(!config_storage.contains(newConfig))
                 {
-                    std::cout << " new config found! " << std::endl;
                     return;
                 }
+
+                // Retrieve or create entries for metric evaluation
                 ConfigEntry<T_Config>& oldEntry = config_storage.getOrCreate(oldConfig);
                 ConfigEntry<T_Config>& newEntry = config_storage.getOrCreate(newConfig);
-                if(!handleInvalidCases<T_Metric>(newEntry, oldEntry))
+
+
+                // Validate metrics/state before accepting
+                if(!handleInvalidCases(newEntry, oldEntry, model))
                 {
-                    currentRuns++;
+                    ++currentRuns;
                     continue;
                 }
-                // we m_run in this case if the newly found config was already cached (evaluated enough)
-                // so we can decide directly if we want to go there
-                // we accept the new found config always if its better and with a propability of
-                // e^(-new+old)/temp) if its worse (if lower is better)
-                acceptNewKernel<T_Metric>(oldEntry, newEntry, model, temperature);
+                auto oldMedian = oldEntry.getMetrics().get(median_t{}).template as<t_ns>();
+                auto newMedian = newEntry.getMetrics().get(median_t{}).template as<t_ns>();
+
+                acceptNewKernel<T_metricInterface>(oldEntry, newEntry, model, temperature);
+
                 ++currentRuns;
-                // here we also count if we accept equal configs.
             }
         }
 
         // if we already have been to that config we still jump there with the propability function but we go to
         // the next config afterwards
     };
+#if defined(strategy_bayesianOptimization)
+    namespace detail
+    {
+        template<class UI, class Fn>
+        constexpr void for_each_param(UI&& ui, Fn&& fn)
+        {
+            std::apply([&](auto&... p) { (fn(p), ...); }, ui);
+        }
 
-    ;
+        template<class UI>
+        [[nodiscard]] constexpr std::size_t param_count(UI&& ui)
+        {
+            std::size_t c = 0;
+            for_each_param(ui, [&](auto&&) { ++c; });
+            return c;
+        }
+
+        template<class UI>
+        [[nodiscard]] Eigen::VectorXd encode(UI&& ui, std::vector<std::size_t> const& card)
+        {
+            Eigen::VectorXd v(card.size());
+            std::size_t i = 0;
+            for_each_param(
+                ui,
+                [&](auto& p)
+                {
+                    v(i) = static_cast<double>(p.index) / std::max<std::size_t>(1, card[i] - 1);
+                    ++i;
+                });
+            return v;
+        }
+
+        template<class UI>
+        inline void restore(UI&& ui, std::vector<std::size_t> const& snap)
+        {
+            std::size_t i = 0;
+            for_each_param(
+                ui,
+                [&](auto& p)
+                {
+                    p.index = snap[i];
+                    p.value = p.getValues()[p.index];
+                    ++i;
+                });
+        }
+
+        // RNG helpers ------------------------------------------------------------------------------
+    } // namespace detail
+
+    template<concepts::MetricInterface T_metricInterface, typename T_TuningModel, typename T_Config>
+    void callRandomSearch(
+        T_metricInterface& metricInterface, // the user specified metricInterface
+        KernelTuningModelView<T_TuningModel>& model,
+        ConfigStorage<T_Config>&
+            config_storage, // this already returns the config for a specific kernel backend config
+        EnvironmentState<T_Config>& environmentState);
+
+    // -----------------------------------------------------------------------------
+    // -----------------------------------------------------------------------------
+    // bayesianOptimization – refactored
+    // -----------------------------------------------------------------------------
+    struct bayesianOptimization
+    {
+        /* ---------- tunables (unchanged) -------------------------------------- */
+        std::size_t candidate_pool_size = 1024;
+        std::size_t refresh_per_call = 50;
+
+        /* ---------- state (unchanged) ----------------------------------------- */
+        bool initialised_ = false;
+        std::vector<std::size_t> cardinality_;
+        using Vec = Eigen::VectorXd;
+        using RowId = std::size_t;
+
+        std::vector<Vec> X_;
+        std::vector<double> y_;
+        std::unordered_map<std::size_t, RowId> idx_map_;
+
+        GaussianProcess gp_{2.0};
+        MultiAcquisition multi_;
+
+        struct Cand
+        {
+            std::size_t hash;
+            Vec vec;
+        };
+
+        std::deque<Cand> pool_; // now a deque for cheap pop-front
+
+        /* ---------- configuration -------------------------------------------- */
+        static constexpr std::size_t cleanup_interval = 50;
+        std::size_t call_counter_ = 0;
+
+        /* ===================================================================== */
+        /*  ↓↓↓ private helpers – keep implementation noise out of operator()   */
+        /* ===================================================================== */
+
+        /* --- encode / snapshot / restore (unchanged) ------------------------- */
+        template<typename UI>
+        static auto snapshot_indices(UI&& ui) -> std::vector<std::size_t>;
+        template<typename UI>
+        static Vec encode(UI&& ui, std::vector<std::size_t> const& card);
+        template<typename UI>
+        static void restore(UI&& ui, std::vector<std::size_t> const& snap);
+
+        /* --------------------------------------------------------------------- */
+        /*  ingest_or_update() : take the *current* measured config & metric     */
+        /* --------------------------------------------------------------------- */
+        template<typename T_Config, typename UI>
+        void ingest_or_update(T_Config const& cfg, double median, UI& ui, bool& gp_dirty)
+        {
+            std::size_t const h = cfg.toHash();
+            auto it = idx_map_.find(h);
+
+            if(it == idx_map_.end()) // new config
+            {
+                Vec v = encode(ui, cardinality_);
+                RowId row = X_.size();
+                X_.push_back(std::move(v));
+                y_.push_back(median);
+                idx_map_[h] = row;
+                gp_dirty = true;
+            }
+            else if(y_[it->second] != median) // updated metric
+            {
+                y_[it->second] = median;
+                gp_dirty = true;
+            }
+        }
+
+        /* --------------------------------------------------------------------- */
+        /*  remove_from_gp() : drop invalid config from GP & idx_map_            */
+        /* --------------------------------------------------------------------- */
+        void remove_from_gp(std::size_t h)
+        {
+            if(auto it = idx_map_.find(h); it != idx_map_.end())
+            {
+                RowId row = it->second, last = X_.size() - 1;
+
+                if(row != last) // move last row over the gap
+                {
+                    X_[row] = std::move(X_[last]);
+                    y_[row] = y_[last];
+                    for(auto& kv : idx_map_) // repair idx that pointed to 'last'
+                        if(kv.second == last)
+                        {
+                            kv.second = row;
+                            break;
+                        }
+                }
+                X_.pop_back();
+                y_.pop_back();
+                idx_map_.erase(it);
+            }
+        }
+
+        /* --------------------------------------------------------------------- */
+        /*  enqueue_random() : push a fresh random candidate if it’s genuinely   */
+        /*                     unseen. Returns true if one was added.            */
+        /* --------------------------------------------------------------------- */
+        template<typename Metric, typename T_Model, typename T_Config, typename UI_type>
+        bool enqueue_random(
+            Metric& metricInterface,
+            KernelTuningModelView<T_Model>& model,
+            ConfigStorage<T_Config>& history,
+            EnvironmentState<T_Config>& env,
+            std::vector<std::size_t> const& snap,
+            UI_type& ui_ref) // UI_type alias omitted for brevity
+        {
+            callRandomSearch(metricInterface, model, history, env);
+            T_Config cfg = model.toConfig();
+            std::size_t h = cfg.toHash();
+            if(idx_map_.count(h))
+                return false; // already training data
+
+            Vec v = detail::encode(ui_ref, cardinality_);
+            pool_.push_back({h, std::move(v)});
+            model.fromConfig(cfg); // restore model state
+            detail::restore(ui_ref, snap);
+            return true;
+        }
+
+        /* --------------------------------------------------------------------- */
+        /*  maintain_pool() : keep pool size bound & refresh every N calls       */
+        /* --------------------------------------------------------------------- */
+        template<typename Metric, typename T_Model, typename T_Config, typename UI_type>
+        void maintain_pool(
+            Metric& metricInterface,
+            KernelTuningModelView<T_Model>& model,
+            ConfigStorage<T_Config>& history,
+            EnvironmentState<T_Config>& env,
+            std::vector<std::size_t> const& snap,
+            UI_type& ui_ref,
+            std::size_t current_h)
+        {
+            /* cleanup (every cleanup_interval calls) */
+            if(++call_counter_ % cleanup_interval == 0)
+            {
+                pool_.erase(
+                    std::remove_if(
+                        pool_.begin(),
+                        pool_.end(),
+                        [&](Cand const& c) { return history.contains_hash(c.hash) || idx_map_.count(c.hash); }),
+                    pool_.end());
+            }
+
+            /* initial fill / periodic refresh */
+            while(pool_.size() < candidate_pool_size)
+            {
+                std::size_t added = 0;
+                while(added < refresh_per_call && pool_.size() < candidate_pool_size)
+                    added += enqueue_random(metricInterface, model, history, env, snap, ui_ref);
+                if(added == 0)
+                    break; // nothing new could be generated
+            }
+        }
+
+        /* ===================================================================== */
+        /*  operator() – now compact & readable                                  */
+        /* ===================================================================== */
+
+    public:
+        template<concepts::MetricInterface T_metricInterface, typename T_Model, typename T_Config>
+        void operator()(
+            T_metricInterface& metricInterface,
+            KernelTuningModelView<T_Model>& model,
+            ConfigStorage<T_Config>& history,
+            EnvironmentState<T_Config>& env)
+        {
+            init_once(model, history); // discover cardinalities
+
+            auto& ui_ref = model.getUniformInterface();
+            auto snapshot = snapshot_indices(ui_ref); // save param indices
+
+            /* 1️⃣  ingest the freshly-measured config & metric ------------------ */
+            T_Config const cfg = model.toConfig();
+            std::size_t const h = cfg.toHash();
+            bool gp_dirty = false;
+
+            if(history.getOrCreate(cfg).state == ConfigState::Dummy)
+            {
+                remove_from_gp(h);
+                gp_dirty = true;
+                randomSample{}(metricInterface, model, history, env); // fallback
+                return;
+            }
+
+            double median = history.get(cfg).getMetrics().get(median_t{}).template as<t_ns>();
+            ingest_or_update(cfg, median, ui_ref, gp_dirty);
+
+            if(gp_dirty && !X_.empty())
+                gp_.fit(X_, y_);
+
+            /* 2️⃣  maintain candidate pool ------------------------------------- */
+            maintain_pool(metricInterface, model, history, env, snapshot, ui_ref, h);
+
+            if(pool_.empty())
+            {
+                randomSample{}(metricInterface, model, history, env);
+                return;
+            }
+
+            /* 3️⃣  run acquisition & choose candidate -------------------------- */
+            std::vector<Vec> search;
+            search.reserve(pool_.size() + X_.size());
+            std::vector<bool> mask;
+            mask.reserve(search.capacity());
+            std::vector<std::optional<double>> obs;
+            obs.reserve(search.capacity());
+
+            for(auto const& c : pool_)
+            {
+                search.push_back(c.vec);
+                mask.push_back(false);
+                obs.emplace_back();
+            }
+            for(RowId i = 0; i < X_.size(); ++i)
+            {
+                search.push_back(X_[i]);
+                mask.push_back(true);
+                obs.emplace_back(y_[i]);
+            }
+
+            int sel = multi_.suggest(gp_, search, mask, obs);
+            if(sel < 0 || static_cast<std::size_t>(sel) >= pool_.size())
+                sel = 0;
+
+            /* 4️⃣  decode vec back onto UI & schedule evaluation ---------------- */
+            detail::restore(ui_ref, snapshot); // reset indices first
+            {
+                std::size_t i = 0;
+                detail::for_each_param(
+                    ui_ref,
+                    [&](auto& p)
+                    {
+                        auto const& vals = p.getValues();
+                        std::size_t n = vals.size();
+                        std::size_t idx = static_cast<std::size_t>(
+                            std::round(pool_[sel].vec(i) * std::max<std::size_t>(1, n - 1)));
+                        p.index = std::min(idx, n - 1);
+                        p.value = vals[p.index];
+                        ++i;
+                    });
+            }
+
+            model.fromConfig(model.toConfig()); // trigger kernel re-instantiation
+            history.getOrCreate(model.toConfig()); // ensure entry exists
+        }
+    };
 
     template<std::size_t N>
     alpaka::Vec<std::size_t, N> convertVec(std::vector<std::size_t> const& v)
+
     {
         alpaka::Vec<std::size_t, N> out;
         for(std::size_t i = 0; i < N; ++i)
@@ -430,7 +759,7 @@ namespace alpaka::tune::strategy
                 });
             return idx;
         }
-
+#endif
         std::vector<std::size_t> dimsVec;
         std::size_t total = 1;
         std::size_t stateCount = 0;
@@ -439,12 +768,12 @@ namespace alpaka::tune::strategy
 #ifdef ExhaustiveSearchRandomInitialization
         static constexpr bool randomInit = true;
 #else
-        static constexpr bool randomInit = false;
+    static constexpr bool randomInit = false;
 #endif
-        template<typename T_TuningModel, typename T_Config>
+        template<concepts::MetricInterface T_metricInterface, typename T_TuningModel, typename T_Config>
         auto operator()(
-            concepts::MetricInterface auto& metricInterface, // the user specified metricInterface
-            KernelTuningModelView<T_TuningModel>&& model, // contains tuneables and provides accessors
+            T_metricInterface& metricInterface, // the user specified metricInterface
+            KernelTuningModelView<T_TuningModel>& model, // contains tuneables and provides accessors
             ConfigStorage<T_Config>& config_storage, // this is the history for a specific kernel backend config
             EnvironmentState<T_Config>& environmentState) // contains global break criterias
         {
@@ -481,9 +810,9 @@ namespace alpaka::tune::strategy
                 std::cout << " state count " << stateCount << " numChecked " << environmentState.numberOfCheckedConfigs
                           << std::endl;
                 std::cout << " total " << total << " stateConfigs " << environmentState.maxConfigsTotal << std::endl;
-                std::cout
-                    << " for some reason we rached the total state count, therefore exhaustive must be wrong somehow "
-                    << std::endl;
+                std::cout << " for some reason we rached the total state count, therefore exhaustive must be "
+                             "wrong somehow "
+                          << std::endl;
                 environmentState.sessionFinished = true;
                 return;
             }
@@ -549,7 +878,8 @@ namespace alpaka::tune::strategy
     {
         void operator()(alpaka::concepts::tuneable auto& tune, std::size_t resolution)
         {
-            // example special refinenemt for numBlocks ( in this case doesnt get changed on refinement update cycle)
+            // example special refinenemt for numBlocks ( in this case doesnt get changed on refinement update
+            // cycle)
             using T_tune = std::remove_cvref_t<decltype(tune)>;
             using T_range = decltype(tune.idxRange);
             using T_Vec = typename T_tune::ValueType;
@@ -581,10 +911,10 @@ namespace alpaka::tune::strategy
 
         std::size_t curIteration = 0;
 
-        template<typename T_TuningModel, typename T_Config>
+        template<concepts::MetricInterface T_metricInterface, typename T_TuningModel, typename T_Config>
         auto operator()(
-            concepts::MetricInterface auto& metricInterface, // the user specified metricInterface
-            KernelTuningModelView<T_TuningModel>&& model, // contains tuneables and provides accessors
+            T_metricInterface& metricInterface, // the user specified metricInterface
+            KernelTuningModelView<T_TuningModel>& model, // contains tuneables and provides accessors
             ConfigStorage<T_Config>& config_storage, // this is the history for a specific kernel backend config
             EnvironmentState<T_Config>& environmentState) // contains global break criterias
         {
@@ -632,23 +962,34 @@ namespace alpaka::tune::strategy
 
     struct randomSearch
     {
-        template<typename T_TuningModel, typename T_Config>
+        template<concepts::MetricInterface T_metricInterface, typename T_TuningModel, typename T_Config>
         auto operator()(
-            concepts::MetricInterface auto& metricInterface, // the user specified metricInterface
-            KernelTuningModelView<T_TuningModel>&& model,
+            T_metricInterface& metricInterface, // the user specified metricInterface
+            KernelTuningModelView<T_TuningModel>& model,
             ConfigStorage<T_Config>&
                 config_storage, // this already returns the config for a specific kernel backend config
             EnvironmentState<T_Config>& environmentState) // contains
         {
-            using T_Metric = std::remove_cvref_t<decltype(metricInterface)>;
-            auto& history = config_storage.runs;
-            randomSample{}(metricInterface, std::move(model), config_storage, environmentState);
+            randomSample{}(metricInterface, model, config_storage, environmentState);
 
-            if(history.contains(model.toHash()))
+            if(config_storage.contains(model.toConfig()))
             {
                 exhaustiveSearch{}(metricInterface, model, config_storage, environmentState);
             }
         };
     };
+
+    template<concepts::MetricInterface T_metricInterface, typename T_TuningModel, typename T_Config>
+    void callRandomSearch(
+        T_metricInterface& metricInterface, // the user specified metricInterface
+        KernelTuningModelView<T_TuningModel>& model,
+        ConfigStorage<T_Config>&
+            config_storage, // this already returns the config for a specific kernel backend config
+        EnvironmentState<T_Config>& environmentState)
+
+    {
+        randomSearch{}(metricInterface, model, config_storage, environmentState);
+        return;
+    }
 } // namespace alpaka::tune::strategy
 #endif // STRATEGY_HPP

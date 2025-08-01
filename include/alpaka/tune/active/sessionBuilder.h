@@ -31,13 +31,13 @@ namespace alpaka::tune
 
     template<typename T_Strategy_, typename T_MetricInterface, typename T_ConstraintTuple, typename... Args>
     auto helperCreateNewBuilder(
-        T_Strategy_ const& strategy,
+        T_Strategy_&& strategy,
         T_MetricInterface const& interface,
         T_ConstraintTuple const& newTuple,
         KernelTuningModel<Args...> const& run)
     {
         return TuningBuilder<T_Strategy_, T_MetricInterface, T_ConstraintTuple, Args...>(
-            strategy,
+            std::forward<T_Strategy_>(strategy),
             interface,
             newTuple,
             run);
@@ -64,27 +64,34 @@ namespace alpaka::tune
         inline std::string strat_name = "simulatedAnnealing";
 #elif strategy_randomSample
         inline std::string strat_name = "randomSample";
+
+#elif strategy_bayesianOptimization
+        inline std::string strat_name = "bayesianOptimization";
 #else
-        inline std::string strat_name = "randomSearch";
+        inline std::string strat_name = "exhaustiveSearch";
 #endif
         static auto getName()
         {
             return strat_name;
         }
     } // namespace strategy::detail
-    template<
-
+    template<typename T>
+    struct Dummy_;
 #ifdef strategy_randomSearch
-        typename T_Strategy = alpaka::tune::strategy::randomSearch,
-#elif strategy_exhaustiveSearch
-        typename T_Strategy = alpaka::tune::strategy::exhaustiveSearch,
-#elif strategy_simulatedAnnealing
-        typename T_Strategy = alpaka::tune::strategy::simulatedAnnealing,
-#elif strategy_randomSample
-            typename T_Strategy=alpaka::tune::strategy::randomSample
+    using DefaultStrategy = alpaka::tune::strategy::randomSearch;
+#elif defined(strategy_exhaustiveSearch)
+    using DefaultStrategy = alpaka::tune::strategy::exhaustiveSearch;
+#elif defined(strategy_simulatedAnnealing)
+    using DefaultStrategy = alpaka::tune::strategy::simulatedAnnealing;
+#elif defined(strategy_randomSample)
+    using DefaultStrategy = alpaka::tune::strategy::randomSample;
+#elif defined(strategy_bayesianOptimization)
+    using DefaultStrategy = alpaka::tune::strategy::bayesianOptimization;
 #else
-        typename T_Strategy = alpaka::tune::strategy::exhaustiveSearch,
+    using DefaultStrategy = alpaka::tune::strategy::exhaustiveSearch;
 #endif
+    template<
+        typename T_Strategy = DefaultStrategy,
         typename T_MetricInterface = alpaka::tune::metricInterface::Timing,
         typename T_ConstraintTuple = std::tuple<>,
         typename... T_KernelRunArgs>
@@ -97,24 +104,24 @@ namespace alpaka::tune
         T_MetricInterface m_metricInterface{};
 
         explicit TuningBuilder(
-            T_Strategy strategy,
+            T_Strategy&& strategy,
             T_MetricInterface interface,
             T_ConstraintTuple constraints,
             KernelTuningModel<T_KernelRunArgs...> const& run)
             : m_constraintTuple(constraints)
             , m_run(run)
-            , m_strategy(strategy)
+            , m_strategy(std::forward<T_Strategy>(strategy))
             , m_metricInterface(interface)
 
         {
         }
 
         template<typename T_objct>
-        auto withTuning(T_objct tuningObject) const
+        auto withTuning(T_objct tuningObject)
         {
             auto newRun = appendTuning(m_run, tuningObject);
             auto ret = helperCreateNewBuilder<T_Strategy, T_MetricInterface, T_ConstraintTuple>(
-                m_strategy,
+                std::move(m_strategy),
                 m_metricInterface,
                 m_constraintTuple,
                 newRun);
@@ -139,7 +146,7 @@ namespace alpaka::tune
 
             using T_ConstraintTupleNew = decltype(newTuple);
             auto ret = helperCreateNewBuilder<T_Strategy, T_MetricInterface, T_ConstraintTupleNew, T_KernelRunArgs...>(
-                m_strategy,
+                std::move(m_strategy),
                 m_metricInterface,
                 newTuple,
                 m_run);
@@ -164,11 +171,19 @@ namespace alpaka::tune
             return *this;
         }
 
+        // since there are these withnumBlocks() and withthreadBlocks() default functions,
+        // adding a withStrategy() might serve in keeping the consistency
+
+        auto& withStrategy()
+        {
+            return *this;
+        }
+
         template<typename NewStrategy>
-        auto withStrategy(NewStrategy strategy) const
+        auto withStrategy(NewStrategy&& strategy)
         {
             auto ret = helperCreateNewBuilder<NewStrategy, T_MetricInterface, T_ConstraintTuple, T_KernelRunArgs...>(
-                strategy,
+                std::forward<NewStrategy>(strategy),
                 m_metricInterface,
                 m_constraintTuple,
                 m_run);
@@ -188,7 +203,7 @@ namespace alpaka::tune
         }
 
         template<typename DimTraversePolicy = DimensionsIndependent>
-        auto withNumBlocksTune(DimTraversePolicy = {}) const
+        auto withNumBlocksTune(DimTraversePolicy = {})
         {
             auto tuningObject = Tuneable<
                 alpaka::Vec<std::size_t, 1>,
@@ -198,7 +213,7 @@ namespace alpaka::tune
         }
 
         template<typename T, auto ID, typename Policy>
-        auto withNumBlocksTune(Tuneable<T, ID, Policy> tune) const
+        auto withNumBlocksTune(Tuneable<T, ID, Policy> tune)
         {
             auto newTune = helperChangeTuneableID<static_cast<std::size_t>(SpecialTuneableID::NumBlocks)>(tune);
             return this->withTuning(newTune);
@@ -209,7 +224,7 @@ namespace alpaka::tune
         //=============================
 
         template<typename DimTraversePolicy = DimensionsIndependent>
-        auto withBlockSizeTune(DimTraversePolicy = {}) const
+        auto withBlockSizeTune(DimTraversePolicy = {})
         {
             auto tuningObject = Tuneable<
                 alpaka::Vec<std::size_t, 1>,
@@ -219,7 +234,7 @@ namespace alpaka::tune
         }
 
         template<typename T, auto ID, typename Policy>
-        auto withBlockSizeTune(Tuneable<T, ID, Policy> tune) const
+        auto withBlockSizeTune(Tuneable<T, ID, Policy> tune)
         {
             auto newTune = helperChangeTuneableID<static_cast<std::size_t>(SpecialTuneableID::ThreadBlock)>(tune);
             return this->withTuning(newTune);
@@ -230,7 +245,7 @@ namespace alpaka::tune
         //=============================
 
         template<typename DimTraversePolicy = DimensionsIndependent>
-        auto withNumFramesTune(DimTraversePolicy = {}) const
+        auto withNumFramesTune(DimTraversePolicy = {})
         {
             auto tuningObject = Tuneable<
                 alpaka::Vec<std::size_t, 1>,
@@ -240,7 +255,7 @@ namespace alpaka::tune
         }
 
         template<typename T, auto ID, typename Policy>
-        auto withNumFramesTune(Tuneable<T, ID, Policy> tune) const
+        auto withNumFramesTune(Tuneable<T, ID, Policy> tune)
         {
             auto newTune = helperChangeTuneableID<static_cast<std::size_t>(SpecialTuneableID::NumFrames)>(tune);
             return this->withTuning(newTune);
@@ -251,7 +266,7 @@ namespace alpaka::tune
         //=============================
 
         template<typename DimTraversePolicy = DimensionsIndependent>
-        auto withFrameExtentTune(DimTraversePolicy = {}) const
+        auto withFrameExtentTune(DimTraversePolicy = {})
         {
             auto tuningObject = Tuneable<
                 alpaka::Vec<std::size_t, 1>,
@@ -261,14 +276,14 @@ namespace alpaka::tune
         }
 
         template<typename T, auto ID, typename Policy>
-        auto withFrameExtentTune(Tuneable<T, ID, Policy> tune) const
+        auto withFrameExtentTune(Tuneable<T, ID, Policy> tune)
         {
             auto newTune = helperChangeTuneableID<static_cast<std::size_t>(SpecialTuneableID::FrameExtent)>(tune);
             return this->withTuning(newTune);
         }
 
         // Output a fully constructed TuningSession
-        auto build() const
+        auto build()
         {
             using run_BareT = std::remove_cvref_t<decltype(m_run)>;
             constexpr auto condA = run_BareT::hasNumBlocksTune() && run_BareT::hasNumFramesTune();
@@ -303,7 +318,7 @@ namespace alpaka::tune
                         std::make_tuple(threadsSmallerExtentCondition),
                         std::make_tuple(framesSmallerBlocksCondition));
                     return TuningSession<T_Strategy, T_MetricInterface, decltype(newTuple), T_KernelRunArgs...>(
-                        m_strategy,
+                        std::move(m_strategy),
                         m_metricInterface,
                         newTuple,
                         m_config,
@@ -326,7 +341,7 @@ namespace alpaka::tune
                             });
                     auto newTuple = std::tuple_cat(m_constraintTuple, std::make_tuple(framesSmallerBlocksCondition));
                     return TuningSession<T_Strategy, T_MetricInterface, decltype(newTuple), T_KernelRunArgs...>(
-                        m_strategy,
+                        std::move(m_strategy),
                         m_metricInterface,
                         newTuple,
                         m_config,
@@ -346,13 +361,11 @@ namespace alpaka::tune
                                 bool allTrue = true;
                                 for(int i = 0; i < T::dim(); i++)
                                     allTrue = allTrue && (a[i] >= b[i]);
-                                std::cout << " evaluate frame extent bigger than blocks" << a.x() << " vs " << b.x()
-                                          << allTrue << std::endl;
                                 return allTrue;
                             });
                     auto newTuple = std::tuple_cat(m_constraintTuple, std::make_tuple(threadsSmallerExtentCondition));
                     return TuningSession<T_Strategy, T_MetricInterface, decltype(newTuple), T_KernelRunArgs...>(
-                        m_strategy,
+                        std::move(m_strategy),
                         m_metricInterface,
                         newTuple,
                         m_config,
@@ -365,7 +378,7 @@ namespace alpaka::tune
             else
 
                 return TuningSession<T_Strategy, T_MetricInterface, T_ConstraintTuple, T_KernelRunArgs...>(
-                    m_strategy,
+                    std::move(m_strategy),
                     m_metricInterface,
                     m_constraintTuple,
                     m_config,
