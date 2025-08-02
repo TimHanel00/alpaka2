@@ -54,7 +54,7 @@ namespace alpaka::tune::strategy
         template<concepts::MetricInterface T_metricInterface, typename T_TuningModel, typename T_Config>
         auto operator()(
             T_metricInterface& metricInterface, // the user specified metricInterface
-            KernelTuningModelView<T_TuningModel>&& model, // contains tuneables and provides accessors
+            KernelTuningModelView<T_TuningModel>& model, // contains tuneables and provides accessors
             ConfigStorage<T_Config>& config_storage, // this is the history for a specific kernel backend config
             EnvironmentState<T_Config>& environmentState) // contains global break criterias
         {
@@ -315,7 +315,7 @@ namespace alpaka::tune::strategy
         template<concepts::MetricInterface T_metricInterface, typename T_TuningModel, typename T_Config>
         auto operator()(
             T_metricInterface&, // the user specified metricInterface
-            KernelTuningModelView<T_TuningModel>&& model, // contains tuneables and provides accessors
+            KernelTuningModelView<T_TuningModel>& model, // contains tuneables and provides accessors
             ConfigStorage<T_Config>& config_storage, // this is the history for a specific kernel backend config
             EnvironmentState<T_Config>& environmentState) // contains global break criterias
         {
@@ -468,11 +468,6 @@ namespace alpaka::tune::strategy
         static constexpr std::size_t cleanup_interval = 50;
         std::size_t call_counter_ = 0;
 
-        /* ===================================================================== */
-        /*  ↓↓↓ private helpers – keep implementation noise out of operator()   */
-        /* ===================================================================== */
-
-        /* --- encode / snapshot / restore (unchanged) ------------------------- */
         template<typename UI>
         static auto snapshot_indices(UI&& ui) -> std::vector<std::size_t>;
         template<typename UI>
@@ -480,9 +475,6 @@ namespace alpaka::tune::strategy
         template<typename UI>
         static void restore(UI&& ui, std::vector<std::size_t> const& snap);
 
-        /* --------------------------------------------------------------------- */
-        /*  ingest_or_update() : take the *current* measured config & metric     */
-        /* --------------------------------------------------------------------- */
         template<typename T_Config, typename UI>
         void ingest_or_update(T_Config const& cfg, double median, UI& ui, bool& gp_dirty)
         {
@@ -505,9 +497,6 @@ namespace alpaka::tune::strategy
             }
         }
 
-        /* --------------------------------------------------------------------- */
-        /*  remove_from_gp() : drop invalid config from GP & idx_map_            */
-        /* --------------------------------------------------------------------- */
         void remove_from_gp(std::size_t h)
         {
             if(auto it = idx_map_.find(h); it != idx_map_.end())
@@ -531,10 +520,6 @@ namespace alpaka::tune::strategy
             }
         }
 
-        /* --------------------------------------------------------------------- */
-        /*  enqueue_random() : push a fresh random candidate if it’s genuinely   */
-        /*                     unseen. Returns true if one was added.            */
-        /* --------------------------------------------------------------------- */
         template<typename Metric, typename T_Model, typename T_Config, typename UI_type>
         bool enqueue_random(
             Metric& metricInterface,
@@ -557,9 +542,6 @@ namespace alpaka::tune::strategy
             return true;
         }
 
-        /* --------------------------------------------------------------------- */
-        /*  maintain_pool() : keep pool size bound & refresh every N calls       */
-        /* --------------------------------------------------------------------- */
         template<typename Metric, typename T_Model, typename T_Config, typename UI_type>
         void maintain_pool(
             Metric& metricInterface,
@@ -577,7 +559,7 @@ namespace alpaka::tune::strategy
                     std::remove_if(
                         pool_.begin(),
                         pool_.end(),
-                        [&](Cand const& c) { return history.contains_hash(c.hash) || idx_map_.count(c.hash); }),
+                        [&](Cand const& c) { return history.contains(c) || idx_map_.count(c.hash); }),
                     pool_.end());
             }
 
@@ -592,10 +574,6 @@ namespace alpaka::tune::strategy
             }
         }
 
-        /* ===================================================================== */
-        /*  operator() – now compact & readable                                  */
-        /* ===================================================================== */
-
     public:
         template<concepts::MetricInterface T_metricInterface, typename T_Model, typename T_Config>
         void operator()(
@@ -609,7 +587,7 @@ namespace alpaka::tune::strategy
             auto& ui_ref = model.getUniformInterface();
             auto snapshot = snapshot_indices(ui_ref); // save param indices
 
-            /* 1️⃣  ingest the freshly-measured config & metric ------------------ */
+            /* ingest the freshly-measured config & metric ------------------ */
             T_Config const cfg = model.toConfig();
             std::size_t const h = cfg.toHash();
             bool gp_dirty = false;
@@ -628,7 +606,7 @@ namespace alpaka::tune::strategy
             if(gp_dirty && !X_.empty())
                 gp_.fit(X_, y_);
 
-            /* 2️⃣  maintain candidate pool ------------------------------------- */
+            /* maintain candidate pool - the pool of configs from which the suggested config will be selected */
             maintain_pool(metricInterface, model, history, env, snapshot, ui_ref, h);
 
             if(pool_.empty())
@@ -637,7 +615,7 @@ namespace alpaka::tune::strategy
                 return;
             }
 
-            /* 3️⃣  run acquisition & choose candidate -------------------------- */
+            /* run acquisition & choose candidate*/
             std::vector<Vec> search;
             search.reserve(pool_.size() + X_.size());
             std::vector<bool> mask;
@@ -662,7 +640,7 @@ namespace alpaka::tune::strategy
             if(sel < 0 || static_cast<std::size_t>(sel) >= pool_.size())
                 sel = 0;
 
-            /* 4️⃣  decode vec back onto UI & schedule evaluation ---------------- */
+            /* decode vec back onto UI & schedule evaluation ---------------- */
             detail::restore(ui_ref, snapshot); // reset indices first
             {
                 std::size_t i = 0;
@@ -684,7 +662,7 @@ namespace alpaka::tune::strategy
             history.getOrCreate(model.toConfig()); // ensure entry exists
         }
     };
-
+#endif
     template<std::size_t N>
     alpaka::Vec<std::size_t, N> convertVec(std::vector<std::size_t> const& v)
 
@@ -759,7 +737,7 @@ namespace alpaka::tune::strategy
                 });
             return idx;
         }
-#endif
+
         std::vector<std::size_t> dimsVec;
         std::size_t total = 1;
         std::size_t stateCount = 0;
@@ -768,7 +746,7 @@ namespace alpaka::tune::strategy
 #ifdef ExhaustiveSearchRandomInitialization
         static constexpr bool randomInit = true;
 #else
-    static constexpr bool randomInit = false;
+        static constexpr bool randomInit = false;
 #endif
         template<concepts::MetricInterface T_metricInterface, typename T_TuningModel, typename T_Config>
         auto operator()(
@@ -784,7 +762,7 @@ namespace alpaka::tune::strategy
             {
                 if constexpr(randomInit)
                 {
-                    randomSample{}(metricInterface, std::move(model), config_storage, environmentState);
+                    randomSample{}(metricInterface, model, config_storage, environmentState);
                 }
 
                 dimsVec.clear();

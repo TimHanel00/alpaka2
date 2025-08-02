@@ -42,14 +42,17 @@ namespace alpaka::tune
     void recalculateMaxRuns_forTune(T_ActiveKernel& active, T_Tune const& tune, char const* label)
     {
         auto const steps = tune.numSteps();
+#ifdef Debug
         std::cout << label << "STEPS:  " << steps << std::endl;
         std::cout << " for tune " << tune.name() << " steps: " << steps << std::endl;
+#endif
         active.maxRuns *= steps;
         if(active.maxRuns < active.maxRunsDefault)
         {
-            std::cout << " WARNING: Overflow detected during tuning space calculation, ensure "
+            std::cerr << " WARNING: Overflow detected during tuning space calculation, ensure "
                          "you have a max NumofRuns selected!"
                       << std::endl;
+
             active.maxRuns = UINT64_MAX;
         }
     }
@@ -97,14 +100,16 @@ namespace alpaka::tune
         using Vec = typename Tuneable::ValueType;
         using Scalar = typename Vec::type;
 
-
+#ifdef Debug
         std::cout << "[TuneStep] minSteps = " << minSteps << ", maxSteps = " << maxSteps << "\n";
         std::cout << "[TuneStep] maxVal = " << maxVal << ", partitionedVec = " << partitionedVec << "\n";
-
+#endif
         if(minSteps == 0 || maxSteps == 0)
         {
+#ifdef Debug
             std::cout << "[EarlyExit] Skipping due to minSteps or maxSteps being 0.\n";
             return;
+#endif
         }
         /*
         // Early exit: if partition is already larger than maxVal, just use maxVal
@@ -117,15 +122,17 @@ namespace alpaka::tune
 
         Vec baseStep = partitionedVec;
         Vec step;
-
+#ifdef Debug
         std::cout << "[StepCalc] Starting step computation loop...\n";
-
+#endif
         for(std::size_t i = 0; i < alpaka::getDim(step); ++i)
         {
             Scalar base = baseStep[i];
             if(base == 0)
             {
+#ifdef Debug
                 std::cerr << "[Warning] baseStep[" << i << "] = 0, forcing to 1.\n";
+#endif
                 base = 1;
             }
 
@@ -134,15 +141,16 @@ namespace alpaka::tune
             Scalar nDown = static_cast<Scalar>(std::floor(divDown));
             Scalar candidate = std::max(nDown * base, base);
             step[i] = candidate;
-
+#ifdef Debug
             std::cout << "[StepCalc] Dim " << i << ":\n";
             std::cout << "  baseStep = " << baseStep[i] << ", maxVal = " << maxVal[i] << "\n";
             std::cout << "  rawStep = " << rawStep << ", divDown = " << divDown << ", nDown = " << nDown << "\n";
             std::cout << "  Initial step = " << step[i] << "\n";
-
+#endif
             Scalar numSteps = maxVal[i] / step[i];
+#ifdef Debug
             std::cout << "  numSteps = " << numSteps << " (vs minSteps = " << minSteps << ")\n";
-
+#endif
             if(numSteps < minSteps)
             {
                 Scalar minStep = maxVal[i] / static_cast<Scalar>(minSteps);
@@ -150,20 +158,24 @@ namespace alpaka::tune
                 Scalar nUp = static_cast<Scalar>(std::ceil(divUp));
                 Scalar adjusted = nUp * base;
                 step[i] = std::max(adjusted, Scalar(1));
-
+#ifdef Debug
                 std::cout << "  [Fallback] minStep = " << minStep << ", divUp = " << divUp << ", nUp = " << nUp
                           << ", adjusted = " << adjusted << ", final fallback step = " << step[i] << "\n";
-
+#endif
                 if(adjusted >= maxVal[i])
                 {
                     step[i] = std::max(minStep, Scalar(1));
+#ifdef Debug
                     std::cout << "  [Adjusted] Step too large. Using minStep fallback: " << step[i] << "\n";
+#endif
                 }
             }
 
             if(step[i] == 0)
             {
+#ifdef Debug
                 std::cerr << "[Error] Final step[" << i << "] is 0! Forcing to 1.\n";
+#endif
                 step[i] = 1;
             }
         }
@@ -171,19 +183,23 @@ namespace alpaka::tune
         std::vector<Vec> values;
         Vec current = step;
         std::size_t count = 0;
-
+#ifdef Debug
         std::cout << "[ValueGen] Generating values starting from step: " << step << "\n";
-
+#endif
         while(allTrue(current < maxVal) && values.size() < maxSteps)
         {
+#ifdef Debug
             std::cout << "  Adding value: " << current << "\n";
+#endif
             values.emplace_back(current);
             current = current + step;
             ++count;
         }
-
+#ifdef Debug
         std::cout << "NumblocksTune " << std::endl;
+
         std::ranges::for_each(values, [](auto const& v) { std::cout << v << ' '; });
+#endif
         tuneable.extendInputList(std::move(values));
     }
 
@@ -983,7 +999,9 @@ namespace alpaka::tune
         for(T const& v : inputList)
         {
             v_inList = (v == value) ? true : v_inList;
+#ifdef Debug
             std::cout << " inputList for " << this->name() << v.toString() << std::endl;
+#endif
             dependentList.push_back(v);
         }
         if(!v_inList)
@@ -1027,7 +1045,9 @@ namespace alpaka::tune
         for(T const& v : inputList)
         {
             v_inList = (v == value) ? true : v_inList;
+#ifdef Debug
             std::cout << " inputList for " << this->name() << v.toString() << std::endl;
+#endif
             for(std::size_t dim = 0; dim < D; ++dim)
             {
                 auto val = v[dim];

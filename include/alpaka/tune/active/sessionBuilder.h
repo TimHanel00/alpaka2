@@ -46,11 +46,9 @@ namespace alpaka::tune
     template<auto ID, typename T, auto ID2, typename DimIndep>
     auto helperChangeTuneableID(Tuneable<T, ID2, DimIndep> const& tune)
     {
-        std::cout << " val " << tune.value.toString() << std::endl;
         auto createTune = Tuneable<T, ID, DimIndep>(tune.idxRange, tune.value);
         createTune.inputList = tune.inputList;
         createTune.hasRange = tune.hasRange;
-        std::cout << " create " << createTune.value.toString() << std::endl;
         return createTune;
     };
 

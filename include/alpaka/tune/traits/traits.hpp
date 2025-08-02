@@ -58,21 +58,6 @@ namespace alpaka::tune::trait
         };
     };
 
-    /*
-    // example specialization for a Kernel HostSideKernel
-    template<typename T_Config, typename T_FrameSpec, typename T_Metric, typename... args1, typename... args2>
-    struct preProcessing::Op<T_Config, T_FrameSpec, T_Metric, alpaka::KernelBundle<HostSideKernel<args1...>, args2...>>
-    {
-        void operator()(
-            T_Config& config,
-            T_FrameSpec& frame_spec,
-            T_Metric& metricInterface,
-            alpaka::KernelBundle<HostSideKernel<args1...>, args2...> const& kernelBundle)
-        {
-            std::cout << " special " << std::endl;
-        }
-    };
-    */
     template<typename T_KernelBundle, typename T_Config, typename T_FrameSpec, typename T_Metric>
     auto callPreProcessing(
 
@@ -95,7 +80,9 @@ namespace alpaka::tune::trait
         {
             // #pragma message("[Warning] No specialization of getDefault for this kernel bundle — check your
             // KernelBundle type!")
-            std::cout << " selected wrong SPECIALIZATION " << std::endl;
+#ifdef debug
+            std::cout << " selected either wrong SPECIALIZATION or this tune does not have a default" << std::endl;
+#endif
             // Optional fallback code
             // or
             // error

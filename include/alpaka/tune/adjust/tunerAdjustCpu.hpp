@@ -123,8 +123,6 @@ namespace alpaka::tune
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
             T_KernelRun& kernelRun)
         {
-            std::cout << " successfully  found trait spec for cpuSerial: " << core::demangledName<T_Platform>()
-                      << std::endl;
             auto newRun = makeActiveKernel(
                 kernelRun.m_userTuneables,
                 kernelRun.getNumFramesTune(),
@@ -150,8 +148,10 @@ namespace alpaka::tune
             alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads> const& dataBlocking,
             T_KernelRun& kernelRun)
         {
+#ifdef Debug
             std::cout << " successfully  found trait spec for cpuOmpBlocks: " << core::demangledName<T_Platform>()
                       << std::endl;
+#endif
             //@TODO add specialization
             auto newRun = makeActiveKernel(
                 kernelRun.m_userTuneables,

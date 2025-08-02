@@ -10,6 +10,7 @@
 #include "alpaka/tune/adjust/adjust.hpp"
 #include "alpaka/tune/utils/Random.h"
 #include "alpaka/tune/utils/tupleHelper.h"
+#include "tuningSession.hpp"
 
 #include <alpaka/onHost/FrameSpec.hpp>
 #include <alpaka/tune/IO/storageTypes.hpp>
@@ -17,10 +18,24 @@
 #include <alpaka/tune/active/Queue.hpp>
 #include <alpaka/tune/active/kernelTuningModel.hpp>
 #include <alpaka/tune/traits/traits.hpp>
+#include <alpaka/tune/utils/compileTimeTemplates.hpp>
 
 #include <any>
 #include <utility>
 #define Tuner_MaxConsecutiveStrategyFailures 200
+
+namespace alpaka::tune::benchmark
+{
+    constexpr std::array<std::string_view, 4> ar = {"Init", "tune", "best", "I_O"};
+
+    std::string_view phaseAccessor(std::optional<uint32_t> index = std::nullopt)
+    {
+        static uint32_t phaseIndex = 0;
+        if(index.has_value())
+            phaseIndex = index.value();
+        return ar[phaseIndex];
+    }
+} // namespace alpaka::tune::benchmark
 
 template<typename T_Config>
 struct EnvironmentState
@@ -212,7 +227,9 @@ void shrinkTuningSpace(std::tuple<Tuneables...>&& allTuneables, std::size_t init
         initialMaxRuns = 1;
         for_each(allTuneables, [&](auto& tunable) { initialMaxRuns *= tunable.numSteps(); });
     }
+#ifdef debug
     printTuneableDimensions(allTuneables, expandedTuneables);
+#endif
 }
 
 namespace alpaka::tune
@@ -404,7 +421,9 @@ namespace alpaka::tune
 
             if(!valid)
             {
+#ifdef Debug
                 std::cout << " constraint violated for : " << stored.config.toString() << std::endl;
+#endif
                 using T_state = decltype(stored.state);
                 ++this->environmentState.numberOfCheckedConfigs;
                 stored.getMetrics().clear();
@@ -541,7 +560,9 @@ auto makeConformToTVec(T_Vec const& vec, T_Tuneable& tuneable)
     using dimensionTraversePolicy_type = dimensionTraversePolicy;
     static constexpr std::size_t tag = getId<ID>();
     */
+#ifdef Debug
     std::cout << tuneable.value.toString() << std::endl;
+#endif
     using T_TuneableVec = typename T_Tuneable::ValueType;
     using T_traversePolicy = typename T_Tuneable::dimensionTraversePolicy_type;
     constexpr auto tuneable_ID = T_Tuneable::tag;
@@ -581,8 +602,10 @@ auto makeConformToTVec(T_Vec const& vec, T_Tuneable& tuneable)
                     tuneable.inputList.end(),
                     retTuneable.inputList.begin(),
                     [](auto const& x) { return static_cast<T_Vec>(x); });
+#ifdef Debug
                 std::cout << " has range ENV" << tuneable.hasRange << std::endl;
                 std::cout << " has range IN" << tuneable.hasRange << " " << value.toString() << std::endl;
+#endif
                 retTuneable.hasRange = tuneable.hasRange;
                 return retTuneable;
             }
@@ -663,10 +686,24 @@ auto createTuningEnvironment(
     using kernelModel = decltype(completeRun);
     //---- reconfigure kerneltuningModel --- //
     alpaka::tune::clampToSpec(device, newFrameSpec, completeRun);
-    alpaka::tune::recalculateMaxRuns(completeRun);
-    shrinkTuningSpace(completeRun.allTuneables(), completeRun.maxRuns);
-    alpaka::tune::recalculateMaxRuns(completeRun);
+#ifdef Debug
+    std::cout << " bef make Lists " << std::endl;
+#endif
     makeListsForAllTuneables(completeRun.allTuneables()); // make lists for all tuneables
+#ifdef Debug
+    std::cout << " bef first calcRuns " << std::endl;
+#endif
+    alpaka::tune::recalculateMaxRuns(completeRun);
+#ifdef Debug
+    std::cout << " bef shrink " << std::endl;
+#endif
+    shrinkTuningSpace(completeRun.allTuneables(), completeRun.maxRuns);
+#ifdef Debug
+    std::cout << " aft shrink " << std::endl;
+    std::cout << " aft calcMaxRuns " << std::endl;
+#endif
+    alpaka::tune::recalculateMaxRuns(completeRun);
+
     //---- reconfigure kerneltuningModel --- //
     using T_sharedParmeterInterface = decltype(makeSharedParameterInterface(completeRun));
     using model = KernelTuningModel<
@@ -755,6 +792,10 @@ auto& getTuningEnvironment(
     static std::unordered_map<std::string, EnvPtr> singletonMap;
 
     std::string const key = flattenSessionSpecifier(sessionSpecifier);
+    if(singletonMap.contains(key))
+    {
+        alpaka::tune::benchmark::phaseAccessor(1);
+    }
     auto [it, inserted] = singletonMap.try_emplace(
         key,
         createTuningEnvironment(

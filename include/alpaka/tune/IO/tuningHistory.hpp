@@ -4,6 +4,8 @@
 
 #ifndef TUNINGHISTORY_H
 #define TUNINGHISTORY_H
+#include <filesystem>
+namespace fs = std::filesystem;
 #include "../../../../toml11/include/toml.hpp"
 
 #include <alpaka/tune/IO/storageTypes.hpp>
@@ -18,12 +20,18 @@ namespace alpaka::tune
         {
             try
             {
-                std::cout << " successfully assigned valeus" << std::endl;
-                return std::make_optional(toml::parse(file));
+                if(fs::exists(file))
+                {
+                    // File exists, parse safely
+
+                    return std::make_optional(toml::parse(file));
+                    // ...rest of loading logic...
+                }
+                return std::nullopt;
             }
             catch(std::exception const& e)
             {
-                std::cerr << "Failed to parse TOML file '" << file << "': " << e.what() << '\n';
+                std::cerr << "Error passing existing  TOML file '" << file << "': " << e.what() << '\n';
                 return std::nullopt; // return empty table or consider throwing further
             }
         }
@@ -200,7 +208,7 @@ namespace alpaka::tune
                 return;
             if(nr_StakeHolders < 1)
             {
-                std::cout << " something went wrong, nr of history initializations does not match load calls "
+                std::cerr << " something went wrong, nr of history initializations does not match load calls "
                              "or called store Config before all load calls"
                           << std::endl;
             }
@@ -313,7 +321,9 @@ namespace alpaka::tune
             result[key] = std::move(kernelTable);
             {
                 std::lock_guard lock(fileMutex);
+#ifdef Debug
                 std::cout << filename << " filename" << std::endl;
+#endif
                 std::ofstream out(filename, nr_StakeHolders == 0 ? std::ios::trunc : std::ios::app);
 
                 if(!out)

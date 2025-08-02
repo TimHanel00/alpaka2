@@ -36,20 +36,6 @@ void for_eachTupleDebug(Tuple&& tuple, Func&& func)
     for_eachTupleDebugImpl(std::forward<Tuple>(tuple), std::forward<Func>(func), std::make_index_sequence<N>{});
 }
 
-template<typename Tuple>
-void outTuple(Tuple&& tuple)
-{
-    for_eachTupleDebug(
-        tuple,
-        [](auto& tuneable)
-        {
-            std::cout << "[DEBUG] tuneable Name: " << tuneable.name() << std::endl;
-            std::cout << "[DEBUG] Value " << tuneable.value.toString() << std::endl;
-            std::cout << "[DEBUG] Start " << tuneable.idxRange.m_begin.toString() << std::endl;
-            std::cout << "[DEBUG] End " << tuneable.idxRange.m_end.toString() << std::endl;
-            std::cout << "[DEBUG] Stride " << tuneable.idxRange.m_stride.toString() << std::endl;
-        });
-}
 
 // concretely defined m_run for a tuning session stores extracted
 /*
@@ -189,7 +175,7 @@ struct KernelTuningModel
         {
             if(!m_sharedInterface.has_value())
             {
-                std::cout << " it doesnt have value" << std::endl;
+                std::cerr << " shared Interface has no values" << std::endl;
             }
             auto& k = m_sharedInterface.value();
             return k;
@@ -215,7 +201,6 @@ struct KernelTuningModel
         , metric(std::numeric_limits<T_floating>::quiet_NaN())
 
     {
-        std::cout << " for some reason this is called" << std::endl;
         std::apply([&](auto&... t) { ((maxRunsDefault *= t.numSteps()), ...); }, m_userTuneables);
         std::apply([&](auto&... t) { ((maxRunsDefault *= t.numSteps()), ...); }, m_compileTimeTuneables);
 
@@ -230,14 +215,6 @@ struct KernelTuningModel
         , metric(std::numeric_limits<T_floating>::quiet_NaN())
     {
         m_sharedInterface = std::make_optional(makeSharedParameterInterface(*this));
-        if(m_sharedInterface.has_value())
-        {
-            std::cout << " IT HAS VALUE" << std::endl;
-        }
-        else
-        {
-            std::cout << " IT HAS NO VALUE" << std::endl;
-        }
         std::apply([&](auto&... t) { ((maxRunsDefault *= t.numSteps()), ...); }, m_userTuneables);
         std::apply([&](auto&... t) { ((maxRunsDefault *= t.numSteps()), ...); }, m_compileTimeTuneables);
         maxRuns = maxRunsDefault;
@@ -323,11 +300,6 @@ struct KernelTuningModel
             },
             m_frameTuneables);
     }
-
-    void printFull()
-    {
-        outTuple(allTuneables());
-    };
 
     template<typename T_Config>
     void fromConfig(ConfigEntry<T_Config> const& config)
@@ -498,7 +470,7 @@ auto appendTuning(ExistingKernel const& kernel, NewTuning const& newTuning)
     using NewTuning_bareT = std::remove_cvref_t<NewTuning>;
     if constexpr(ExistingKernel::template hasFrameTuneable<NewTuning_bareT::tag>())
     {
-        std::cout << "TUNER ERROR: tuning already assigned. Skipping.\n";
+        std::cerr << "TUNER ERROR: tuning already assigned. Skipping.\n";
         return kernel;
     }
     else if constexpr(std::is_same_v<alpaka::tune::NoTune, NewTuning_bareT>)

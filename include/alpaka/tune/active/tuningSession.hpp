@@ -1,20 +1,23 @@
 //
 // Created by tim on 05.02.25.
 //
-#ifndef TUNER_H
-#define TUNER_H
 #define ENABLE_AUTOTUNE
-#include <alpaka/math/constants.hpp>
-#include <alpaka/tune/active/constraint.hpp>
-#include <alpaka/tune/utils/TimeEvent.hpp>
-#include <alpaka/tune/utils/compileTimeTemplates.hpp>
 #ifdef ENABLE_AUTOTUNE
+#    ifndef TUNER_H
+#        define TUNER_H
 
-#    include <alpaka/tune/active/sessionBuilder.h>
+
+#        include <alpaka/math/constants.hpp>
+#        include <alpaka/tune/active/constraint.hpp>
+#        include <alpaka/tune/active/sessionBuilder.h>
+#        include <alpaka/tune/utils/TimeEvent.hpp>
+#        include <alpaka/tune/utils/compileTimeTemplates.hpp>
 
 namespace alpaka
 
 {
+
+
     bool anyTrue(alpaka::concepts::Vector auto const& vec)
     {
         bool result = false;
@@ -101,7 +104,7 @@ namespace alpaka::tune::detail::internal
         best = compareGetBest<T_MetricInterface>(best, stored);
     }
 
-#    define allowPrematureConfigSkip 0
+#        define allowPrematureConfigSkip 0
 
     template<typename T_MetricInterface, typename T_Config>
     bool enoughEvaluationsForConfig(ConfigEntry<T_Config>& stored, EnvironmentState<T_Config>& environment)
@@ -178,7 +181,9 @@ namespace alpaka::tune::detail::internal
         //<< " number of checked configs" << std::endl;
         if(alpaka::tune::hasMaxRuns_Env())
         {
+#        ifdef Debug
             std::cout << state.numValidConfigs << " evaluated configs from " << state.maxValidEvaluations << std::endl;
+#        endif
         }
 
         if(state.numberOfCheckedConfigs >= state.maxConfigsTotal || state.numValidConfigs >= state.maxValidEvaluations)
@@ -294,7 +299,9 @@ namespace alpaka::tune::detail::internal
             });
         if(!valid)
         {
+#        ifdef Debug
             std::cout << " constraint violated for : " << configEntry.config.toString() << std::endl;
+#        endif
             using T_state = ALPAKA_TYPEOF(stored.state);
             ++state.numberOfCheckedConfigs;
             stored.getMetrics().clear();
@@ -328,7 +335,7 @@ namespace alpaka::tune::detail::internal
         return true;
     }
 
-#    define maxConsecutiveStrategyRuns 4000
+#        define maxConsecutiveStrategyRuns 4000
 
     // Check if a m_strategy should be applied and config should be skipped
     template<
@@ -348,51 +355,64 @@ namespace alpaka::tune::detail::internal
         EnvironmentState<T_Config>& environment,
         T_Constraints& constraints)
     {
+#        ifdef Debug
         std::cout << "[DEBUG] Starting getNextValidConfig()" << std::endl;
         std::cout << "[DEBUG] maxConsecutiveStrategyRuns: " << maxConsecutiveStrategyRuns << std::endl;
         std::cout << "[DEBUG] Initial sessionFinished: " << environment.sessionFinished << std::endl;
-
+#        endif
         for(uint32_t numStrat = 0; numStrat < maxConsecutiveStrategyRuns; numStrat++)
         {
+#        ifdef Debug
             std::cout << "[DEBUG] Strategy iteration: " << numStrat + 1 << std::endl;
-
+#        endif
             auto oldConfig = run.toConfig();
+
+#        ifdef Debug
             std::cout << "[DEBUG] Old Config: " << oldConfig.toString() << std::endl;
             std::cout << " [DEBUG] RUNNING STrategy: " << alpaka::core::demangledName<Strategy>() << std::endl;
+#        endif
             // Apply strategy
             auto modelView = KernelTuningModelView(run); // negligible overhead basically wraps the kernelTuningModel
             strategy(metric_interface, modelView, data.configEntries, environment);
 
             auto newConfig = run.toConfig();
+#        ifdef Debug
             std::cout << "[DEBUG] New Config: " << newConfig.toString() << std::endl;
-
+#        endif
             if(oldConfig != newConfig)
             {
+#        ifdef Debug
                 std::cout << "[DEBUG] Config has changed." << std::endl;
-
+#        endif
                 bool isReady = configReadyForRun<T_Context, T_MetricInterface>(
                     run,
                     newConfig,
                     data.configEntries,
                     environment,
                     constraints);
-
+#        ifdef Debug
                 std::cout << "[DEBUG] configReadyForRun returned: " << (isReady ? "true" : "false") << std::endl;
-
+#        endif
                 if(isReady)
                 {
+#        ifdef Debug
                     std::cout << "[DEBUG] Found valid new config. Exiting." << std::endl;
+#        endif
                     return true;
                 }
             }
+#        ifdef Debug
             else
             {
                 std::cout << "[DEBUG] Config did not change after strategy application." << std::endl;
             }
+#        endif
 
             if(environment.sessionFinished)
             {
+#        ifdef Debug
                 std::cout << "[DEBUG] Environment session is already marked finished. Exiting early." << std::endl;
+#        endif
                 return false;
             }
         }
@@ -400,12 +420,13 @@ namespace alpaka::tune::detail::internal
         environment.sessionFinished = true;
 
         auto& tuneableRange = std::get<0>(run.allTuneables()).idxRange;
+#        ifdef Debug
         std::cout << "[DEBUG] No valid config found after all attempts." << std::endl;
         std::cout << "[DEBUG] Tuning Range - begin: " << tuneableRange.m_begin << ", end: " << tuneableRange.m_end
                   << ", stride: " << tuneableRange.m_stride << std::endl;
 
         std::cout << "[DEBUG] Using best known config instead: " << environment.bestConfig.toString() << std::endl;
-
+#        endif
         return false;
     }
 
@@ -442,7 +463,9 @@ namespace alpaka::tune::detail::internal
         auto& run)
     {
         run.fromConfig(config); // apply config to tuningModell
+#        ifdef Debug
         std::cout << "run with config: " << config.toString() << std::endl;
+#        endif
         applyCustomThreadSpec(run, spec); // apply frameSpecTunes to frameSpec
         auto bundle = recreate(kernelBundle, run.m_userTuneables); // apply runtime tuning parameter
         // static_assert(std::is_same_v<decltype(bundle), void()>);
@@ -496,7 +519,7 @@ namespace alpaka::tune::detail::internal
             std::forward<OldKernelBundle>(bundle).m_args);
     }
 
-#    define WarmUpRuns 1
+#        define WarmUpRuns 1
 
     template<typename T_Context, typename T_MetricInterface, typename T_Config, typename T_Descriptor>
     inline void updateMetrics(auto& run, KernelData<T_Config, T_Descriptor>& data, EnvironmentState<T_Config>& state)
@@ -549,7 +572,45 @@ namespace alpaka::tune::detail::internal
 namespace alpaka
 {
 
-#    define MeasureBestRuns 5 // how many runs after we have the best config will get messured (from the best config)
+#        define MeasureBestRuns                                                                                       \
+            1000 // how many runs after we have the best config will get messured (from the best config)
+
+    template<typename... T_Args>
+    void defaultSIMD(auto& queue, const auto& defaultSpec, KernelTuningModel<T_Args...>& config)
+    {
+        auto elementsPerFrameItem = getNumElemPerThread<float_t>(queue);
+        for_each(
+            config.allTuneables(),
+            [&](auto& tune)
+            {
+                if(tune.name() == "CTune_0")
+                {
+                    tune.value = elementsPerFrameItem;
+                }
+            });
+    }
+
+    template<typename T_Config>
+    void selectRun(
+        auto& queue,
+        auto& kernelTuningModel,
+        auto& configStorage,
+        auto const& defaultSpec,
+        auto const& kernelbundle,
+        int runCount,
+        EnvironmentState<T_Config>& state)
+    {
+        if(static_cast<uint32_t>(runCount / 4) % 2 == 0)
+        {
+            kernelTuningModel.fromConfig(state.bestConfig);
+        }
+        else
+        {
+            using KernelFn = typename tune::detail::internal::getTypeFrom<std::decay_t<decltype(kernelbundle)>>::type;
+            using Vec_2 = decltype(defaultSpec.m_numFrames);
+            alpaka::tune::trait::getDefault<KernelFn, Vec_2>(queue, kernelTuningModel);
+        }
+    }
 
     template<
         typename T_Config,
@@ -573,14 +634,14 @@ namespace alpaka
         T_Spec& spec,
         T_MetricInterface& metric_interface)
     {
+        alpaka::tune::benchmark::phaseAccessor(2);
         static int runCount = 0;
         static bool write = true;
 
-        ConfigEntry<T_Config>& stored = kernel_data.configEntries.getOrCreate(state.bestConfig.getConfig());
-        kernel_tuning_model.fromConfig(stored.getConfig());
-        auto currentConfig = kernel_tuning_model.toConfig();
+        selectRun(queue, kernel_tuning_model, kernel_data.configEntries, spec, kernelBundle, runCount, state);
+        ConfigEntry<T_Config>& stored = kernel_data.configEntries.getOrCreate(kernel_tuning_model.toConfig());
         tune::detail::internal::applyConfigAndExecuteKernel(
-            currentConfig,
+            stored.getConfig(),
             queue,
             exec,
             kernelBundle,
@@ -588,23 +649,24 @@ namespace alpaka
             metric_interface,
             kernel_tuning_model);
         onHost::wait(queue);
+        std::cout << " runCount: " << runCount << std::endl;
 
-        if(runCount < MeasureBestRuns)
+        if(runCount % 4 > 1)
         {
             stored.pushMetric(kernel_tuning_model.metric);
-            ++runCount;
+        }
+        ++runCount;
 
-            if(write && runCount == MeasureBestRuns)
-            {
-                history.storeConfig(kernel_data);
-                write = false;
-                ++session.finishedConfigs;
-                std::terminate();
-            }
+        if(write && runCount == MeasureBestRuns * 2)
+        {
+            alpaka::tune::benchmark::phaseAccessor(3);
+            history.storeConfig(kernel_data);
+            write = false;
+            ++session.finishedConfigs;
         }
     }
 
-#    define MetricUndefined std::numeric_limits<float>::quiet_NaN()
+#        define MetricUndefined std::numeric_limits<float>::quiet_NaN()
     template<typename T>
     struct Dummy;
 
@@ -774,26 +836,31 @@ namespace alpaka
             auto& config_queue)
         {
             using namespace alpaka::tune::detail::internal;
-
+#        ifdef Debug
             std::cout << "[Session] Trying to fetch next config from round-robin queue...\n";
+#        endif
             auto res = config_queue.getRoundRobin();
 
             if(res.has_value())
             {
+#        ifdef Debug
                 std::cout << "[Session] Round-robin queue returned a config. Using current run state to map it.\n";
-
+#        endif
                 auto initConfig = run.toConfig();
+#        ifdef Debug
                 std::cout << "[Session] Initial config (from run):\n" << initConfig.toString() << "\n";
-
+#        endif
                 ConfigEntry<T_Config>& stored = data.configEntries.getOrCreate(initConfig);
                 run.fromConfig(stored);
-
+#        ifdef Debug
                 std::cout << "[Session] run state updated from stored config entry.\n";
+#        endif
             }
 
             auto curConfig = run.toConfig();
+#        ifdef Debug
             std::cout << "[Session] Current config (after queue/fallback):\n" << curConfig.toString() << "\n";
-
+#        endif
             if(configReadyForRun<T_Context, T_MetricInterface>(
                    run,
                    curConfig,
@@ -801,23 +868,26 @@ namespace alpaka
                    environment_state,
                    constraints))
             {
+#        ifdef Debug
                 std::cout << "[Session] Config is ready for execution (criteria not yet reached).\n";
-
+#        endif
                 applyConfigAndExecuteKernel(curConfig, queue, exec, kernelBundle, spec, metricInterface, run);
-
+#        ifdef Debug
                 std::cout << "[Session] Kernel executed for current config.\n";
-
+#        endif
                 updateMetrics<T_Context, T_MetricInterface>(run, data, environment_state);
+#        ifdef Debug
                 std::cout << "[Session] Metrics updated for current config.\n";
-
+#        endif
                 checkSessionFinishedCondition(environment_state);
+#        ifdef Debug
                 std::cout << "[Session] Session finished condition re-evaluated.\n";
-
+#        endif
                 return;
             }
-
+#        ifdef Debug
             std::cout << "[Session] Current config not ready. Attempting to generate next valid config...\n";
-
+#        endif
             bool foundNewConfig = tune::detail::internal::getNextValidConfig<T_Context>(
                 run,
                 data,
@@ -828,8 +898,9 @@ namespace alpaka
 
             if(!foundNewConfig)
             {
+#        ifdef Debug
                 std::cout << "[Session] No new valid config found. Falling back to best config execution.\n";
-
+#        endif
                 executeBestConfig(
                     tune::TuningHistory::get(config),
                     data,
@@ -841,14 +912,16 @@ namespace alpaka
                     kernelBundle,
                     spec,
                     metricInterface);
-
+#        ifdef Debug
                 std::cout << "[Session] Best config executed. Ending iteration.\n";
+#        endif
                 return;
             }
 
             auto config = run.toConfig();
+#        ifdef Debug
             std::cout << "[Session] New config generated:\n" << config.toString() << "\n";
-
+#        endif
             tune::detail::internal::applyConfigAndExecuteKernel(
                 config,
                 queue,
@@ -859,18 +932,24 @@ namespace alpaka
                 run);
 
             alpaka::onHost::wait(queue);
+#        ifdef Debug
             std::cout << "[Session] Kernel executed and host wait complete.\n";
-
+#        endif
             updateMetrics<T_Context, T_MetricInterface>(run, data, environment_state);
+#        ifdef Debug
             std::cout << "[Session] Metrics updated for new config.\n";
-
+#        endif
             checkSessionFinishedCondition(environment_state);
+#        ifdef Debug
             std::cout << "[Session] Session finished condition checked.\n";
+#        endif
         }
 
         ~TuningSession()
         {
+#        ifdef Debug
             std::cout << " destructor called" << std::endl;
+#        endif
         }
     };
 
@@ -883,5 +962,5 @@ namespace alpaka
 } // namespace alpaka
 
 
-#endif // TUNER_H
+#    endif // TUNER_
 #endif

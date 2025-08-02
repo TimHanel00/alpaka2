@@ -538,8 +538,8 @@ void testKernels(T_Cfg cfg)
     auto tuningSessions
         = getSessionFromExec<DataType>(exec,arraySize,devAcc);
 
-    auto& tuningSessionDot = tuningSessions.sessionDot;
-    auto &tuningSessionRest = tuningSessions.sessionRest;
+    auto& tuningSessionDot = tuningSessions.DotSession;
+    auto &tuningSessionRest = tuningSessions.RestSession;
 
 
     // To record runtime data generated while running the kernels
@@ -561,6 +561,7 @@ void testKernels(T_Cfg cfg)
         auto ns_count = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
         std::cout << "[TUNER]" << "," << ns_count << "," << kernelLabel<<"\n";
         std::cout << "[ALPAKA]" << "," << static_cast<uint32_t>(alpaka::tune::global::timingAccessor()) << "," << kernelLabel<<"\n";
+        std::cout<<"[PHASE]"<< ","<<alpaka::tune::benchmark::phaseAccessor()<< "," << kernelLabel<<"\n";
         runtimeResults.kernelToRundataMap[kernelLabel]->timingsSuccessiveRuns.push_back(runtime);
 
 		log_event(kernelLabel);

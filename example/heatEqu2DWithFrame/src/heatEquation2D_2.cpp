@@ -146,6 +146,18 @@ bool abortIfFinished(T_TuningSession const& session)
     return false;
 }
 
+void log_event()
+{
+    static std::string label = "Stencil";
+    auto now = std::chrono::system_clock::now();
+    std::time_t t_c = std::chrono::system_clock::to_time_t(now);
+    auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count() % 1'000'000'000;
+
+    std::tm* tm = std::localtime(&t_c);
+    std::cout << "[" << std::put_time(tm, "%F %T") << "." << std::setfill('0') << std::setw(9) << ns << "]," << label
+              << std::endl;
+}
+
 // namespace alpaka::onHost::trait
 //! Each kernel computes the next step for one point.
 //! Therefore the number of threads should be equal to numNodesX.
@@ -248,7 +260,7 @@ auto example(T_Cfg const& cfg, uint32_t i) -> int
     auto toRTime = FrameSpec{
         alpaka::Vec{dataBlockingStencil.m_numFrames.x(), dataBlockingStencil.m_numFrames.y()},
         Vec{dataBlockingStencil.m_frameExtent.x(), dataBlockingStencil.m_frameExtent.y()}};
-    auto tuningSession = getSessionFromExec(exec, toRTime, devAcc, numNodes);
+    static auto tuningSession = getSessionFromExec(exec, toRTime, devAcc, numNodes);
 
     auto startTime = std::chrono::high_resolution_clock::now();
 
@@ -283,8 +295,12 @@ auto example(T_Cfg const& cfg, uint32_t i) -> int
 
         std::chrono::duration<double> elapsedTime_IN = endTime_IN - startTime_IN;
         auto ns_count = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime_IN - startTime_IN).count();
-        std::cout << "[TUNER]" << "," << ns_count << "," << "\n";
-        std::cout << "[ALPAKA]" << "," << alpaka::tune::global::timingAccessor() << "," << "\n";
+        std::cout << "[TUNER]" << "," << ns_count << "," << "Stencil" << "\n";
+        std::cout << "[ALPAKA]" << "," << static_cast<uint32_t>(alpaka::tune::global::timingAccessor()) << ","
+                  << "Stencil"
+                     "\n";
+        std::cout << "[PHASE]" << "," << alpaka::tune::benchmark::phaseAccessor() << "," << "Stencil" << std::endl;
+        log_event();
         // Apply boundaries
         computeQueue.enqueue(
             exec,
