@@ -792,6 +792,7 @@ namespace alpaka::tune::strategy
                              "wrong somehow "
                           << std::endl;
                 environmentState.sessionFinished = true;
+                model.fromConfig(environmentState.bestConfig);
                 return;
             }
             VecT nd = alpaka::mapToND(convertVec<N>(dimsVec), stateCount++);

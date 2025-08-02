@@ -1,0 +1,4 @@
+/home/tim/hzdr/workspace/alpaka2_fork/CMakeFiles/alpaka.dir
+/home/tim/hzdr/workspace/alpaka2_fork/CMakeFiles/alpakaIde.dir
+/home/tim/hzdr/workspace/alpaka2_fork/CMakeFiles/edit_cache.dir
+/home/tim/hzdr/workspace/alpaka2_fork/CMakeFiles/rebuild_cache.dir

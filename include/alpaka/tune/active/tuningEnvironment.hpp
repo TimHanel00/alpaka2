@@ -792,10 +792,6 @@ auto& getTuningEnvironment(
     static std::unordered_map<std::string, EnvPtr> singletonMap;
 
     std::string const key = flattenSessionSpecifier(sessionSpecifier);
-    if(singletonMap.contains(key))
-    {
-        alpaka::tune::benchmark::phaseAccessor(1);
-    }
     auto [it, inserted] = singletonMap.try_emplace(
         key,
         createTuningEnvironment(

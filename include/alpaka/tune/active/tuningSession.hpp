@@ -174,8 +174,8 @@ namespace alpaka::tune::detail::internal
         }
     }
 
-    template<typename T_Config>
-    inline void checkSessionFinishedCondition(EnvironmentState<T_Config>& state)
+    template<typename T_Config, typename... T_Args>
+    inline void checkSessionFinishedCondition(EnvironmentState<T_Config>& state, KernelTuningModel<T_Args...>& model)
     {
         // std::cout << state.maxConfigsTotal << " Total configs estimated " << state.numberOfCheckedConfigs
         //<< " number of checked configs" << std::endl;
@@ -189,6 +189,7 @@ namespace alpaka::tune::detail::internal
         if(state.numberOfCheckedConfigs >= state.maxConfigsTotal || state.numValidConfigs >= state.maxValidEvaluations)
         {
             state.sessionFinished = true;
+            model.fromConfig(state.bestConfig);
         }
     }
 
@@ -276,6 +277,10 @@ namespace alpaka::tune::detail::internal
                 }
             }
             checkSessionFinishedCondition(environment_state);
+        }
+        else
+        {
+            alpaka::tune::benchmark::phaseAccessor(1);
         }
         return kernelptr;
     }
@@ -418,7 +423,7 @@ namespace alpaka::tune::detail::internal
         }
 
         environment.sessionFinished = true;
-
+        run.fromConfig(environment.bestConfig);
         auto& tuneableRange = std::get<0>(run.allTuneables()).idxRange;
 #        ifdef Debug
         std::cout << "[DEBUG] No valid config found after all attempts." << std::endl;
@@ -443,6 +448,48 @@ namespace alpaka::tune::detail::internal
     {
         using type = KernelFn;
     };
+
+    void executeKernel(
+        auto const& queue,
+        auto exec,
+        auto const& kernelBundle,
+        auto& spec,
+        concepts::MetricInterface auto& interface,
+        auto& run)
+    {
+        auto specM = applyCustomThreadSpec(run, spec);
+        auto bundle = recreate(kernelBundle, run.m_userTuneables);
+        trait::callPreProcessing(run, spec, interface, kernelBundle);
+
+        using KernelFn = typename getTypeFrom<std::decay_t<decltype(kernelBundle)>>::type;
+        if constexpr(!trait::hasUserDefinedCTuneable<KernelFn>::value)
+        {
+            interface.start(run, spec);
+            queue.enqueue(exec, spec, bundle);
+            onHost::wait(queue);
+            interface.end(run, spec);
+        }
+        else
+        {
+            std::size_t i = trait::getRtimeIndexMap(kernelBundle)[run.compileTimeToFlatValueTuple()]; // kernelFn index
+            static auto variants = typename trait::RegisteredCTuneables<std::decay_t<KernelFn>>::T_KernelVariants{};
+            alpaka::tune::runtime_Kernel_dispatch(
+                i,
+                variants,
+                [&bundle, &interface, &run, spec, &queue, exec](auto&& element)
+                {
+                    auto newBundle = std::apply(
+                        [&element]<typename... T0>(T0&&... args)
+                        { return KernelBundle{element, std::forward<T0>(args)...}; },
+                        bundle.m_args);
+                    interface.start(run, spec);
+                    queue.enqueue(exec, spec, newBundle);
+                    onHost::wait(queue);
+                    interface.end(run, spec);
+                });
+        }
+        trait::callPostProcessing(run, spec, interface, kernelBundle);
+    }
 
     /*
      * seems like nvcc (CUDA/12.8.0) has this all or nothing approach on template type deduction,
@@ -489,7 +536,7 @@ namespace alpaka::tune::detail::internal
             alpaka::tune::runtime_Kernel_dispatch(
                 i,
                 variants,
-                [&i, &bundle, &interface, &run, spec, &queue, exec](auto&& element)
+                [&bundle, &interface, &run, spec, &queue, exec](auto&& element)
                 {
                     auto newBundle = std::apply(
                         [&element]<typename... T0>(T0&&... args)
@@ -634,30 +681,14 @@ namespace alpaka
         T_Spec& spec,
         T_MetricInterface& metric_interface)
     {
+        static auto runCount = 0;
+        static auto write = true;
         alpaka::tune::benchmark::phaseAccessor(2);
-        static int runCount = 0;
-        static bool write = true;
-
-        selectRun(queue, kernel_tuning_model, kernel_data.configEntries, spec, kernelBundle, runCount, state);
-        ConfigEntry<T_Config>& stored = kernel_data.configEntries.getOrCreate(kernel_tuning_model.toConfig());
-        tune::detail::internal::applyConfigAndExecuteKernel(
-            stored.getConfig(),
-            queue,
-            exec,
-            kernelBundle,
-            spec,
-            metric_interface,
-            kernel_tuning_model);
+        executeKernel(queue, exec, kernelBundle, spec, metric_interface, kernel_tuning_model);
         onHost::wait(queue);
-        std::cout << " runCount: " << runCount << std::endl;
-
-        if(runCount % 4 > 1)
-        {
-            stored.pushMetric(kernel_tuning_model.metric);
-        }
         ++runCount;
 
-        if(write && runCount == MeasureBestRuns * 2)
+        if(write && runCount == MeasureBestRuns)
         {
             alpaka::tune::benchmark::phaseAccessor(3);
             history.storeConfig(kernel_data);
@@ -667,8 +698,6 @@ namespace alpaka
     }
 
 #        define MetricUndefined std::numeric_limits<float>::quiet_NaN()
-    template<typename T>
-    struct Dummy;
 
     template<
         typename T_Strategy = tune::strategy::randomSearch,
@@ -776,7 +805,6 @@ namespace alpaka
                 this->m_run,
                 sessionSpecifier,
                 config);
-
             auto& environment_state = kernelptr->environmentState;
             auto& activeRun = *kernelptr->env_kernelTuningPtr;
             auto& env_strategy = kernelptr->env_strategy;
