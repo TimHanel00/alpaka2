@@ -4,14 +4,14 @@
 
 #ifndef METRICCONTAINER_H
 #define METRICCONTAINER_H
-#include <vector>
-#include <span>
-#include <queue>
-#include <limits>
-#include <cmath>
 #include <algorithm>
+#include <cmath>
+#include <limits>
+#include <queue>
+#include <span>
 #include <stdexcept>
 #include <type_traits>
+#include <vector>
 
 struct t_ns
 {
@@ -59,6 +59,7 @@ struct metricWrapper
             static_assert(!sizeof(Unit), "Unsupported time unit");
     }
 };
+
 /*
  * Storage Container for metrics such as timings. gives O(1) access to min,max,median,mean and
  * contains a history to preserve order of observations
@@ -67,7 +68,7 @@ class MetricContainer
 {
 public:
     template<std::size_t stepsUntilCICheck = 10>
-    bool push(double_t val)
+    bool push(double_t val, bool fullFlag = false)
     {
         history.push_back(val); // to track the order of incoming metrics
 
@@ -94,7 +95,7 @@ public:
             lower.push(upper.top());
             upper.pop();
         }
-        if(history.size() % stepsUntilCICheck == 0)
+        if(!fullFlag && history.size() % stepsUntilCICheck == 0)
         {
             // perform CI (confidence Intervall) check
             return ciWithinTolerance();
@@ -254,4 +255,4 @@ private:
 template<typename T>
 constexpr bool is_stat_type_v
     = std::is_same_v<T, min_t> || std::is_same_v<T, max_t> || std::is_same_v<T, mean_t> || std::is_same_v<T, median_t>;
-#endif //METRICCONTAINER_H
+#endif // METRICCONTAINER_H

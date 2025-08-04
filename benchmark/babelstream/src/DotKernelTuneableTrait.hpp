@@ -127,7 +127,7 @@ namespace alpaka::tune::trait
 
 } // namespace alpaka::tune::trait
 //- -- > make dynamicSharedMem trait for DotKernel
-template<typename T_Kernel,typename T_NumFrames, typename T_NumThreads>
+template<typename T_NumFrames, typename T_NumThreads>
 static auto accessFrameSpec(
     std::optional<alpaka::onHost::FrameSpec<T_NumFrames, T_NumThreads>> frameSpec = std::nullopt)
 {
@@ -263,7 +263,7 @@ template<typename CTuneable, typename Data, typename Vec_2, typename T_Config, t
             T_Metric& metricInterface,
             alpaka::KernelBundle<DotKernel<CTuneable,Data>, args2...> const& kernelBundle)
         {
-            accessFrameSpec<DotKernel<CTuneable,Data>>(std::make_optional(frame_spec));
+            accessFrameSpec(std::make_optional(frame_spec));
         }
     };
 } // namespace alpaka::tune::trait
@@ -279,7 +279,7 @@ namespace alpaka::onHost::trait
 
         uint32_t operator()(auto const executor, auto const&... args) const
         {
-            auto frameSpec = accessFrameSpec<DotKernel<CTuneable,Data>,T_NumFrames, T_NumThreads>();
+            auto frameSpec = accessFrameSpec<T_NumFrames, T_NumThreads>();
             auto extent = frameSpec.m_frameExtent;
             return static_cast<uint32_t>(extent[0] * sizeof(Data));
         }

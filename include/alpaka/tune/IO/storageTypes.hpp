@@ -150,25 +150,25 @@ struct ConfigEntry
 
     void pushMetric(double_t val)
     {
-        if(metrics.push<10>(val))
-            fullFlag = true;
-
         switch(state)
         {
         case ConfigState::Uninitialized:
             state = ConfigState::WarmUp;
             ++warm_up_runs;
+            nr_runs = 0;
             break;
         case ConfigState::WarmUp:
-            if(++warm_up_runs > warmUpThreshold)
+            if(++warm_up_runs >= warmUpThreshold)
             {
-                metrics.clear();
-                metrics.push<10>(val);
+                if(metrics.push<10>(val, fullFlag))
+                    fullFlag = true;
                 state = ConfigState::Initialized;
-                nr_runs = 1;
+                nr_runs++;
             }
             break;
         case ConfigState::Initialized:
+            if(metrics.push<10>(val, fullFlag))
+                fullFlag = true;
             ++nr_runs;
             break;
         case ConfigState::Dummy:
@@ -321,6 +321,21 @@ public:
     {
         auto [iter, h] = entries.try_emplace(config, config);
         return iter->second;
+    }
+
+    bool remove(TConfig const& config)
+    {
+        return entries.erase(config) > 0;
+    }
+
+    bool remove(ConfigEntry<TConfig> const& configEntry)
+    {
+        return entries.erase(configEntry.config) > 0;
+    }
+
+    uint32_t size()
+    {
+        return entries.size();
     }
 
     std::unordered_map<TConfig, Entry>& getAll()

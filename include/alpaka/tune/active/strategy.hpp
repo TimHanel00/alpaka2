@@ -146,18 +146,22 @@ namespace alpaka::tune::strategy
         using T_propabilityFunction = propabilityFunctions::Exponential;
         static constexpr double T_init = 100.0;
         static constexpr double T_final
-            = 5.0; // magic Number that indicates the lower bound of the temperature used for simulated annealing
+            = 3.0; // magic Number that indicates the lower bound of the temperature used for simulated annealing
 
         double_t temperature = T_init; // class member
 
-        double_t calcTemperature(auto const& maxRuns, auto currentRuns) const
+        double_t calcTemperature(std::size_t maxRuns, std::size_t currentRuns) const
         {
-            auto currentRuns_local = std::max<std::size_t>(1, currentRuns);
-            auto n0 = static_cast<double_t>(maxRuns) * 0.1; // log stabilizer prevent div by 0
-            auto lambda = T_final * std::log(maxRuns + n0); // Tfinal*ln(N+n0)-> lamda is the the scaling
-                                                            // factor of the temperature cooling
-            auto result = lambda / std::log(static_cast<double_t>(currentRuns_local) * n0);
-            return std::clamp(result, T_final, T_init);
+            double_t r = static_cast<double_t>(currentRuns);
+            double_t R = static_cast<double_t>(maxRuns);
+
+            if(r >= R)
+                return T_final;
+            if(r == 0)
+                return T_init;
+
+            double_t result = T_init - (T_init - T_final) * std::log(1.0 + r) / std::log(1.0 + R);
+            return result;
         }
 
         template<typename T_Metric, typename T_ConfigEntry>
@@ -170,7 +174,9 @@ namespace alpaka::tune::strategy
                 return true; // better or equal → accept
 
             double prob = std::exp(-delta / temperature);
-
+#ifdef Debug
+            std::cout << "Propability of accepting worse solution is: " << prob << std::endl;
+#endif
             static thread_local std::mt19937_64 rng{std::random_device{}()};
             std::uniform_real_distribution<double> dist(0.0, 1.0);
 
@@ -202,8 +208,14 @@ namespace alpaka::tune::strategy
         {
             if(isConfig{neu_}.template betterThan<T_Metric>(cur))
             {
+#ifdef Debug
+                std::cout << " new Config was better " << std::endl;
+#endif
                 return true;
             }
+#ifdef Debug
+            std::cout << " accepted worse solution to encourage exploration" << std::endl;
+#endif
             return acceptWorseSolution<T_Metric>(neu_, cur, temperature);
         }
 
@@ -285,7 +297,7 @@ namespace alpaka::tune::strategy
             return newIndex;
         }
 
-#define SimA_MaxCachedSteps 300
+#define SimA_MaxCachedSteps 50
         std::string previousValidKernel = "";
         std::size_t currentRuns = 0;
 
@@ -320,11 +332,26 @@ namespace alpaka::tune::strategy
             EnvironmentState<T_Config>& environmentState) // contains global break criterias
         {
             currentRuns = 0;
-            temperature = calcTemperature(environmentState.getMaxEvals(), environmentState.numberOfCheckedConfigs);
+            temperature = calcTemperature(
+                static_cast<uint32_t>(environmentState.getMaxEvals() / 2),
+                environmentState.numberOfCheckedConfigs);
+
+#ifdef Debug
+            std::cout << "[SimA] Starting with temperature: " << temperature << std::endl;
+            std::cout << "[SimA] " << static_cast<uint32_t>(environmentState.getMaxEvals() / 2) << std::endl;
+            std::cout << "[SimA] " << environmentState.getMaxEvals() << std::endl;
+            std::cout << "[SimA] " << environmentState.numberOfCheckedConfigs << std::endl;
+#endif
+
             while(currentRuns < SimA_MaxCachedSteps)
             {
                 // Snapshot current configuration
                 T_Config oldConfig = model.toConfig();
+
+#ifdef Debug
+                std::cout << "[SimA] Iteration " << currentRuns << " — Old config: " << oldConfig.toString()
+                          << std::endl;
+#endif
 
                 // Apply mutation via probability function
                 for_each(
@@ -337,19 +364,34 @@ namespace alpaka::tune::strategy
                         parameter.index
                             = applyProbabilityFunction(parameter.index, parameter.getValues(), temperature);
                         parameter.value = parameter.getValues()[parameter.index];
+
+#ifdef Debug
+                        std::cout << "[SimA] Mutated parameter from index " << oldIndex << " to " << parameter.index
+                                  << " (value: " << oldValue << " → " << parameter.value << ")" << std::endl;
+#endif
                     });
 
                 // Snapshot new configuration
                 T_Config newConfig = model.toConfig();
 
+#ifdef Debug
+                std::cout << "[SimA] New config: " << newConfig.toString() << std::endl;
+#endif
+
                 if(newConfig == oldConfig)
                 {
+#ifdef Debug
+                    std::cout << "[SimA] Config unchanged after mutation — skipping." << std::endl;
+#endif
                     ++currentRuns;
                     continue;
                 }
 
                 if(!config_storage.contains(newConfig))
                 {
+#ifdef Debug
+                    std::cout << "[SimA] New config not in cache — returning." << std::endl;
+#endif
                     return;
                 }
 
@@ -357,17 +399,28 @@ namespace alpaka::tune::strategy
                 ConfigEntry<T_Config>& oldEntry = config_storage.getOrCreate(oldConfig);
                 ConfigEntry<T_Config>& newEntry = config_storage.getOrCreate(newConfig);
 
-
                 // Validate metrics/state before accepting
                 if(!handleInvalidCases(newEntry, oldEntry, model))
                 {
+#ifdef Debug
+                    std::cout << "[SimA] Rejected due to invalid metric state." << std::endl;
+#endif
                     ++currentRuns;
                     continue;
                 }
+
                 auto oldMedian = oldEntry.getMetrics().get(median_t{}).template as<t_ns>();
                 auto newMedian = newEntry.getMetrics().get(median_t{}).template as<t_ns>();
 
+#ifdef Debug
+                std::cout << "[SimA] Comparing median: old = " << oldMedian << ", new = " << newMedian << std::endl;
+#endif
+
                 acceptNewKernel<T_metricInterface>(oldEntry, newEntry, model, temperature);
+
+#ifdef Debug
+                std::cout << "[SimA] Accepted new config: " << model.toConfig().toString() << "\n" << std::endl;
+#endif
 
                 ++currentRuns;
             }
@@ -792,7 +845,7 @@ namespace alpaka::tune::strategy
                              "wrong somehow "
                           << std::endl;
                 environmentState.sessionFinished = true;
-                model.fromConfig(environmentState.bestConfig);
+                model.fromConfig(environmentState.getBestConfig());
                 return;
             }
             VecT nd = alpaka::mapToND(convertVec<N>(dimsVec), stateCount++);
@@ -909,7 +962,7 @@ namespace alpaka::tune::strategy
             {
                 if(config_storage.nrOfConfigs + 2 >= environmentState.maxConfigsTotal)
                 {
-                    auto& best = config_storage.getOrCreate[environmentState.bestConfig];
+                    auto& best = config_storage.getOrCreate(environmentState.getBestConfig());
 
                     model.fromConfig(best);
 

@@ -88,7 +88,8 @@ add_library(alpaka INTERFACE
         include/alpaka/tune/utils/tupleHelper.h
         include/alpaka/tune/utils/Random.h
         include/alpaka/tune/IO/metricContainer.hpp
-        include/alpaka/tune/active/bayesianOptimizer.hpp)
+        include/alpaka/tune/active/bayesianOptimizer.hpp
+        include/alpaka/tune/active/updateMetric.hpp)
 target_include_directories(${PROJECT_NAME} INTERFACE $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_20)
 target_compile_definitions(alpaka INTERFACE ${DTUNER_STRATEGY_MACRO})
@@ -99,6 +100,11 @@ if (DTuner_Strategy STREQUAL "bayesianOptimization")
             $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
             $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
     target_include_directories(alpaka INTERFACE ${eigen_SOURCE_DIR})
+endif ()
+option(Debug "Enable global DEBUG macro (for #ifdef DEBUG)" OFF)
+
+if (Debug)
+    add_compile_definitions(Debug)
 endif ()
 
 option(alpaka_DEP_CUDA "Enable the CUDA as dependency, allows the usage of api::Cuda and exec::GpuCuda." OFF)

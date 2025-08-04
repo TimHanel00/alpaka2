@@ -26,7 +26,7 @@
 
 namespace alpaka::tune::benchmark
 {
-    constexpr std::array<std::string_view, 4> ar = {"Init", "tune", "best", "I_O"};
+    constexpr std::array<std::string_view, 5> ar = {"Init", "tune", "best", "I_O", "Strategy"};
 
     std::string_view phaseAccessor(std::optional<uint32_t> index = std::nullopt)
     {
@@ -54,11 +54,11 @@ struct EnvironmentState
         strategyFinished = true;
     }
 
-    bool strategyCriteriaReached(std::optional<uint32_t> currentIndex)
+    bool strategyCriteriaReached(std::optional<uint32_t> currentIndex = std::nullopt)
     {
         if(currentIndex.has_value())
         {
-            if(currentIndex > strategyLimit)
+            if(currentIndex >= strategyLimit)
             {
                 strategyFinished = true;
             }
@@ -66,21 +66,21 @@ struct EnvironmentState
         return strategyFinished;
     }
 
-    ConfigEntry<T_Config> bestConfig;
+    std::optional<std::reference_wrapper<ConfigEntry<T_Config>>> bestConfig;
 
-    bool getMaxEvals() const
+    auto& getBestConfig()
+    {
+        return bestConfig.value().get();
+    }
+
+    uint32_t getMaxEvals() const
     {
         return std::min(maxValidEvaluations, maxConfigsTotal);
     }
 
     bool globalBreakCriteriaFinished()
     {
-        if(sessionFinished)
-        {
-            return true;
-        }
-        sessionFinished = numValidConfigs <= maxValidEvaluations || numberOfCheckedConfigs <= maxConfigsTotal;
-        return sessionFinished;
+        return numValidConfigs >= maxValidEvaluations || numberOfCheckedConfigs >= maxConfigsTotal;
     }
 
     bool localBreakCriteriaFinished(auto const& config)
@@ -248,7 +248,7 @@ namespace alpaka::tune
     {
     public:
         using FrameSpecType = alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent>;
-
+        using T_MetricInterfaceType = T_MetricInterface;
         T_Strategy env_strategy;
         T_MetricInterface env_metricInterface;
         T_Constraints env_constraints;
@@ -260,10 +260,48 @@ namespace alpaka::tune
         tuningEnvironment& operator=(tuningEnvironment const&) = delete;
         tuningEnvironment(tuningEnvironment&&) = delete;
         tuningEnvironment& operator=(tuningEnvironment&&) = delete;
+        TuningHistory& env_history;
 
         auto& getConfigStorage()
         {
             return env_kernelData.configEntries;
+        }
+
+        bool violatesConstraint(auto const& config)
+        {
+            auto& stored = this->getConfigStorage().getOrCreate(config);
+            if(stored.state == ConfigState::Dummy)
+            {
+#ifdef Debug
+                std::cout << "[violatesConstraint] Already dummy: " << stored.config.toString() << "\n";
+#endif
+                return true;
+            }
+            using T_KernelTuningModel_ = decltype(*this->env_kernelTuningPtr);
+            bool valid = true;
+            for_each(
+                this->env_constraints,
+                [&](auto& constraint)
+                {
+                    if(!constraint.template operator()<T_KernelTuningModel_>(*this->env_kernelTuningPtr))
+                        valid = false;
+                });
+
+            if(!valid)
+            {
+                stored.getMetrics().clear();
+                stored.stamp = -1;
+                stored.state = ConfigState::Dummy;
+                stored.fullFlag = true;
+                stored.nr_runs = std::numeric_limits<decltype(stored.nr_runs)>::max();
+#ifdef Debug
+                std::cout << "[violatesConstraint] Marked invalid: " << stored.config.toString() << "\n";
+#endif
+                ++this->environmentState.numberOfCheckedConfigs;
+                return true;
+            }
+
+            return false;
         }
 
         tuningEnvironment(
@@ -281,18 +319,39 @@ namespace alpaka::tune
             , env_metricInterface(std::forward<T_MetricInterface>(metric_interface_))
             , env_constraints(std::forward<T_Constraints>(constraints_))
             , env_kernelTuningPtr(std::forward<T_KernelTuningModel>(activeRun_))
+            , env_history(TuningHistory::get(filename))
 
         {
-            auto& history = alpaka::tune::TuningHistory::get(filename);
-            history.loadConfig(env_kernelData);
+            env_history.loadConfig<T_MetricInterface>(env_kernelData, environmentState);
             alpaka::tune::recalculateMaxRuns(*env_kernelTuningPtr);
+            getRunsPerConfig();
+            getMaxRuns();
+            getMaxConfigs(); // make sure all environment variables are called atleast once (for has.. to work)
+
+
             // 1. Clamp to spec
             // 2. Generate value lists
-
+            auto initConfigTmp = env_kernelTuningPtr->toConfig();
 
             // 3. Initial max runs
+            if(!getConfigStorage().contains(initConfigTmp))
+            {
+                environmentState.bestConfig = std::ref(getConfigStorage().getOrCreate(initConfigTmp));
+                ++environmentState.numberOfCheckedConfigs;
+                if(!violatesConstraint(initConfigTmp))
+                {
+                    environmentState.getBestConfig().stamp
+                        = this->env_kernelData.highestStamp + this->environmentState.stamp++;
 
-            environmentState.bestConfig = getConfigStorage().getOrCreate(env_kernelTuningPtr->toConfig());
+                    ++environmentState.numValidConfigs;
+                }
+            }
+            if(!environmentState.bestConfig.has_value())
+                environmentState.bestConfig = std::ref(getConfigStorage().getOrCreate(initConfigTmp));
+
+
+            env_config_queue.push_back(
+                environmentState.getBestConfig()); // if its full or invalid it will simply get dropped
             environmentState.maxConfigsTotal = env_kernelTuningPtr->maxRuns;
             environmentState.maxValidEvaluations = getMaxRuns();
         }
@@ -300,141 +359,133 @@ namespace alpaka::tune
         // Prevent copy/move
     };
 
-    template<typename T_Env>
-    class TuningContextManager : public T_Env
+    template<typename EnvBase>
+    class TuningContextManager : public EnvBase
     {
     public:
-        using Base = T_Env;
+        using Base = EnvBase;
         using Base::Base; // inherit constructor
 
         template<typename... T_Args>
         void launch(T_Args&&... launchArgs)
         {
-            if(this->environmentState.checkGlobalBreakCriteria())
+            if(this->environmentState.sessionFinished)
             {
-                executeBestConfig(std::forward<T_Args...>(launchArgs...));
+                executeBestConfig(std::forward<T_Args>(launchArgs)...);
+                tune::benchmark::phaseAccessor(2);
+                return;
+            }
+            if(this->environmentState.globalBreakCriteriaFinished())
+            {
+                emptyTheQueue(std::forward<T_Args>(launchArgs)...);
                 return;
             }
 
-            if(handleFullQueue(std::forward<T_Args...>(launchArgs...)))
-                return;
-            for(int i = 0; !this->environmentState.strategyCriteriaReached(i); i++)
+            static bool init = false;
+            if(!init)
             {
-                if(this->env_config_queue.empty())
-                {
-                    executeBestConfig();
-                    return;
-                }
-
-                auto oldConfig = this->env_kernelTuningPtr->toConfig();
-                auto newConfig = oldConfig;
-
-                while(this->getConfigStorage().contains(newConfig) || violatesConstraint(newConfig))
-                {
-                    this->env_strategy(
-                        this->env_metricInterface,
-                        KernelTuningModelView(*this->env_kernelTuningPtr),
-                        this->getConfigStorage(),
-                        this->environmentState);
-
-                    newConfig = this->env_kernelTuningPtr->toConfig();
-                    if(this->environmentState.strategyCriteriaReached())
-                    {
-                        if(emptyTheQueue(std::forward<T_Args...>(launchArgs...)))
-                            return;
-                    }
-                }
-
-                this->env_config_queue.push(newConfig);
-
-                if(handleFullQueue(std::forward<T_Args...>(launchArgs...)))
-                    return;
+                benchmark::phaseAccessor(0);
+                init = true;
+#ifdef Debug
+                std::cout << "[launch] Initial phase (Init).\n";
+#endif
             }
+            else
+            {
+                benchmark::phaseAccessor(1);
+#ifdef Debug
+                std::cout << "[launch] Tuning phase.\n";
+#endif
+            }
+
+            if(handleFullQueue(std::forward<T_Args>(launchArgs)...))
+                return;
+
+            auto currentConfig = this->env_kernelTuningPtr->toConfig();
+            int i = 0;
+
+            while(!this->environmentState.strategyCriteriaReached(i++)
+                  && (this->getConfigStorage().contains(currentConfig) || Base::violatesConstraint(currentConfig)))
+            {
+#ifdef Debug
+                std::cout << "[launch] creating new config" << "\n ";
+#endif
+                benchmark::phaseAccessor(4);
+                auto view = KernelTuningModelView(*this->env_kernelTuningPtr);
+                this->env_strategy(this->env_metricInterface, view, this->getConfigStorage(), this->environmentState);
+                currentConfig = this->env_kernelTuningPtr->toConfig();
+            }
+
+            if(this->environmentState.strategyCriteriaReached()
+               || this->environmentState.globalBreakCriteriaFinished())
+            {
+                emptyTheQueue(std::forward<T_Args>(launchArgs)...);
+                return;
+
+#ifdef Debug
+                std::cout << "[launch] Strategy criteria or global break reached, executing best config.\n";
+#endif
+            }
+
+#ifdef Debug
+            std::cout << "[launch] Pushing new config: " << currentConfig.toString() << "\n";
+#endif
+            auto& newEntry = this->getConfigStorage().getOrCreate(currentConfig);
+            this->env_config_queue.push_back(newEntry);
+            ++this->environmentState.numberOfCheckedConfigs;
+            ++this->environmentState.numValidConfigs;
+            newEntry.stamp = this->env_kernelData.highestStamp + this->environmentState.stamp++;
+            emptyTheQueue(std::forward<T_Args>(launchArgs)...);
         }
+
 
     private:
         template<typename... T_Args>
-        bool emptyTheQueue(T_Args&&... launchArgs)
+        void emptyTheQueue(T_Args&&... launchArgs)
         {
-            while(!this->env_config_queue.empty())
+            auto configWrapper = this->env_config_queue.get();
+            if(configWrapper.has_value())
             {
-                auto& config = this->env_config_queue.get();
-                if(this->environmentState.checkLocalBreakCriteria(config))
-                {
-                    this->env_config_queue.pop();
-                }
-                else
-                {
-                    applyAndExecute(std::forward<T_Args...>(launchArgs...), config);
-                    update(config);
-                    return true;
-                }
+                auto& config = configWrapper.value().get();
+#ifdef Debug
+                std::cout << "[emptyTheQueue] Applying config: " << config.config.toString() << "\n";
+#endif
+                applyAndExecute(std::forward<T_Args>(launchArgs)..., config);
+                update(config);
+                return;
             }
-            return false;
+            executeBestConfig(std::forward<T_Args>(launchArgs)...);
+            tune::benchmark::phaseAccessor(3);
+            this->environmentState.sessionFinished = true;
+            this->env_history.storeConfig(this->env_kernelData);
         }
 
         template<typename... T_Args>
         bool handleFullQueue(T_Args&&... launchArgs)
         {
-            while(this->env_config_queue.full())
+            auto configWrapper = this->env_config_queue.get();
+            if(this->env_config_queue.full()
+               || this->env_config_queue.size() >= this->environmentState.maxConfigsTotal)
             {
-                auto& config = this->env_config_queue.get();
-                if(this->environmentState.checkLocalBreakCriteria(config))
-                {
-                    this->env_config_queue.pop();
-                }
-                else
-                {
-                    applyAndExecute(std::forward<T_Args...>(launchArgs...), config);
-                    update(config);
-                    return true;
-                }
+                auto& config = configWrapper.value().get();
+#ifdef Debug
+                std::cout << "[handleFullQueue] Queue full. Executing: " << config.config.toString() << "\n";
+#endif
+                applyAndExecute(std::forward<T_Args>(launchArgs)..., config);
+                update(config);
+                return true;
             }
+#ifdef Debug
+            std::cout << "[handleFullQueue] Queue not full.\n";
+#endif
             return false;
         }
 
         template<typename... T_Args>
         void executeBestConfig(T_Args&&... launchArgs)
         {
-            auto& bestConfig = this->environmentState.bestConfig;
-            applyAndExecute(std::forward<T_Args...>(launchArgs...), bestConfig);
-            update(bestConfig);
-        }
-
-        bool violatesConstraint(auto const& config)
-        {
-            auto& stored = this->getConfigStorage().getOrCreate(config);
-            if(stored.state == ConfigState::Dummy)
-            {
-                return true;
-            }
-
-            bool valid = true;
-            int index = 0;
-            for_each(
-                this->env_constraints,
-                [&index, &valid, &run = *this->env_kernelTuningPtr](auto& constraint)
-                {
-                    auto constraintValid = constraint.template operator()<decltype(run)>(run);
-                    valid = valid && constraintValid;
-                });
-
-            if(!valid)
-            {
-#ifdef Debug
-                std::cout << " constraint violated for : " << stored.config.toString() << std::endl;
-#endif
-                using T_state = decltype(stored.state);
-                ++this->environmentState.numberOfCheckedConfigs;
-                stored.getMetrics().clear();
-                stored.stamp = -1;
-                stored.state = T_state::Dummy;
-                stored.fullFlag = true;
-                stored.nr_runs = std::numeric_limits<decltype(stored.nr_runs)>::max();
-                return true;
-            }
-
-            return false;
+            auto& bestConfig = this->environmentState.getBestConfig();
+            applyAndExecute(std::forward<T_Args>(launchArgs)..., bestConfig);
         }
 
         template<
@@ -447,9 +498,9 @@ namespace alpaka::tune
         void applyAndExecute(
             T_Queue&& queue,
             T_Exec&& exec,
-            alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads>&& spec,
-            T_Kernelbundle&& kernelbundle,
-            T_Config const& config)
+            alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads>& spec,
+            T_Kernelbundle const& kernelbundle,
+            T_Config& config)
         {
             auto& run = *this->env_kernelTuningPtr;
             run.fromConfig(config);
@@ -458,7 +509,7 @@ namespace alpaka::tune
 
             trait::callPreProcessing(run, spec, this->env_metricInterface, bundle);
 
-            using KernelFn = typename decltype(this->env_kernelTuningPtr->kernelBundle)::KernelFn;
+            using KernelFn = typename decltype(bundle)::KernelFn;
 
             if constexpr(!trait::hasUserDefinedCTuneable<KernelFn>::value)
             {
@@ -492,58 +543,140 @@ namespace alpaka::tune
             trait::callPostProcessing(run, spec, this->env_metricInterface, bundle);
         }
 
-        void update(auto const& config)
-        {
-            auto& run = *this->env_kernelTuningPtr;
-            auto& stored = this->getConfigStorage().getOrCreate(config);
+#define allowPrematureConfigSkip 0
 
-            switch(stored.state)
-            {
-            case ConfigState::Uninitialized:
-                stored.stamp = this->env_kernelData.highestStamp + this->environmentState.stamp++;
-                break;
-            case ConfigState::Dummy:
+        void update(auto& stored)
+        {
+            if(stored.state == ConfigState::Dummy)
                 return;
-            default:
-                break;
-            }
+            auto& run = *this->env_kernelTuningPtr;
 
             bool flagPre = stored.fullFlag;
+
+#ifdef Debug
+            std::cout << "[update] Pushing metric: " << run.metric << "\n";
+#endif
+
             stored.pushMetric(run.metric);
+
             bool flagPost = stored.fullFlag;
 
-            if(!alpaka::tune::hasRunsPerConfig_Env())
+#ifdef Debug
+            std::cout << "  FullFlag (after): " << flagPost << "\n";
+            std::cout << "  nr_runs (after): " << stored.nr_runs << "\n";
+#endif
+
+            if(!hasRunsPerConfig_Env())
             {
+#ifdef Debug
+                std::cout << " has no custom runs" << std::endl;
+#endif
                 if(flagPre != flagPost)
                 {
-                    ++this->environmentState.numberOfCheckedConfigs;
-                    ++this->environmentState.numValidConfigs;
-                    assignBestIfBetter<typename Base::env_metricInterface>(this->environmentState.bestConfig, stored);
+#ifdef Debug
+                    std::cout << "[update] Transitioned to full — counting as valid.\n";
+#endif
+
+
+                    detail::internal::assignBestIfBetter<typename Base::T_MetricInterfaceType>(
+                        this->environmentState.getBestConfig(),
+                        stored);
                 }
             }
             else
             {
                 if(flagPre != flagPost)
                 {
+#ifdef Debug
+                    std::cout << "[update] Flag changed — reset to false for early processing\n";
+#endif
                     stored.fullFlag = false;
                 }
-                if(stored.nr_runs >= alpaka::tune::getRunsPerConfig())
+
+                if(stored.nr_runs >= getRunsPerConfig())
                 {
-                    if(!stored.fullFlag)
+#ifdef Debug
+                    std::cout << "[update] Reached max runs — setting fullFlag = true\n";
+#endif
+
+                    detail::internal::assignBestIfBetter<typename Base::T_MetricInterfaceType>(
+                        this->environmentState.getBestConfig(),
+                        stored);
+                    stored.fullFlag = true;
+                }
+                else
+                {
+#ifdef Debug
+                    std::cout << "current runs " << stored.nr_runs << " vs demanded runs: " << getRunsPerConfig()
+                              << "\n";
+#endif
+                }
+            }
+
+#if allowPrematureConfigSkip && defined(Debug)
+            std::cout << "[update] Checking for premature skip of config\n";
+#endif
+            if constexpr(allowPrematureConfigSkip)
+            {
+                prematureConfigSkip(stored);
+            }
+
+#ifdef Debug
+            std::cout << "[update] Finished with config:\n" << stored.toString() << "\n";
+            std::cout << "  Final state: " << static_cast<int>(stored.state) << "\n";
+            std::cout << "  FullFlag (final): " << stored.fullFlag << "\n";
+#endif
+        }
+
+        template<typename T_Config>
+        void prematureConfigSkip(ConfigEntry<T_Config>& stored)
+        {
+            auto& best = this->environmentState.bestConfig;
+            if(best == stored)
+                return;
+            if(stored.state != ConfigState::Initialized)
+                return;
+            auto res = best.compare(stored); // kruskal wallis comparison
+
+            switch(res)
+            {
+            case ::Comparison::Greater:
+                {
+                    // best is higher then stored
+                    auto& config = compareGetBest<typename Base::T_MetricInterfaceType>(best, stored);
+                    if(best == config)
                     {
                         ++this->environmentState.numberOfCheckedConfigs;
                         ++this->environmentState.numValidConfigs;
+                        stored.fullFlag = true;
                     }
-                    assignBestIfBetter<typename Base::env_metricInterface>(this->environmentState.bestConfig, stored);
-                    stored.fullFlag = true;
                 }
+            case ::Comparison::Less:
+                {
+                    // best is lower then stored
+                    auto& config = compareGetBest<typename Base::T_MetricInterfaceType>(best, stored);
+                    if(best == config)
+                    {
+                        ++this->environmentState.numberOfCheckedConfigs;
+                        ++this->environmentState.numValidConfigs;
+                        stored.fullFlag = true;
+                    }
+                }
+            case ::Comparison::Inconclusive:
+                {
+                    break;
+                }
+            default:
+                break;
             }
         }
     };
+
 } // namespace alpaka::tune
 
 template<typename T_Vec>
 auto makeConformToTVec(T_Vec const&, alpaka::tune::NoTune const&)
+
 {
     return alpaka::tune::NoTune{};
 }
@@ -720,7 +853,7 @@ auto createTuningEnvironment(
         *activePtr,
         alpaka::core::demangledName(device),
         alpaka::core::demangledName(exec),
-        alpaka::core::demangledName<model>(),
+        alpaka::core::demangledName<T_KernelBundle>(),
         sessionSpecifier);
     using tuningEnvironmentType = alpaka::tune::tuningEnvironment<
         T_Config,

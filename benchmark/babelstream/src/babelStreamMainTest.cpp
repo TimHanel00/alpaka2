@@ -383,6 +383,10 @@ static auto getSessionFromExec(Exec_T const &exec,auto arraySize,auto & devAcc){
     };
 template<typename T_TuningSessionDot,typename T_TuningSessionRest>
 bool abortIfFinished(const T_TuningSessionDot &dotSession,const  T_TuningSessionRest &restSession){
+    #ifdef Debug
+    std::cout<<" sessions Finished rest: "<<restSession.finishedConfigs<<std::endl;
+    std::cout<<" sessions Finished dot: "<<dotSession.finishedConfigs<<std::endl;
+    #endif
     if(restSession.finishedConfigs>=4&&dotSession.finishedConfigs>=1){return true;};
     return false;
     }
@@ -548,21 +552,11 @@ void testKernels(T_Cfg cfg)
     // Lambda for measuring run-time
     auto measureKernelExec = [&](auto&& kernelFunc, [[maybe_unused]] auto&& kernelLabel)
     {
-        double runtime = 0.0;
-        onHost::wait(queue);
-        auto start = std::chrono::high_resolution_clock::now();
-        kernelFunc();
-        onHost::wait(queue);
-        auto end = std::chrono::high_resolution_clock::now();
-        abortIfFinished(tuningSessionDot,tuningSessionRest);
-        // get duration in seconds
-        std::chrono::duration<double> duration = end - start;
-        runtime = duration.count();
-        auto ns_count = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
-        std::cout << "[TUNER]" << "," << ns_count << "," << kernelLabel<<"\n";
+        std::size_t nsec_count=kernelFunc();
+        std::cout << "[TUNER]" << "," << nsec_count << "," << kernelLabel<<"\n";
         std::cout << "[ALPAKA]" << "," << static_cast<uint32_t>(alpaka::tune::global::timingAccessor()) << "," << kernelLabel<<"\n";
         std::cout<<"[PHASE]"<< ","<<alpaka::tune::benchmark::phaseAccessor()<< "," << kernelLabel<<"\n";
-        runtimeResults.kernelToRundataMap[kernelLabel]->timingsSuccessiveRuns.push_back(runtime);
+        runtimeResults.kernelToRundataMap[kernelLabel]->timingsSuccessiveRuns.push_back(nsec_count);
 
 		log_event(kernelLabel);
 
@@ -588,15 +582,21 @@ void testKernels(T_Cfg cfg)
         runtimeResults.addKernelTimingsVec("AddKernel");
     if(kernelsToBeExecuted == KernelsToRun::Dot)
         runtimeResults.addKernelTimingsVec("DotKernel");
+    if(kernelsToBeExecuted == KernelsToRun::Triad)
+        runtimeResults.addKernelTimingsVec("TriadKernel");
 
     // Init kernel
     measureKernelExec(
         [&]()
         {
+            onHost::wait(queue);
+            auto start = std::chrono::high_resolution_clock::now();
             queue.enqueue(
                 exec,
                 dataBlockingInit,
                 KernelBundle{SimdForEachKernel{}, SimdInitOp{}, bufAccInputA, bufAccInputB, bufAccOutputC});
+            auto end = std::chrono::high_resolution_clock::now();
+            return static_cast<std::size_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
         },
         "InitKernel");
 
@@ -614,12 +614,16 @@ void testKernels(T_Cfg cfg)
             // Test the copy-kernel. Copy A one by one to C.
             measureKernelExec(
                 [&]() {
+                    onHost::wait(queue);
+                    auto start = std::chrono::high_resolution_clock::now();
                     tuningSessionRest.enqueue(
                         devAcc,
                         queue,
                         exec,
                         dataBlocking,
                         KernelBundle{SimdForEachKernel_Copy<CVec<std::uint32_t, 1>, DataType>{}, SimdCopyOp{}, bufAccInputA, bufAccOutputC});
+                    auto end = std::chrono::high_resolution_clock::now();
+                    return static_cast<std::size_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
                 },
                 "CopyKernel");
         }
@@ -628,12 +632,16 @@ void testKernels(T_Cfg cfg)
         {
             measureKernelExec(
                 [&]() {
+                    onHost::wait(queue);
+                    auto start = std::chrono::high_resolution_clock::now();
                     tuningSessionRest.enqueue(
                         devAcc,
                         queue,
                         exec,
                         dataBlocking,
                         KernelBundle{SimdForEachKernel_Mult<CVec<std::uint32_t, 1>, DataType>{}, SimdMultOp{}, bufAccInputB, bufAccOutputC});
+                    auto end = std::chrono::high_resolution_clock::now();
+                    return static_cast<std::size_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
                 },
                 "MultKernel");
         }
@@ -642,14 +650,35 @@ void testKernels(T_Cfg cfg)
         {
             measureKernelExec(
                 [&]() {
+                    onHost::wait(queue);
+                    auto start = std::chrono::high_resolution_clock::now();
                     tuningSessionRest.enqueue(
                         devAcc,
                         queue,
                         exec,
                         dataBlocking,
                         KernelBundle{SimdForEachKernel_Add<CVec<std::uint32_t, 1>, DataType>{}, SimdAddOp{}, bufAccInputA, bufAccInputB, bufAccOutputC});
+                    auto end = std::chrono::high_resolution_clock::now();
+                    return static_cast<std::size_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
                 },
                 "AddKernel");
+        }
+                if(kernelsToBeExecuted == KernelsToRun::All || kernelsToBeExecuted == KernelsToRun::Triad)
+        {
+            measureKernelExec(
+                [&]() {
+                    onHost::wait(queue);
+                    auto start = std::chrono::high_resolution_clock::now();
+                    tuningSessionRest.enqueue(
+                        devAcc,
+                        queue,
+                        exec,
+                        dataBlocking,
+                        KernelBundle{SimdForEachKernel_Triad<CVec<std::uint32_t, 1>, DataType>{}, SimdTriadOp{}, bufAccInputA, bufAccInputB, bufAccOutputC});
+                    auto end = std::chrono::high_resolution_clock::now();
+                    return static_cast<std::size_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
+                },
+                "TriadKernel");
         }
 
         if(kernelsToBeExecuted == KernelsToRun::All || kernelsToBeExecuted == KernelsToRun::Dot)
@@ -665,9 +694,14 @@ void testKernels(T_Cfg cfg)
             // Vector of sums of each block
             auto bufAccSumPerBlock = onHost::alloc<DataType>(devAcc, 1u);
             auto bufHostSumPerBlock = onHost::allocHostMirror(bufAccSumPerBlock);
+
             measureKernelExec(
                 [&]() {
+                    // the memset and copy from acc operations impose additional overhead which makes
+                    // it unfeasible to measure the raw tuner overhead
                     onHost::memset(queue, bufAccSumPerBlock, 0);
+                    onHost::wait(queue);
+                    auto start = std::chrono::high_resolution_clock::now();
                     tuningSessionDot.enqueue(
                         devAcc,
                         queue,
@@ -679,15 +713,16 @@ void testKernels(T_Cfg cfg)
                             bufAccInputB,
                             bufAccSumPerBlock,
                             arraySize});
+                    auto end = std::chrono::high_resolution_clock::now();
                     onHost::memcpy(queue, bufHostSumPerBlock, bufAccSumPerBlock);
                     onHost::wait(queue);
                     resultDot = bufHostSumPerBlock[0u];
+    				return static_cast<std::size_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
         },
         "DotKernel");
             // Add workdiv to the list of workdivs to print later
             metaData.setItem(BMInfoDataType::WorkDivDot, dataBlockingDot);
             }
-        }
         // NStream kernel is run only for one command line argument
         if(kernelsToBeExecuted == KernelsToRun::NStream)
         {
@@ -695,17 +730,20 @@ void testKernels(T_Cfg cfg)
             measureKernelExec(
                 [&]()
                 {
+                    onHost::wait(queue);
+                    auto start = std::chrono::high_resolution_clock::now();
                     queue.enqueue(
                         exec,
                         dataBlocking,
                         KernelBundle{SimdForEachKernel{}, SimdNStreamOp{}, bufAccInputA, bufAccInputB, bufAccOutputC});
+                    auto end = std::chrono::high_resolution_clock::now();
+                    return static_cast<std::size_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
                 },
                 "NStreamKernel");
         }
         onHost::wait(queue);
-        if(abortIfFinished(tuningSessionDot,tuningSessionRest)){
-            return;
-        }
+        if(abortIfFinished(tuningSessionDot,tuningSessionRest))return;
+	}
 
     // Copy results back to the host, measure copy time
     {
