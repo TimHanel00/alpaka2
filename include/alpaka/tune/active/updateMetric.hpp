@@ -9,13 +9,26 @@
 #include <alpaka/tune/IO/storageTypes.hpp>
 #include <alpaka/tune/active/MetricInterface.hpp>
 
+namespace alpaka::tune::benchmark
+{
+    constexpr std::array<std::string_view, 6> ar = {"Init", "Load", "Tune", "Best", "Store", "Strategy"};
+
+    std::string_view phaseAccessor(std::optional<uint32_t> index = std::nullopt)
+    {
+        static uint32_t phaseIndex = 0;
+        if(index.has_value())
+            phaseIndex = index.value();
+        return ar[phaseIndex];
+    }
+} // namespace alpaka::tune::benchmark
+
 namespace alpaka::tune::detail::internal
 {
     template<typename T_MetricInterface, typename T_ConfigEntry>
     void assignBestIfBetter(T_ConfigEntry& best, T_ConfigEntry& stored)
     {
         assert(!stored.getMetrics().empty());
-
+        T_ConfigEntry& before = best;
         if(best.getMetrics().empty() && !stored.getMetrics().empty())
         {
             best = stored;
@@ -24,6 +37,8 @@ namespace alpaka::tune::detail::internal
         if(!stored.fullFlag)
             return;
         best = compareGetBest<T_MetricInterface>(best, stored);
+        std::cout << "[Old Best]" << "," << before.toString() << "," << before.getMedian() << std::endl;
+        std::cout << "[New Best]" << "," << best.toString() << "," << best.getMedian() << std::endl;
     }
 } // namespace alpaka::tune::detail::internal
 

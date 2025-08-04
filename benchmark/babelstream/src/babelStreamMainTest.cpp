@@ -553,8 +553,6 @@ void testKernels(T_Cfg cfg)
     auto measureKernelExec = [&](auto&& kernelFunc, [[maybe_unused]] auto&& kernelLabel)
     {
         std::size_t nsec_count=kernelFunc();
-        std::cout << "[TUNER]" << "," << nsec_count << "," << kernelLabel<<"\n";
-        std::cout << "[ALPAKA]" << "," << static_cast<uint32_t>(alpaka::tune::global::timingAccessor()) << "," << kernelLabel<<"\n";
         std::cout<<"[PHASE]"<< ","<<alpaka::tune::benchmark::phaseAccessor()<< "," << kernelLabel<<"\n";
         runtimeResults.kernelToRundataMap[kernelLabel]->timingsSuccessiveRuns.push_back(nsec_count);
 

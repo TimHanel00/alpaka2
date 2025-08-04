@@ -121,7 +121,7 @@ auto example(T_Cfg const& cfg, size_t numElements) -> int
     auto frameTune=alpaka::tune::Tuneable(IdxRange{dataBlocking.m_frameExtent/VecType{2}, dataBlocking.m_frameExtent,dataBlocking.m_frameExtent/VecType{2}});
     static auto tuningSession= tune::TuningBuilder{}.withNumBlocksTune().withFrameExtentTune(frameTune).withConfig("./config/tuningSession_.toml")
              .withStrategy().build();
-    #define NUM_EXECUTIONS 40000
+    #define NUM_EXECUTIONS 4000
     // Enqueue the kernel execution task
     {
         for(auto i(0u); i < NUM_EXECUTIONS; ++i){
@@ -134,6 +134,8 @@ auto example(T_Cfg const& cfg, size_t numElements) -> int
         auto const endT = std::chrono::high_resolution_clock::now();
         std::cout << "Time for kernel execution: " << std::chrono::duration<double>(endT - beginT).count() << 's'
                   << std::endl;
+
+        std::cout<<" phase: "<<alpaka::tune::benchmark::phaseAccessor()<<std::endl;
         }
     }
 
@@ -145,6 +147,7 @@ auto example(T_Cfg const& cfg, size_t numElements) -> int
         auto const endT = std::chrono::high_resolution_clock::now();
         std::cout << "Time for HtoD copy: " << std::chrono::duration<double>(endT - beginT).count() << 's'
                   << std::endl;
+
     }
 
     int falseResults = 0;

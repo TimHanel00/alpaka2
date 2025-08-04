@@ -24,19 +24,6 @@
 #include <utility>
 #define Tuner_MaxConsecutiveStrategyFailures 200
 
-namespace alpaka::tune::benchmark
-{
-    constexpr std::array<std::string_view, 5> ar = {"Init", "tune", "best", "I_O", "Strategy"};
-
-    std::string_view phaseAccessor(std::optional<uint32_t> index = std::nullopt)
-    {
-        static uint32_t phaseIndex = 0;
-        if(index.has_value())
-            phaseIndex = index.value();
-        return ar[phaseIndex];
-    }
-} // namespace alpaka::tune::benchmark
-
 template<typename T_Config>
 struct EnvironmentState
 {
@@ -352,12 +339,14 @@ namespace alpaka::tune
 
             env_config_queue.push_back(
                 environmentState.getBestConfig()); // if its full or invalid it will simply get dropped
-            environmentState.maxConfigsTotal = env_kernelTuningPtr->maxRuns;
-            environmentState.maxValidEvaluations = getMaxRuns();
+            environmentState.maxConfigsTotal = std::min(getMaxCheckConfigs(), env_kernelTuningPtr->maxRuns);
+            environmentState.maxValidEvaluations = std::min(getMaxCheckConfigs(), getMaxRuns());
         }
 
         // Prevent copy/move
     };
+
+#define BestMeasurements 1000
 
     template<typename EnvBase>
     class TuningContextManager : public EnvBase
@@ -365,52 +354,76 @@ namespace alpaka::tune
     public:
         using Base = EnvBase;
         using Base::Base; // inherit constructor
+        int bestCounter = 0;
+        bool readyForTerminate = false;
 
         template<typename... T_Args>
         void launch(T_Args&&... launchArgs)
         {
+#ifdef Debug
+            std::cout << "[launch] Entered launch function.\n";
+#endif
+
             if(this->environmentState.sessionFinished)
             {
+#ifdef Debug
+                std::cout << "[launch] Session has finished. bestCoutner:" << bestCounter << "\n";
+#endif
+                if(bestCounter == BestMeasurements)
+                {
+#ifdef Debug
+                    std::cout << "[launch] BestMeasurements reached. Marking readyForTerminate.\n";
+#endif
+                    readyForTerminate = true;
+                    this->env_history.storeConfig(this->env_kernelData);
+                    tune::benchmark::phaseAccessor(4);
+                    executeBestConfig(std::forward<T_Args>(launchArgs)...);
+                    bestCounter++;
+                    return;
+                }
+#ifdef Debug
+                std::cout << "[launch] Executing best config again (count " << bestCounter << ").\n";
+#endif
                 executeBestConfig(std::forward<T_Args>(launchArgs)...);
-                tune::benchmark::phaseAccessor(2);
+                tune::benchmark::phaseAccessor(3);
+                bestCounter++;
                 return;
             }
+
+            benchmark::phaseAccessor(2);
+
             if(this->environmentState.globalBreakCriteriaFinished())
             {
+#ifdef Debug
+                std::cout << "[launch] Global break criteria reached. Emptying queue.\n";
+#endif
                 emptyTheQueue(std::forward<T_Args>(launchArgs)...);
                 return;
             }
 
-            static bool init = false;
-            if(!init)
-            {
-                benchmark::phaseAccessor(0);
-                init = true;
-#ifdef Debug
-                std::cout << "[launch] Initial phase (Init).\n";
-#endif
-            }
-            else
-            {
-                benchmark::phaseAccessor(1);
-#ifdef Debug
-                std::cout << "[launch] Tuning phase.\n";
-#endif
-            }
-
             if(handleFullQueue(std::forward<T_Args>(launchArgs)...))
+            {
+#ifdef Debug
+                std::cout << "[launch] Full queue handled.\n";
+#endif
                 return;
+            }
 
+#ifdef Debug
+            std::cout << "[launch] Fetching current config from kernel tuner.\n";
+#endif
             auto currentConfig = this->env_kernelTuningPtr->toConfig();
             int i = 0;
 
             while(!this->environmentState.strategyCriteriaReached(i++)
+                  && !this->environmentState.globalBreakCriteriaFinished()
                   && (this->getConfigStorage().contains(currentConfig) || Base::violatesConstraint(currentConfig)))
             {
 #ifdef Debug
-                std::cout << "[launch] creating new config" << "\n ";
+                std::cout
+                    << "[launch] Strategy criteria not reached or config invalid/redundant. Creating new config.\n";
 #endif
-                benchmark::phaseAccessor(4);
+                benchmark::phaseAccessor(5);
                 auto view = KernelTuningModelView(*this->env_kernelTuningPtr);
                 this->env_strategy(this->env_metricInterface, view, this->getConfigStorage(), this->environmentState);
                 currentConfig = this->env_kernelTuningPtr->toConfig();
@@ -419,12 +432,11 @@ namespace alpaka::tune
             if(this->environmentState.strategyCriteriaReached()
                || this->environmentState.globalBreakCriteriaFinished())
             {
+#ifdef Debug
+                std::cout << "[launch] Strategy criteria or global break reached after loop. Emptying queue.\n";
+#endif
                 emptyTheQueue(std::forward<T_Args>(launchArgs)...);
                 return;
-
-#ifdef Debug
-                std::cout << "[launch] Strategy criteria or global break reached, executing best config.\n";
-#endif
             }
 
 #ifdef Debug
@@ -435,7 +447,18 @@ namespace alpaka::tune
             ++this->environmentState.numberOfCheckedConfigs;
             ++this->environmentState.numValidConfigs;
             newEntry.stamp = this->env_kernelData.highestStamp + this->environmentState.stamp++;
+
+#ifdef Debug
+            std::cout << "[launch] New config pushed. Checked configs: "
+                      << this->environmentState.numberOfCheckedConfigs
+                      << ", Valid configs: " << this->environmentState.numValidConfigs << ", Stamp: " << newEntry.stamp
+                      << "\n";
+#endif
+
             emptyTheQueue(std::forward<T_Args>(launchArgs)...);
+#ifdef Debug
+            std::cout << "[launch] Exiting launch function.\n";
+#endif
         }
 
 
@@ -454,10 +477,12 @@ namespace alpaka::tune
                 update(config);
                 return;
             }
+#ifdef Debug
+            std::cout << "queue is empty for the first time executing best Config " << "\n";
+#endif
             executeBestConfig(std::forward<T_Args>(launchArgs)...);
             tune::benchmark::phaseAccessor(3);
             this->environmentState.sessionFinished = true;
-            this->env_history.storeConfig(this->env_kernelData);
         }
 
         template<typename... T_Args>
@@ -598,11 +623,10 @@ namespace alpaka::tune
 #ifdef Debug
                     std::cout << "[update] Reached max runs — setting fullFlag = true\n";
 #endif
-
+                    stored.fullFlag = true;
                     detail::internal::assignBestIfBetter<typename Base::T_MetricInterfaceType>(
                         this->environmentState.getBestConfig(),
                         stored);
-                    stored.fullFlag = true;
                 }
                 else
                 {
@@ -795,6 +819,7 @@ auto createTuningEnvironment(
     T_SessionSpecifier& sessionSpecifier,
     std::string const& filename)
 {
+    alpaka::tune::benchmark::phaseAccessor(0);
     // Apply spec-based conforming
     auto activeRun = makeConformToFrameSpec(spec, run);
 
@@ -810,7 +835,6 @@ auto createTuningEnvironment(
     // Extract compile-time tuneables for bundle
     auto CTuneableBundle = alpaka::tune::trait::constructRuntimeCtuneablesForActivKernel(bundle);
     auto userTuple = extractTuneables(bundle);
-
     // Combine into kernel model
     auto completeRun = KernelTuningModel{userTuple, newRun.m_frameTuneables, CTuneableBundle};
 
@@ -847,7 +871,8 @@ auto createTuningEnvironment(
     auto activePtr = std::make_unique<model>(
         completeRun.m_userTuneables,
         completeRun.m_frameTuneables,
-        completeRun.m_compileTimeTuneables);
+        completeRun.m_compileTimeTuneables,
+        SharedTag{});
     // Final types deduced for environment
     auto env_kernelData = createKernelDataFromModel(
         *activePtr,

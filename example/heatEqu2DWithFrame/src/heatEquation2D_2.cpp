@@ -260,8 +260,11 @@ auto example(T_Cfg const& cfg, uint32_t i) -> int
     auto toRTime = FrameSpec{
         alpaka::Vec{dataBlockingStencil.m_numFrames.x(), dataBlockingStencil.m_numFrames.y()},
         Vec{dataBlockingStencil.m_frameExtent.x(), dataBlockingStencil.m_frameExtent.y()}};
+    auto startTime_IN = std::chrono::high_resolution_clock::now();
     static auto tuningSession = getSessionFromExec(exec, toRTime, devAcc, numNodes);
-
+    auto startTime_OUT = std::chrono::high_resolution_clock::now();
+    auto ns_count = std::chrono::duration_cast<std::chrono::nanoseconds>(startTime_OUT - startTime_IN).count();
+    std::cout << "[SessionInit]" << "," << ns_count << "," << "Stencil" << "\n";
     auto startTime = std::chrono::high_resolution_clock::now();
 
     // Simulate
@@ -283,22 +286,17 @@ auto example(T_Cfg const& cfg, uint32_t i) -> int
                 dx,
                 dy,
         */
-        auto startTime_IN = std::chrono::high_resolution_clock::now();
+        auto startTime_iN = std::chrono::high_resolution_clock::now();
         tuningSession.enqueue(
             devAcc,
             computeQueue,
             exec,
             toRTime,
             KernelBundle{stencilKernel, uCurrBufAcc.getMdSpan(), uNextBufAcc.getMdSpan(), numNodes, dx, dy, dt});
-        auto startTime_OUT = std::chrono::high_resolution_clock::now();
         auto endTime_IN = std::chrono::high_resolution_clock::now();
 
-        std::chrono::duration<double> elapsedTime_IN = endTime_IN - startTime_IN;
-        auto ns_count = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime_IN - startTime_IN).count();
-        std::cout << "[TUNER]" << "," << ns_count << "," << "Stencil" << "\n";
-        std::cout << "[ALPAKA]" << "," << static_cast<uint32_t>(alpaka::tune::global::timingAccessor()) << ","
-                  << "Stencil"
-                     "\n";
+        std::chrono::duration<double> elapsedTime_IN = endTime_IN - startTime_iN;
+        auto ns_count = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime_IN - startTime_iN).count();
         std::cout << "[PHASE]" << "," << alpaka::tune::benchmark::phaseAccessor() << "," << "Stencil" << std::endl;
         log_event();
         // Apply boundaries

@@ -5,6 +5,8 @@
 #ifndef TUNINGHISTORY_H
 #define TUNINGHISTORY_H
 
+#include <alpaka/tune/active/tuningEnvironment.hpp>
+
 #include <filesystem>
 namespace fs = std::filesystem;
 #include "../../../../toml11/include/toml.hpp"
@@ -121,7 +123,7 @@ namespace alpaka::tune
         {
             if(!kernelTable.contains("runs"))
                 return;
-
+            alpaka::tune::benchmark::phaseAccessor(1);
             auto const& runs = kernelTable.at("runs").as_array();
             auto const& descriptorEntries = kernelData.descriptor.entries;
 

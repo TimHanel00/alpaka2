@@ -10,7 +10,7 @@
 
 namespace alpaka::tune
 {
-#define maxQueueSize 40
+#define maxQueueSize 2
 
     template<typename T_Configs>
     struct ConfigQueue

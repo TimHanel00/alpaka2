@@ -147,7 +147,6 @@ namespace alpaka::tune::detail::internal
         if(!data.histEvaluated)
         {
             data.histEvaluated = true;
-            alpaka::tune::benchmark::phaseAccessor(0);
             auto& environment_state = kernelptr->environmentState;
             /*
             for(auto& run : data.configEntries.getAll())
@@ -162,10 +161,6 @@ namespace alpaka::tune::detail::internal
             {
                 environment_state.sessionFinished = true;
             }
-        }
-        else
-        {
-            alpaka::tune::benchmark::phaseAccessor(1);
         }
         return kernelptr;
     }
@@ -205,7 +200,6 @@ namespace alpaka
 
         uint32_t finishedConfigs = 0;
         T_Integer dynamicRuns_Nr{0};
-        bool m_initialized = false;
         std::size_t reRuns{0};
         std::string config;
         std::vector<std::string> sessionSpecifier;
@@ -283,7 +277,8 @@ namespace alpaka
             onHost::FrameSpec<T_NumFrames, T_FrameExtent>& frameSpec,
             T_KernelBundle const& kernelBundle)
         {
-            auto* kernelptr = tune::detail::internal::setup_enqueue<T_MetricInterface>(
+            alpaka::tune::benchmark::phaseAccessor(2);
+            auto* environmentPtr = tune::detail::internal::setup_enqueue<T_MetricInterface>(
                 device,
                 exec,
                 frameSpec,
@@ -294,7 +289,29 @@ namespace alpaka
                 this->m_run,
                 sessionSpecifier,
                 config);
-            kernelptr->launch(queue, exec, frameSpec, kernelBundle);
+            long long overwritePhase = -1;
+            if(alpaka::tune::benchmark::phaseAccessor() == "Init"
+               || alpaka::tune::benchmark::phaseAccessor() == "Load")
+            {
+                if(alpaka::tune::benchmark::phaseAccessor() == "Init")
+                {
+                    overwritePhase = 0;
+                }
+                if(alpaka::tune::benchmark::phaseAccessor() == "Load")
+                {
+                    overwritePhase = 1;
+                }
+            }
+            bool bef = environmentPtr->readyForTerminate;
+            environmentPtr->launch(queue, exec, frameSpec, kernelBundle);
+            if(bef != environmentPtr->readyForTerminate)
+            {
+                finishedConfigs++;
+            }
+            if(overwritePhase != -1)
+            {
+                alpaka::tune::benchmark::phaseAccessor(overwritePhase);
+            }
         }
 
         ~TuningSession()

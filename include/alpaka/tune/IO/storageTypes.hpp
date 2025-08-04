@@ -467,7 +467,6 @@ auto createKernelDataFromModel(
     data.targetMetric = targetMetric;
     data.specifiers = sessionSpecs;
     data.descriptor = buildDescriptorFromTuneables(all);
-    data.configEntries.getOrCreate(Config{model.allValues()});
     return data;
 }
 
