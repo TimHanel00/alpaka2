@@ -52,14 +52,15 @@ namespace alpaka::tune
             {
                 if(!newRun.getNumBlocksTune().userDef)
                 {
-                    auto partitionedMultiprocessors = primeFactorPartitioning(device.getDeviceProperties().m_multiProcessorCount, T_NumBlocks{});
+                    auto partitionedMultiprocessors
+                        = primeFactorPartitioning(device.getDeviceProperties().m_multiProcessorCount, T_NumBlocks{});
                     auto nonConstnumFrames = dataBlocking.m_numFrames;
                     extendInputListFromPartition(
                         newRun.getNumBlocksTune(),
                         dataBlocking.m_numFrames,
                         partitionedMultiprocessors,
-                        8,
-                        124);
+                        4,
+                        8);
                     newRun.getNumBlocksTune().hasRange = false;
                 }
             }

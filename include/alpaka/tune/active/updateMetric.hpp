@@ -37,8 +37,9 @@ namespace alpaka::tune::detail::internal
         if(!stored.fullFlag)
             return;
         best = compareGetBest<T_MetricInterface>(best, stored);
-        std::cout << "[Old Best]" << "," << before.toString() << "," << before.getMedian() << std::endl;
-        std::cout << "[New Best]" << "," << best.toString() << "," << best.getMedian() << std::endl;
+        std::cout << "[Best Config before]" << "," << before.toString() << "," << before.getMedian() << std::endl;
+        std::cout << "[NewConfig]" << "," << stored.toString() << "," << stored.getMedian() << std::endl;
+        std::cout << "[Best Config]" << "," << best.toString() << "," << best.getMedian() << std::endl;
     }
 } // namespace alpaka::tune::detail::internal
 

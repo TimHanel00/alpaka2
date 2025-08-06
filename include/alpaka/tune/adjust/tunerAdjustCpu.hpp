@@ -171,7 +171,7 @@ namespace alpaka::tune
                         dataBlocking.m_numFrames,
                         partitionedCores,
                         8,
-                        124);
+                        16);
                     newRun.getNumBlocksTune().hasRange = false;
                 }
             }

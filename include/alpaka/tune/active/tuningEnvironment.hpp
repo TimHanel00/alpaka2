@@ -22,7 +22,7 @@
 
 #include <any>
 #include <utility>
-#define Tuner_MaxConsecutiveStrategyFailures 200
+#define Tuner_MaxConsecutiveStrategyFailures 20000
 
 template<typename T_Config>
 struct EnvironmentState
@@ -346,7 +346,7 @@ namespace alpaka::tune
         // Prevent copy/move
     };
 
-#define BestMeasurements 1000
+#define BestMeasurements 10
 
     template<typename EnvBase>
     class TuningContextManager : public EnvBase
@@ -362,8 +362,10 @@ namespace alpaka::tune
         {
 #ifdef Debug
             std::cout << "[launch] Entered launch function.\n";
-#endif
 
+#endif
+            std::cout << "[Num evaluations]" << "," << this->environmentState.numValidConfigs << "\n";
+            // std::cout << " kerneltuning config " << this->env_kernelTuningPtr->toConfig().toString() << std::endl;
             if(this->environmentState.sessionFinished)
             {
 #ifdef Debug
@@ -375,7 +377,7 @@ namespace alpaka::tune
                     std::cout << "[launch] BestMeasurements reached. Marking readyForTerminate.\n";
 #endif
                     readyForTerminate = true;
-                    this->env_history.storeConfig(this->env_kernelData);
+                    // this->env_history.storeConfig(this->env_kernelData);
                     tune::benchmark::phaseAccessor(4);
                     executeBestConfig(std::forward<T_Args>(launchArgs)...);
                     bestCounter++;
@@ -568,7 +570,7 @@ namespace alpaka::tune
             trait::callPostProcessing(run, spec, this->env_metricInterface, bundle);
         }
 
-#define allowPrematureConfigSkip 0
+#define allowPrematureConfigSkip 1
 
         void update(auto& stored)
         {
@@ -606,6 +608,7 @@ namespace alpaka::tune
                     detail::internal::assignBestIfBetter<typename Base::T_MetricInterfaceType>(
                         this->environmentState.getBestConfig(),
                         stored);
+                    return;
                 }
             }
             else
@@ -627,6 +630,7 @@ namespace alpaka::tune
                     detail::internal::assignBestIfBetter<typename Base::T_MetricInterfaceType>(
                         this->environmentState.getBestConfig(),
                         stored);
+                    return;
                 }
                 else
                 {
@@ -655,7 +659,7 @@ namespace alpaka::tune
         template<typename T_Config>
         void prematureConfigSkip(ConfigEntry<T_Config>& stored)
         {
-            auto& best = this->environmentState.bestConfig;
+            auto& best = this->environmentState.getBestConfig();
             if(best == stored)
                 return;
             if(stored.state != ConfigState::Initialized)
@@ -670,6 +674,12 @@ namespace alpaka::tune
                     auto& config = compareGetBest<typename Base::T_MetricInterfaceType>(best, stored);
                     if(best == config)
                     {
+#ifdef Debug
+                        std::cout << " this should never happen in a the timing scenario like this" << std::endl;
+                        std::cout
+                            << " best has a higher (worse) metric then stored. yet got returned by compareGetBest "
+                            << std::endl;
+#endif
                         ++this->environmentState.numberOfCheckedConfigs;
                         ++this->environmentState.numValidConfigs;
                         stored.fullFlag = true;
@@ -681,6 +691,11 @@ namespace alpaka::tune
                     auto& config = compareGetBest<typename Base::T_MetricInterfaceType>(best, stored);
                     if(best == config)
                     {
+                        // #ifdef Debug
+                        std::cout << "[Config]" << "," << stored.toString() << "," << stored.getMedian() << std::endl;
+                        std::cout << "[Best Config]" << "," << best.toString() << "," << best.getMedian() << std::endl;
+                        // std::endl;
+                        // #endif
                         ++this->environmentState.numberOfCheckedConfigs;
                         ++this->environmentState.numValidConfigs;
                         stored.fullFlag = true;

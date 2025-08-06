@@ -73,7 +73,6 @@ static auto getSessionFromExec(Exec_T const& exec, auto frameSpec, auto& devAcc,
 
                       return condX && condY;
                   })
-              .withStrategy(tune::strategy::exhaustiveSearch{})
               /*
               .template withConstraint<tune::frameTune::NumFrames, tune::frameTune::FrameExtent>(
               [toRTime, numNodes](auto a, auto b) { return numNodes > (a * b); })*/
@@ -108,7 +107,6 @@ static auto getSessionFromExec(alpaka::exec::CpuOmpBlocks const& exec, auto fram
 
                       return condX && condY;
                   })
-              .withStrategy(tune::strategy::exhaustiveSearch{})
               /*
               .template withConstraint<tune::frameTune::NumFrames, tune::frameTune::FrameExtent>(
               [toRTime, numNodes](auto a, auto b) { return numNodes > (a * b); })*/
@@ -266,10 +264,15 @@ auto example(T_Cfg const& cfg, uint32_t i) -> int
     auto ns_count = std::chrono::duration_cast<std::chrono::nanoseconds>(startTime_OUT - startTime_IN).count();
     std::cout << "[SessionInit]" << "," << ns_count << "," << "Stencil" << "\n";
     auto startTime = std::chrono::high_resolution_clock::now();
-
+    uint32_t numSteps = 40000;
+    std::vector<double> tunerEvents(numSteps + 2, 0.0);
+    std::vector<double> alpakaEvents(numSteps + 2, 0.0);
+    auto startTime_Whole = std::chrono::high_resolution_clock::now();
     // Simulate
-    for(uint32_t step = 1; step <= numTimeSteps; ++step)
+    uint32_t step = 1;
+    for(; step <= numSteps; ++step)
     {
+        std::cout << "[Iteration]" << "," << step << "," << "Stencil" << std::endl;
         // Compute next values
         /*
         alpaka::onHost::enqueue(
@@ -295,32 +298,31 @@ auto example(T_Cfg const& cfg, uint32_t i) -> int
             KernelBundle{stencilKernel, uCurrBufAcc.getMdSpan(), uNextBufAcc.getMdSpan(), numNodes, dx, dy, dt});
         auto endTime_IN = std::chrono::high_resolution_clock::now();
 
+        alpakaEvents[step] = alpaka::tune::global::timingAccessor();
         std::chrono::duration<double> elapsedTime_IN = endTime_IN - startTime_iN;
-        auto ns_count = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime_IN - startTime_iN).count();
-        std::cout << "[PHASE]" << "," << alpaka::tune::benchmark::phaseAccessor() << "," << "Stencil" << std::endl;
-        log_event();
-        // Apply boundaries
+        auto ns_count_ = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime_IN - startTime_iN).count();
+        tunerEvents[step] = ns_count_;
+        // std::cout << "[PHASE]" << "," << alpaka::tune::benchmark::phaseAccessor() << "," << "Stencil" << std::endl;
+        // log_event();
+        //    Apply boundaries
         computeQueue.enqueue(
             exec,
             dataBlockingBorder,
             KernelBundle{boundaryKernel, uNextBufAcc.getMdSpan(), chunkSize, numNodesWithHalo, step, dx, dy, dt});
-
-#ifdef PNGWRITER_ENABLED
-        if((step - 1) % 100 == 0)
-        {
-            alpaka::onHost::wait(computeQueue);
-            alpaka::onHost::memcpy(dumpQueue, uBufHost, uCurrBufAcc);
-            alpaka::onHost::wait(dumpQueue);
-            writeImage(step - 1, uBufHost.getMdSpan());
-        }
-#endif
-
         // So we just swap next and curr (shallow copy)
         std::swap(uNextBufAcc, uCurrBufAcc);
         if(abortIfFinished(tuningSession))
-            return 0;
+            break;
     }
-
+    auto endtime_Whole = std::chrono::high_resolution_clock::now();
+    auto ns_count_ = static_cast<double>(
+                         std::chrono::duration_cast<std::chrono::nanoseconds>(endtime_Whole - startTime_Whole).count())
+                     / (step + 1);
+    double tunerAvg = std::reduce(tunerEvents.begin(), tunerEvents.end()) / (step + 1);
+    double alpakaAvg = std::reduce(alpakaEvents.begin(), alpakaEvents.end()) / (step + 1);
+    std::cout << " tune: " << tunerAvg << std::endl;
+    std::cout << " Alpaka: " << alpakaAvg << std::endl;
+    std::cout << " OverallAvg: " << ns_count_ << std::endl;
     alpaka::onHost::wait(computeQueue);
     auto endTime = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsedTime = endTime - startTime;

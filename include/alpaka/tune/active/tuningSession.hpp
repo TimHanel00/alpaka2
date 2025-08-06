@@ -222,6 +222,7 @@ namespace alpaka
             , sessionSpecifier(std::move(sessionSpecifiers))
             , m_run(kernel_run)
         {
+            std::cout << " STRATEGY: " << alpaka::core::demangledName(strategy) << std::endl;
             this->reRuns = reRuns;
             m_run.metric = MetricUndefined;
         }

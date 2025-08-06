@@ -75,6 +75,7 @@ namespace alpaka::tune
     } // namespace strategy::detail
     template<typename T>
     struct Dummy_;
+    static uint32_t nr_builder = 0;
 #ifdef strategy_randomSearch
     using DefaultStrategy = alpaka::tune::strategy::randomSearch;
 #elif defined(strategy_exhaustiveSearch)
@@ -86,7 +87,7 @@ namespace alpaka::tune
 #elif defined(strategy_bayesianOptimization)
     using DefaultStrategy = alpaka::tune::strategy::bayesianOptimization;
 #else
-    using DefaultStrategy = alpaka::tune::strategy::exhaustiveSearch;
+    using DefaultStrategy = std::error_t;
 #endif
     template<
         typename T_Strategy = DefaultStrategy,
@@ -112,6 +113,7 @@ namespace alpaka::tune
             , m_metricInterface(interface)
 
         {
+            std::cout << "Builder: " << nr_builder << " " << alpaka::core::demangledName(strategy) << std::endl;
         }
 
         template<typename T_objct>
@@ -207,6 +209,7 @@ namespace alpaka::tune
                 alpaka::Vec<std::size_t, 1>,
                 static_cast<std::size_t>(SpecialTuneableID::NumBlocks),
                 DimTraversePolicy>{};
+
             return this->withTuning(tuningObject);
         }
 

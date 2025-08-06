@@ -254,7 +254,7 @@ inline Comparison kruskalCompare(ConfigEntry<T_Config>& current, ConfigEntry<T_C
     auto const& lhsVals = current.getMetrics().getAll();
     auto const& rhsVals = other.getMetrics().getAll();
 
-    if(lhsVals.size() < 1 || rhsVals.size() < 1)
+    if(lhsVals.size() < 3 || rhsVals.size() < 3)
         return Comparison::Inconclusive; // not enough data
 
     std::vector<std::pair<double_t, int>> combined; // (value, group)
@@ -298,7 +298,11 @@ inline Comparison kruskalCompare(ConfigEntry<T_Config>& current, ConfigEntry<T_C
 
 
     if(H < chiSquareCritical)
+    {
+        std::cout << "[ACTUALLY FAILED the kruskal test: " << current.getMedian() << " " << other.getMedian()
+                  << std::endl;
         return Comparison::Inconclusive;
+    }
     double_t lhsMedian = current.getMetrics().get(median_t{}).template as<t_ns>();
     double_t rhsMedian = other.getMetrics().get(median_t{}).template as<t_ns>();
 
