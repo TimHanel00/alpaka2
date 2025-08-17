@@ -135,6 +135,10 @@ private:
     KernelModel& model;
 };
 
+struct SharedTag
+{
+};
+
 template<
     typename T_UserTuple = std::tuple<>,
     typename T_FrameTuneables = std::tuple<>,
@@ -143,7 +147,6 @@ template<
 struct KernelTuningModel
 {
     using T_floating = double_t;
-    using T_TuneTuple = decltype(std::tuple_cat(std::declval<T_FrameTuneables>(), std::declval<T_UserTuple>()));
     T_UserTuple m_userTuneables;
     T_FrameTuneables m_frameTuneables;
 
@@ -193,22 +196,22 @@ struct KernelTuningModel
             m_compileTimeTuneables);
     }
 
-    constexpr explicit KernelTuningModel(T_UserTuple userT, T_FrameTuneables frameT, T_CompileTimeTuple compileT)
-        requires(!hasShared)
+    constexpr KernelTuningModel(T_UserTuple userT, T_FrameTuneables frameT, T_CompileTimeTuple compileT)
         : m_userTuneables(std::move(userT))
         , m_frameTuneables(std::move(frameT))
         , m_compileTimeTuneables(std::move(compileT))
         , metric(std::numeric_limits<T_floating>::quiet_NaN())
-
     {
         std::apply([&](auto&... t) { ((maxRunsDefault *= t.numSteps()), ...); }, m_userTuneables);
         std::apply([&](auto&... t) { ((maxRunsDefault *= t.numSteps()), ...); }, m_compileTimeTuneables);
-
         maxRuns = maxRunsDefault;
     }
 
-    constexpr explicit KernelTuningModel(T_UserTuple userT, T_FrameTuneables frameT, T_CompileTimeTuple compileT)
-        requires hasShared
+    constexpr KernelTuningModel(
+        T_UserTuple userT,
+        T_FrameTuneables frameT,
+        T_CompileTimeTuple compileT,
+        SharedTag /* saw a few compiles with a requires(hasShared) approach therefore this workaround using a tag*/)
         : m_userTuneables(std::move(userT))
         , m_frameTuneables(std::move(frameT))
         , m_compileTimeTuneables(std::move(compileT))

@@ -9,6 +9,19 @@
 #include <alpaka/tune/IO/storageTypes.hpp>
 #include <alpaka/tune/active/MetricInterface.hpp>
 
+namespace alpaka::tune::benchmark
+{
+    constexpr std::array<std::string_view, 6> ar = {"Init", "Load", "Tune", "Best", "Store", "Strategy"};
+
+    std::string_view phaseAccessor(std::optional<uint32_t> index = std::nullopt)
+    {
+        static uint32_t phaseIndex = 0;
+        if(index.has_value())
+            phaseIndex = index.value();
+        return ar[phaseIndex];
+    }
+} // namespace alpaka::tune::benchmark
+
 namespace alpaka::tune::detail::internal
 {
     template<typename T_MetricInterface, typename T_ConfigEntry>

@@ -10,7 +10,19 @@
 
 namespace alpaka::tune
 {
-#define maxQueueSize 40
+    template<typename T_ConfigEntry>
+    std::optional<std::reference_wrapper<T_ConfigEntry>> lastEvaluatedConfigAccessor(
+        std::optional<std::reference_wrapper<T_ConfigEntry>> config = std::nullopt)
+    {
+        static std::optional<std::reference_wrapper<T_ConfigEntry>> acc = std::nullopt;
+        if(config.has_value())
+        {
+            acc = config.value();
+        }
+        return acc;
+    }
+
+#define maxQueueSize 10
 
     template<typename T_Configs>
     struct ConfigQueue
@@ -100,6 +112,7 @@ namespace alpaka::tune
                     std::cout << "[ConfigQueue::get] Slot at index " << currentIndex
                               << " is fullFlag. Removing. Config: " << cfg.toString() << "\n";
 #endif
+                    lastEvaluatedConfigAccessor(std::make_optional(std::ref((cfg))));
                     opt.reset();
                     freeSlots.push(currentIndex);
                     --validCount;
@@ -146,12 +159,6 @@ namespace alpaka::tune
 #endif
             return std::nullopt;
         }
-    };
-
-    struct configQueueManager
-    {
-#define maxNumberOfEntries 10
-#define maxSameConfigsInARow 1
     };
 } // namespace alpaka::tune
 #endif // QUEUE_H

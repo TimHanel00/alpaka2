@@ -254,7 +254,7 @@ inline Comparison kruskalCompare(ConfigEntry<T_Config>& current, ConfigEntry<T_C
     auto const& lhsVals = current.getMetrics().getAll();
     auto const& rhsVals = other.getMetrics().getAll();
 
-    if(lhsVals.size() < 1 || rhsVals.size() < 1)
+    if(lhsVals.size() < 3 || rhsVals.size() < 3)
         return Comparison::Inconclusive; // not enough data
 
     std::vector<std::pair<double_t, int>> combined; // (value, group)

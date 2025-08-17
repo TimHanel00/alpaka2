@@ -32,10 +32,27 @@ namespace alpaka::tune
 
     namespace internal
     {
+        static std::size_t getMaxCheckedConfigs_Env()
+        {
+            if(char const* var = std::getenv("TunerMaxCheckedConfigs")) // all potentially generated
+            {
+                try
+                {
+                    std::size_t value = static_cast<std::size_t>(std::stoul(var));
+                    return value;
+                }
+                catch(std::exception const& e)
+                {
+                    std::cerr << "Invalid value for TunerMaxConfigEvaluations: " << e.what() << std::endl;
+                }
+            }
+
+            return UINT64_MAX;
+        }
 
         static std::size_t getMaxRuns_Env()
         {
-            if(char const* var = std::getenv("TunerMaxConfigEvaluations"))
+            if(char const* var = std::getenv("TunerMaxConfigEvaluations")) // valid configs evaluated
             {
                 try
                 {
@@ -54,7 +71,7 @@ namespace alpaka::tune
 
         static std::size_t getRunsPerConfig_Env()
         {
-            if(char const* var = std::getenv("TunerRunsPerConfig"))
+            if(char const* var = std::getenv("TunerRunsPerConfig")) //runs per config
             {
                 try
                 {
@@ -72,7 +89,7 @@ namespace alpaka::tune
 
         static std::size_t getMaxConfigs_Env()
         {
-            if(char const* var = std::getenv("TunerMaxConfigs"))
+            if(char const* var = std::getenv("TunerMaxTuningSpace")) //max tuning space
             {
                 try
                 {
@@ -87,6 +104,13 @@ namespace alpaka::tune
             return UINT64_MAX;
         }
     } // namespace internal
+
+    static std::size_t getMaxCheckConfigs()
+    {
+        static std::size_t maxConfigs = internal::getMaxCheckedConfigs_Env();
+
+        return maxConfigs;
+    }
 
     static std::size_t getMaxConfigs()
     {

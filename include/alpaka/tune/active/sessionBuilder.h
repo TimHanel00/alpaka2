@@ -86,7 +86,7 @@ namespace alpaka::tune
 #elif defined(strategy_bayesianOptimization)
     using DefaultStrategy = alpaka::tune::strategy::bayesianOptimization;
 #else
-    using DefaultStrategy = alpaka::tune::strategy::exhaustiveSearch;
+    using DefaultStrategy = alpaka::tune::strategy::randomSearch;
 #endif
     template<
         typename T_Strategy = DefaultStrategy,

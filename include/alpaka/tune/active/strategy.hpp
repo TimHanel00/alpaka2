@@ -12,6 +12,7 @@
 
 #include <alpaka/tune/active/MetricInterface.hpp>
 
+#include <bitset>
 #include <random>
 #include <vector>
 
@@ -145,8 +146,11 @@ namespace alpaka::tune::strategy
     {
         using T_propabilityFunction = propabilityFunctions::Exponential;
         static constexpr double T_init = 100.0;
-        static constexpr double T_final
-            = 3.0; // magic Number that indicates the lower bound of the temperature used for simulated annealing
+        // magic Number that indicates the lower bound of the
+        // temperature used for simulated annealing
+        // this should be dependent on the MaxConfigs (more dense search spaces require a lower final temperature, yet
+        // I need to fit a function here
+        static constexpr double T_final = 0.5;
 
         double_t temperature = T_init; // class member
 
@@ -164,6 +168,8 @@ namespace alpaka::tune::strategy
             return result;
         }
 
+        // #define SimDebug
+
         template<typename T_Metric, typename T_ConfigEntry>
         bool acceptWorseSolution(T_ConfigEntry const& cand, T_ConfigEntry const& cur, double temperature)
         {
@@ -174,13 +180,12 @@ namespace alpaka::tune::strategy
                 return true; // better or equal → accept
 
             double prob = std::exp(-delta / temperature);
-#ifdef Debug
+#ifdef SimDebug
             std::cout << "Propability of accepting worse solution is: " << prob << std::endl;
 #endif
-            static thread_local std::mt19937_64 rng{std::random_device{}()};
             std::uniform_real_distribution<double> dist(0.0, 1.0);
 
-            return dist(rng) < prob;
+            return dist(RNG::get()) < prob;
         }
 
         template<typename T_Config>
@@ -208,15 +213,27 @@ namespace alpaka::tune::strategy
         {
             if(isConfig{neu_}.template betterThan<T_Metric>(cur))
             {
-#ifdef Debug
-                std::cout << " new Config was better " << std::endl;
+#ifdef SimDebug
+                std::cout << " new Config was better, temperature " << temperature << std::endl;
+
 #endif
                 return true;
             }
-#ifdef Debug
-            std::cout << " accepted worse solution to encourage exploration" << std::endl;
+#ifdef SimDebug
+            std::cout << " accepted worse solution to encourage exploration at temp" << temperature << std::endl;
 #endif
-            return acceptWorseSolution<T_Metric>(neu_, cur, temperature);
+            bool a = acceptWorseSolution<T_Metric>(neu_, cur, temperature);
+#ifdef SimDebug
+            if(a)
+            {
+                std::cout << " accepted worse solution to encourage exploration at temp" << temperature << std::endl;
+            }
+            else
+            {
+                std::cout << " rejected proposed config as it was slower " << temperature << std::endl;
+            }
+#endif
+            return std::move(a);
         }
 
         /*
@@ -231,13 +248,19 @@ namespace alpaka::tune::strategy
         {
             if(acceptanceFunction<T_MetricInterface>(newKernel, oldKernel, temperature))
             {
+#ifdef SimDebug
+                std::cout << " accepted new Kernel" << std::endl;
                 activeKernel.fromConfig(newKernel);
+#endif
                 // toActive(activeKernel, newKernel); -> we dont have to do anything since ActiveKernel is already
                 // in the newKernel config
             }
             else
             {
+#ifdef SimDebug
+                std::cout << " kernel remained" << std::endl;
                 activeKernel.fromConfig(oldKernel);
+#endif
             }
         }
 
@@ -263,15 +286,17 @@ namespace alpaka::tune::strategy
             // Fill weights: backward (including current) to front
             for(type i = 0; i <= backwardSteps; ++i)
             {
-                weights[backwardSteps - i] = T_propabilityFunction{}(i, temperature);
-                total += weights[backwardSteps - i];
+                double weight = T_propabilityFunction{}(i, temperature);
+                weights[backwardSteps - i] = weight;
+                total += weight;
             }
 
             // Fill weights: forward direction
             for(type i = 1; i <= forwardSteps; ++i)
             {
-                weights[backwardSteps + i] = T_propabilityFunction{}(i, temperature);
-                total += weights[backwardSteps + i];
+                double weight = T_propabilityFunction{}(i, temperature);
+                weights[backwardSteps + i] = weight;
+                total += weight;
             }
 
             // Normalize
@@ -297,9 +322,14 @@ namespace alpaka::tune::strategy
             return newIndex;
         }
 
-#define SimA_MaxCachedSteps 50
-        std::string previousValidKernel = "";
+#define SimA_MaxCachedSteps 100
         std::size_t currentRuns = 0;
+
+        template<typename T_Config>
+        bool isValid(ConfigEntry<T_Config>& entry)
+        {
+            return entry.state == ConfigState::Initialized;
+        }
 
         /// returns true only if both are valid
         template<typename T_Config>
@@ -321,107 +351,207 @@ namespace alpaka::tune::strategy
             {
                 return false;
             }
+            if(neu.getMetrics().empty() || old.getMetrics().empty())
+                return false;
             return true;
         }
 
-        template<concepts::MetricInterface T_metricInterface, typename T_TuningModel, typename T_Config>
-        auto operator()(
-            T_metricInterface&, // the user specified metricInterface
-            KernelTuningModelView<T_TuningModel>& model, // contains tuneables and provides accessors
-            ConfigStorage<T_Config>& config_storage, // this is the history for a specific kernel backend config
-            EnvironmentState<T_Config>& environmentState) // contains global break criterias
+        std::size_t sampleHammingDistance(std::size_t maxDistance, double temperature)
         {
-            currentRuns = 0;
-            temperature = calcTemperature(
-                static_cast<uint32_t>(environmentState.getMaxEvals() / 2),
-                environmentState.numberOfCheckedConfigs);
+            std::vector<double> weights(maxDistance);
+            double total = 0.0;
 
-#ifdef Debug
-            std::cout << "[SimA] Starting with temperature: " << temperature << std::endl;
-            std::cout << "[SimA] " << static_cast<uint32_t>(environmentState.getMaxEvals() / 2) << std::endl;
-            std::cout << "[SimA] " << environmentState.getMaxEvals() << std::endl;
-            std::cout << "[SimA] " << environmentState.numberOfCheckedConfigs << std::endl;
-#endif
-
-            while(currentRuns < SimA_MaxCachedSteps)
+            for(std::size_t d = 1; d <= maxDistance; ++d)
             {
-                // Snapshot current configuration
-                T_Config oldConfig = model.toConfig();
+                weights[d - 1] = T_propabilityFunction{}(d, temperature);
+                total += weights[d - 1];
+            }
 
-#ifdef Debug
-                std::cout << "[SimA] Iteration " << currentRuns << " — Old config: " << oldConfig.toString()
-                          << std::endl;
+            for(auto& w : weights)
+                w /= total;
+
+            std::discrete_distribution<std::size_t> dist(weights.begin(), weights.end());
+            return dist(RNG::get()) + 1;
+        }
+
+        template<typename T_Model>
+        void selectFromNeighborhood(T_Model& model, double temperature)
+        {
+            auto& parameters = model.getUniformInterface();
+            constexpr std::size_t totalParams = std::tuple_size_v<std::decay_t<decltype(parameters)>>;
+
+#ifdef SimDebug
+            std::cout << "[Debug] Total parameters: " << totalParams << "\n";
 #endif
 
-                // Apply mutation via probability function
-                for_each(
-                    model.getUniformInterface(),
-                    [this](auto& parameter)
+            // Sample a Hamming distance between 1 and totalParams
+            std::size_t hamming_d = sampleHammingDistance(totalParams, temperature);
+
+#ifdef SimDebug
+            std::cout << "[Debug] Sampled Hamming distance: " << hamming_d << "\n";
+#endif
+
+            if(hamming_d > totalParams)
+            {
+                throw std::runtime_error("Hamming distance exceeds number of parameters.");
+            }
+
+            // Randomly select `hamming_d` distinct parameter indices
+            std::bitset<totalParams> selectedFlags;
+            std::size_t selectedCount = 0;
+
+            while(selectedCount < hamming_d)
+            {
+                std::size_t idx = std::uniform_int_distribution<std::size_t>{0, totalParams - 1}(RNG::get());
+                if(!selectedFlags.test(idx))
+                {
+                    selectedFlags.set(idx);
+                    ++selectedCount;
+
+#ifdef SimDebug
+                    std::cout << "[Debug] Selected parameter index for mutation: " << idx << "\n";
+#endif
+                }
+            }
+
+            // Apply mutation only to selected indices
+            std::size_t paramIdx = 0;
+            for_each(
+                parameters,
+                [&](auto& parameter)
+                {
+                    if(selectedFlags.test(paramIdx))
                     {
                         auto oldIndex = parameter.index;
                         auto oldValue = parameter.value;
 
-                        parameter.index
+                        std::size_t newIndex
                             = applyProbabilityFunction(parameter.index, parameter.getValues(), temperature);
-                        parameter.value = parameter.getValues()[parameter.index];
 
-#ifdef Debug
-                        std::cout << "[SimA] Mutated parameter from index " << oldIndex << " to " << parameter.index
-                                  << " (value: " << oldValue << " → " << parameter.value << ")" << std::endl;
+
+                        parameter.index = newIndex;
+                        parameter.value = parameter.getValues()[newIndex];
+
+#ifdef SimDebug
+                        std::cout << "[Debug] Mutated parameter " << paramIdx << ": index " << oldIndex << " → "
+                                  << newIndex << ", value: " << oldValue << " → " << parameter.value << "\n";
 #endif
-                    });
+                    }
+                    ++paramIdx;
+                });
 
-                // Snapshot new configuration
+#ifdef SimDebug
+            std::cout << "[Debug] Finished parameter mutation.\n";
+#endif
+        }
+
+        std::optional<std::any> m_lastReturnedKernel;
+        bool init = true;
+        uint32_t totalNrOfCacheSteps = 0;
+        uint32_t nr_times_weChoseOld = 0;
+        std::optional<std::any> lastConfig;
+
+        template<concepts::MetricInterface T_metricInterface, typename T_TuningModel, typename T_Config>
+        auto operator()(
+            T_metricInterface&,
+            KernelTuningModelView<T_TuningModel>& model,
+            ConfigStorage<T_Config>& config_storage,
+            EnvironmentState<T_Config>& environmentState)
+        {
+            currentRuns = 0;
+            temperature = calcTemperature(environmentState.getMaxEvals(), environmentState.numValidConfigs);
+
+            auto access = lastEvaluatedConfigAccessor<ConfigEntry<T_Config>>();
+            T_Config oldConfig = model.toConfig();
+            if(access.has_value())
+            {
+                if(m_lastReturnedKernel.has_value())
+                {
+                    oldConfig = std::any_cast<T_Config>(m_lastReturnedKernel.value());
+                }
+
+                auto wrapper = access.value();
+                ConfigEntry<T_Config>& lastEvalEntry = wrapper.get();
+                ConfigEntry<T_Config>& curEntry = config_storage.getOrCreate(oldConfig);
+                if(isValid(curEntry))
+                {
+                    acceptNewKernel<T_metricInterface>(curEntry, lastEvalEntry, model, temperature);
+                }
+                else
+                {
+                    model.fromConfig(lastEvalEntry.config);
+                    oldConfig = lastEvalEntry.config;
+                }
+            }
+
+
+#ifdef SimDebug
+            std::cout << " current config after initial revert: " << oldConfig.toString() << std::endl;
+            std::cout << " total nr of cache steps: " << totalNrOfCacheSteps << std::endl;
+#endif
+
+            while(currentRuns < SimA_MaxCachedSteps)
+            {
+#ifdef SimDebug
+                std::cout << "[SimA] Iteration " << currentRuns << " — Old config: " << oldConfig.toString()
+                          << std::endl;
+#endif
+
+                selectFromNeighborhood(model, temperature);
+
                 T_Config newConfig = model.toConfig();
 
-#ifdef Debug
+#ifdef SimDebug
                 std::cout << "[SimA] New config: " << newConfig.toString() << std::endl;
 #endif
 
                 if(newConfig == oldConfig)
                 {
-#ifdef Debug
-                    std::cout << "[SimA] Config unchanged after mutation — skipping." << std::endl;
-#endif
                     ++currentRuns;
                     continue;
                 }
 
                 if(!config_storage.contains(newConfig))
                 {
-#ifdef Debug
-                    std::cout << "[SimA] New config not in cache — returning." << std::endl;
+                    m_lastReturnedKernel.emplace(newConfig); // store a copy
+#ifdef SimDebug
+                    std::cout << "[SimA] New config found — returning." << std::endl;
 #endif
                     return;
                 }
 
-                // Retrieve or create entries for metric evaluation
+#ifdef SimDebug
+
+#endif
+
                 ConfigEntry<T_Config>& oldEntry = config_storage.getOrCreate(oldConfig);
                 ConfigEntry<T_Config>& newEntry = config_storage.getOrCreate(newConfig);
 
-                // Validate metrics/state before accepting
                 if(!handleInvalidCases(newEntry, oldEntry, model))
                 {
-#ifdef Debug
+#ifdef SimDebug
                     std::cout << "[SimA] Rejected due to invalid metric state." << std::endl;
 #endif
                     ++currentRuns;
                     continue;
                 }
 
+                totalNrOfCacheSteps++;
+
                 auto oldMedian = oldEntry.getMetrics().get(median_t{}).template as<t_ns>();
                 auto newMedian = newEntry.getMetrics().get(median_t{}).template as<t_ns>();
 
-#ifdef Debug
+#ifdef SimDebug
+                std::cout << "[SimA] config was actually already evaluated --- whooo." << std::endl;
                 std::cout << "[SimA] Comparing median: old = " << oldMedian << ", new = " << newMedian << std::endl;
 #endif
 
                 acceptNewKernel<T_metricInterface>(oldEntry, newEntry, model, temperature);
-
-#ifdef Debug
+#ifdef SimDebug
                 std::cout << "[SimA] Accepted new config: " << model.toConfig().toString() << "\n" << std::endl;
 #endif
 
+                oldConfig = model.toConfig();
                 ++currentRuns;
             }
         }
@@ -791,9 +921,23 @@ namespace alpaka::tune::strategy
             return idx;
         }
 
+        template<std::size_t N, typename T>
+        constexpr std::size_t mapFromND(Vec<T, N> const& idx, Vec<T, N> const& dims)
+        {
+            std::size_t flat = 0;
+            std::size_t mult = 1;
+            for(std::size_t i = N; i-- > 0;)
+            {
+                flat += idx[i] * mult;
+                mult *= dims[i];
+            }
+            return flat;
+        }
+
         std::vector<std::size_t> dimsVec;
         std::size_t total = 1;
         std::size_t stateCount = 0;
+        std::size_t current1DImIndex = 0;
         bool init = false;
 #define ExhaustiveSearchRandomInitialization
 #ifdef ExhaustiveSearchRandomInitialization
@@ -810,9 +954,10 @@ namespace alpaka::tune::strategy
         {
             using T_interface = decltype(model.getUniformInterface());
             constexpr std::size_t N = std::tuple_size_v<std::remove_reference_t<T_interface>>;
-            using VecT = alpaka::Vec<std::size_t, N>;
+            using VecT = Vec<std::size_t, N>;
             if(!init)
             {
+                stateCount = 0;
                 if constexpr(randomInit)
                 {
                     randomSample{}(metricInterface, model, config_storage, environmentState);
@@ -832,23 +977,20 @@ namespace alpaka::tune::strategy
 
                 VecT idx = computeValueIndices<N>(model);
                 VecT dimsVecAsVec = convertVec<N>(dimsVec);
-                stateCount = 0;
+                // since the first two configs where already gernerated, init and now this randomInit
+                current1DImIndex = mapFromND<N>(idx, dimsVecAsVec);
+                current1DImIndex = (current1DImIndex + 1) % total;
+                stateCount++;
                 init = true;
                 return;
             }
             if(stateCount >= total)
             {
-                std::cout << " state count " << stateCount << " numChecked " << environmentState.numberOfCheckedConfigs
-                          << std::endl;
-                std::cout << " total " << total << " stateConfigs " << environmentState.maxConfigsTotal << std::endl;
-                std::cout << " for some reason we rached the total state count, therefore exhaustive must be "
-                             "wrong somehow "
-                          << std::endl;
                 environmentState.sessionFinished = true;
                 model.fromConfig(environmentState.getBestConfig());
                 return;
             }
-            VecT nd = alpaka::mapToND(convertVec<N>(dimsVec), stateCount++);
+            VecT nd = alpaka::mapToND(convertVec<N>(dimsVec), current1DImIndex);
             for_each_enumerate(
                 model.getUniformInterface(),
                 [&](auto& t, std::size_t i)
@@ -860,6 +1002,8 @@ namespace alpaka::tune::strategy
                     }
                     t.value = vals[nd[i]];
                 });
+            stateCount++;
+            current1DImIndex = (current1DImIndex + 1) % total;
         }
     };
 

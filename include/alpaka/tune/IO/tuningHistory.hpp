@@ -5,6 +5,8 @@
 #ifndef TUNINGHISTORY_H
 #define TUNINGHISTORY_H
 
+#include <alpaka/tune/active/tuningEnvironment.hpp>
+
 #include <filesystem>
 namespace fs = std::filesystem;
 #include "../../../../toml11/include/toml.hpp"
@@ -37,13 +39,14 @@ namespace alpaka::tune
             }
         }
     } // namespace history::detail
-
+#define BestOnly 1
     class TuningHistory
     {
     public:
         using T_parsedToml = decltype(toml::parse(""));
 
     private:
+        bool bestOnly{BestOnly1};
         std::mutex fileMutex;
         std::optional<T_parsedToml> parsed_toml;
         bool load = false;
@@ -121,7 +124,7 @@ namespace alpaka::tune
         {
             if(!kernelTable.contains("runs"))
                 return;
-
+            alpaka::tune::benchmark::phaseAccessor(1);
             auto const& runs = kernelTable.at("runs").as_array();
             auto const& descriptorEntries = kernelData.descriptor.entries;
 
