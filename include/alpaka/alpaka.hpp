@@ -46,6 +46,9 @@
 #include "alpaka/onHost/mem/stdContainer.hpp"
 #include "alpaka/tag.hpp"
 #include "alpaka/utility.hpp"
+#if ALPAKA_TUNER
+#include "alpaka/tune/api.hpp"
+#endif
 
 /** main alpaka namespace.
  *

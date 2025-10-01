@@ -1,0 +1,74 @@
+//
+// Created by tim on 05.03.25.
+//
+
+#ifndef TUNERGPU_H
+#define TUNERGPU_H
+// #define ALPAKA_LANG_CUDA 1
+#if ALPAKA_LANG_CUDA || ALPAKA_LANG_HIP || ALPAKA_LANG_SYCL
+#    include <alpaka/api/unifiedCudaHip/Device.hpp>
+#    include <alpaka/tune/utils/partitioning.hpp>
+
+namespace alpaka::tune
+{
+    template<
+        typename T_Platform,
+        typename T_Kind,
+        typename T_Mapping,
+        typename T_NumBlocks,
+        typename T_NumThreads,
+        typename T_ThreadSpec,
+        typename T_KernelRun>
+    struct tunerAdjust::Op<
+        alpaka::onHost::Device<T_Platform, T_Kind>,
+        T_Mapping,
+        alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads,T_ThreadSpec>,
+        T_KernelRun>
+    {
+        auto operator()(
+            alpaka::onHost::Device<T_Platform, T_Kind>& device,
+            T_Mapping const& executor,
+            alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads, T_ThreadSpec> const& dataBlocking,
+            T_KernelRun& kernelRun)
+        {
+            auto newRun = kernelRun;
+            using T_newActiveRunType = ALPAKA_TYPEOF(newRun);
+            if constexpr(T_newActiveRunType::hasThreadBlockSizeTune())
+            {
+                if(!newRun.getThreadBlockSizeTune().userDef)
+                {
+                    newRun.getThreadBlockSizeTune().idxRange.m_begin
+                        = primeFactorPartitioning(device.getDeviceProperties().m_warpSize, T_NumThreads{});
+                    // if(dataBlocking.m_frameExtent.product()<alpaka::onHost::getDeviceProperties(device).m_maxThreadsPerBlock)
+                    newRun.getThreadBlockSizeTune().idxRange.m_end = multipleOfPartitioning(
+                        device.getDeviceProperties().m_maxThreadsPerBlock,
+                        newRun.getThreadBlockSizeTune().idxRange.m_begin);
+                    newRun.getThreadBlockSizeTune().idxRange.m_stride
+                        = newRun.getThreadBlockSizeTune().idxRange.m_begin;
+                }
+            }
+#    define minNumBlocks 10
+#    define maxNumBlocks 20
+            if constexpr(T_newActiveRunType::hasNumBlocksTune())
+            {
+                if(!newRun.getNumBlocksTune().userDef)
+                {
+                    auto partitionedMultiprocessors
+                        = primeFactorPartitioning(device.getDeviceProperties().m_multiProcessorCount, T_NumBlocks{});
+                    auto nonConstnumFrames = dataBlocking.m_numFrames;
+                    extendInputListFromPartition(
+                        newRun.getNumBlocksTune(),
+                        dataBlocking.m_numFrames,
+                        partitionedMultiprocessors,
+                        4,
+                        8);
+                    newRun.getNumBlocksTune().hasRange = false;
+                }
+            }
+            return std::make_pair(dataBlocking.getThreadSpec(), newRun);
+        }
+    };
+}; // namespace alpaka::tune
+
+#endif
+#endif // TUNERGPU_H

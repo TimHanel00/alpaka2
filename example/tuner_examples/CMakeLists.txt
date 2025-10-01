@@ -14,13 +14,7 @@ project("alpakaExamples" LANGUAGES CXX)
 ################################################################################
 # Add subdirectories.
 ################################################################################
-
-add_subdirectory("boundaryIter/")
-add_subdirectory("grayScale/")
-add_subdirectory("heatEquation2D/")
-add_subdirectory("nBody/")
-add_subdirectory("scan/")
-add_subdirectory("vectorAdd/")
-add_subdirectory("tutorial/")
-add_subdirectory("alpaka-ls/")
-add_subdirectory("tuner_examples/")
+if (alpaka_TUNER)
+    add_subdirectory("babelstream/")
+    add_subdirectory("heatEqu2DWithFrame/")
+endif ()
