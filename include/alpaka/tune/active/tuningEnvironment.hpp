@@ -235,7 +235,7 @@ namespace alpaka::tune
     class tuningEnvironment
     {
     public:
-        using FrameSpecType = alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent,T_ThreadExtent>;
+        using FrameSpecType = alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent, T_ThreadExtent>;
         using T_MetricInterfaceType = T_MetricInterface;
         T_Strategy env_strategy;
         T_MetricInterface env_metricInterface;
@@ -518,6 +518,7 @@ namespace alpaka::tune
         }
         template<typename Dummy>
         struct Humb;
+
         template<
             typename T_Queue,
             typename T_Exec,
@@ -529,7 +530,7 @@ namespace alpaka::tune
         void applyAndExecute(
             T_Queue&& queue,
             T_Exec&& exec,
-            alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads,T_ThreadSpec>& spec,
+            alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads, T_ThreadSpec>& spec,
             T_Kernelbundle const& kernelbundle,
             T_Config& config)
         {
@@ -830,7 +831,7 @@ template<
 auto createTuningEnvironment(
     T_Device device,
     T_Exec exec,
-    alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent,T_ThreadSpec> const& spec,
+    alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent, T_ThreadSpec> const& spec,
     T_KernelBundle bundle,
     T_Strategy& strategy,
     T_MetricInterface& metric_interface,
@@ -853,7 +854,7 @@ auto createTuningEnvironment(
 #endif
 
     // Extract compile-time tuneables for bundle
-    auto CTuneableBundle = alpaka::tune::trait::constructRuntimeCtuneablesForActivKernel(bundle);
+    auto CTuneableBundle = alpaka::tune::trait::constructRuntimeCtuneablesForActiveKernel(bundle);
     auto userTuple = extractTuneables(bundle);
     // Combine into kernel model
     auto completeRun = KernelTuningModel{userTuple, newRun.m_frameTuneables, CTuneableBundle};
@@ -948,7 +949,7 @@ template<
 auto& getTuningEnvironment(
     T_Device device,
     T_Exec exec,
-    alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent,T_ThreadSpec> const& spec,
+    alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent, T_ThreadSpec> const& spec,
     T_KernelBundle bundle,
     T_Strategy& strategy,
     T_MetricInterface& metric_interface,

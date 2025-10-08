@@ -6,7 +6,6 @@
 #define VECUTILS_H
 
 #include <alpaka/Vec.hpp>
-#include <alpaka/tune/utils/CompileTimeUtils.h>
 
 #include <algorithm> // for std::min / std::max
 #include <cmath> // for std::abs
@@ -14,7 +13,7 @@
 
 namespace alpaka::tune::utils
 {
-    template<typename T_Vec>
+    template<alpaka::concepts::Vector T_Vec>
     auto min_element(T_Vec const& vec)
     {
         using T = typename T_Vec::type;
@@ -24,7 +23,7 @@ namespace alpaka::tune::utils
         return min;
     }
 
-    template<typename T_Vec>
+    template<alpaka::concepts::Vector T_Vec>
     auto max_element(T_Vec const& vec)
     {
         using T = typename T_Vec::type;
@@ -69,13 +68,13 @@ namespace alpaka::tune::utils
         }
     };
 
-    template<typename T_Vec>
+    template<alpaka::concepts::Vector T_Vec>
     auto toRT(T_Vec const& vec)
     {
         return toRTime<T_Vec>{}(vec);
     }
 
-    template<typename T_Vec>
+    template<alpaka::concepts::Vector T_Vec>
     auto anyTrue(T_Vec const& vec)
     {
         for(std::size_t i = 0; i < getDimFromTemplate<T_Vec>::Dim; ++i)
@@ -84,28 +83,36 @@ namespace alpaka::tune::utils
         return false;
     }
 
-    template<typename T_Vec>
+    template<alpaka::concepts::Vector T_Vec>
     auto anyFalse(T_Vec const& vec)
     {
         for(std::size_t i = 0; i < getDimFromTemplate<T_Vec>::Dim; ++i)
-            if(vec[i])
-                return false;
-        return true;
+        {
+            if(!vec[i])
+                return true;
+        }
+        return false;
     }
 
-    template<typename T_Vec>
-    auto allTrue(T_Vec const& vec)
+    // overload for generic usage (for Vec and non-vec types)
+    constexpr auto allTrue(bool a)
+    {
+        return std::move(a);
+    }
+
+    template<alpaka::concepts::Vector T_Vec>
+    constexpr auto allTrue(T_Vec const& vec)
     {
         return !anyFalse(vec);
     }
 
-    template<typename T_Vec>
+    template<alpaka::concepts::Vector T_Vec>
     auto allFalse(T_Vec const& vec)
     {
         return !anyTrue(vec);
     }
 
-    template<typename T_Vec>
+    template<alpaka::concepts::Vector T_Vec>
     auto abs(T_Vec const& vec)
     {
         using ValueType = typename T_Vec::type;

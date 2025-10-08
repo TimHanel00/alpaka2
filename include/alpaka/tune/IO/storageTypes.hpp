@@ -24,14 +24,14 @@ struct Config
 
 {
     using TupleType = T_ConfigTuple;
-    Config() = default;
+    constexpr Config() = default;
 
-    explicit Config(T_ConfigTuple&& vals) : values(std::forward<T_ConfigTuple>(vals))
+    constexpr explicit Config(T_ConfigTuple&& vals) : values(std::forward<T_ConfigTuple>(vals))
     {
         this->hashVal = computeHash(this->values);
     }
 
-    explicit Config(T_ConfigTuple const& vals) : values(vals)
+    constexpr explicit Config(T_ConfigTuple const& vals) : values(vals)
     {
         this->hashVal = computeHash(this->values);
     }
@@ -46,7 +46,7 @@ struct Config
         return hashVal;
     }
 
-    TupleType const& getValues() const
+    constexpr TupleType const& getValues() const
     {
         return values;
     }
@@ -88,7 +88,7 @@ private:
     TupleType values;
     std::size_t hashVal;
 
-    static std::size_t computeHash(TupleType const& vals)
+    static constexpr std::size_t computeHash(TupleType const& vals)
     {
         return std::apply(
             [](auto const&... val)
@@ -101,7 +101,7 @@ private:
     }
 
     template<typename Vec>
-    static std::size_t hashVec(Vec const& vec)
+    static constexpr std::size_t hashVec(Vec const& vec)
     {
         std::size_t hash = 0;
         constexpr auto dim = alpaka::getDim(Vec{});
@@ -242,11 +242,12 @@ enum class Comparison
     Dummy
 };
 
-// Kruskal–Wallis is essentially the non-parametric alternative to one-way ANOVA(analysis of variance). (does not assume normality)
+// Kruskal–Wallis is essentially the non-parametric alternative to one-way ANOVA(analysis of variance). (does not
+// assume normality)
 /*
-*
-*
-*/
+ *
+ *
+ */
 template<typename T_Config>
 inline Comparison kruskalCompare(ConfigEntry<T_Config>& current, ConfigEntry<T_Config>& other)
 {
