@@ -5,9 +5,9 @@
 #ifndef TRAITS_HPP
 #define TRAITS_HPP
 
-#include <alpaka/alpaka.hpp>
 #include <alpaka/tune/active/MetricInterface.hpp>
 #include <alpaka/tune/utils/tupleHash.h>
+#include <alpaka/tune/utils/tupleHelper.h>
 
 namespace alpaka::tune::trait
 {
@@ -90,13 +90,6 @@ namespace alpaka::tune::trait
         }
     };
 
-    template<typename T_KernelBundle, typename Vec_2, typename T_Queue, typename T_Config>
-    auto getDefault(T_Queue const& queue, T_Config& config)
-
-    {
-        GetDefaultImpl<T_KernelBundle, Vec_2, T_Queue, T_Config>::apply(queue, config);
-    }
-
     template<typename Kernel>
     struct CompileTimeTuneableTrait
     {
@@ -110,6 +103,25 @@ namespace alpaka::tune::trait
         {
             return std::tuple{}; // empty tuple, no tunables
         }
+    };
+
+    // Primary template
+    template<typename Kernel, typename = void>
+    struct hasUserDefinedCTuneable : std::false_type
+    {
+    };
+
+    // Specialization when tuneAbleDefinitions() is valid
+    template<typename Kernel>
+    struct hasUserDefinedCTuneable<
+        Kernel,
+        std::void_t<decltype(alpaka::tune::trait::CompileTimeTuneableTrait<Kernel>::tuneAbleDefinitions())>>
+    {
+    private:
+        using TupleType = decltype(alpaka::tune::trait::CompileTimeTuneableTrait<Kernel>::tuneAbleDefinitions());
+
+    public:
+        static constexpr bool value = !alpaka::tune::utils::is_empty_tuple<TupleType>::value;
     };
 
     /*

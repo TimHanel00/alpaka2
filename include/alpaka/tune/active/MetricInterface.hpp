@@ -4,7 +4,7 @@
 
 #ifndef METRICINTERFACE_H
 #define METRICINTERFACE_H
-#include "alpaka/tune/IO/storageTypes.hpp"
+// #include "alpaka/tune/IO/storageTypes.hpp"
 
 #include <thread>
 
@@ -13,29 +13,12 @@ namespace alpaka::tune
     namespace detail
     {
         // Shared helper to perform Kruskal-Wallis comparison
-        enum class Comparison
-        {
-            Less,
-            Greater,
-            Inconclusive
-        };
         enum class returnComparison
         {
             HigherIsBetter,
             LowerIsBetter,
         };
     } // namespace detail
-
-    namespace global
-    {
-        inline auto timingAccessor(std::optional<double_t> value = std::nullopt)
-        {
-            static double_t m_value = 0.0;
-            if(value.has_value())
-                m_value = value.value();
-            return m_value;
-        };
-    } // namespace global
 
     namespace metricInterface
     {
@@ -44,19 +27,16 @@ namespace alpaka::tune
             static constexpr detail::returnComparison returnComparison{detail::returnComparison::LowerIsBetter};
             std::chrono::high_resolution_clock::time_point startTime;
 
-            template<typename T_KernelRun, typename T_FrameSpec>
-            void start(T_KernelRun& kernelRun, T_FrameSpec& frame_spec)
+            void start()
             {
                 startTime = std::chrono::high_resolution_clock::now();
             }
 
-            template<typename T_KernelRun, typename T_FrameSpec>
-            void end(T_KernelRun& kernelRun, T_FrameSpec& frame_spec)
+            auto end() -> double_t
             {
                 auto endTime = std::chrono::high_resolution_clock::now();
                 auto const timeDuration = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime - startTime);
-                kernelRun.metric = static_cast<decltype(kernelRun.metric)>(timeDuration.count());
-                global::timingAccessor(kernelRun.metric);
+                return timeDuration.count();
             }
         };
 
@@ -93,14 +73,14 @@ namespace alpaka::tune
                     });
             }
 
-            template<typename T_KernelRun, typename T_FrameSpec>
-            void end(T_KernelRun& kernelRun, T_FrameSpec& frame_spec)
+            auto end() -> double_t
             {
                 stopFlag = true;
                 if(workerThread.joinable())
                 {
                     workerThread.join();
                 }
+                return apiCaller.handle().getAchievedOccupancy;
             }
         };
     } // namespace metricInterface
@@ -110,16 +90,8 @@ namespace alpaka::tune
         template<typename T>
         concept MetricInterface = requires(T t) {
             { t.returnComparison } -> std::convertible_to<detail::returnComparison>;
-            {
-                t.start(
-                    std::declval<KernelTuningModel<>&>(),
-                    std::declval<onHost::FrameSpec<Vec<uint32_t, 1>, Vec<uint32_t, 1>,Vec<uint32_t, 1>>&>())
-            } -> std::same_as<void>;
-            {
-                t.end(
-                    std::declval<KernelTuningModel<>&>(),
-                    std::declval<onHost::FrameSpec<Vec<uint32_t, 1>, Vec<uint32_t, 1>,Vec<uint32_t, 1>>&>())
-            } -> std::same_as<void>;
+            { t.start() } -> std::same_as<void>;
+            { t.end() } -> std::same_as<double_t>;
             //{ t.end(std::declval<R&>(), std::declval<S&>()) } -> std::same_as<void>;
         }; // namespace concepts
     } // namespace concepts

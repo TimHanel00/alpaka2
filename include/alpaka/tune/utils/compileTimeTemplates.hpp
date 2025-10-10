@@ -6,89 +6,15 @@
 
 #define COMPILETIMETEMPLATES_H
 #include <alpaka/Vec.hpp>
-#include <alpaka/alpaka.hpp>
-#include <alpaka/tune/active/MetricInterface.hpp>
 #include <alpaka/tune/traits/traits.hpp>
 #include <alpaka/tune/utils/tupleHash.h>
 
 namespace alpaka::tune
 {
-    namespace trait
-    {
-        template<typename T>
-        struct is_empty_tuple : std::false_type
-        {
-        };
-
-        template<>
-        struct is_empty_tuple<std::tuple<>> : std::true_type
-        {
-        };
-
-        // Primary template
-        template<typename Kernel, typename = void>
-        struct hasUserDefinedCTuneable : std::false_type
-        {
-        };
-
-        // Specialization when tuneAbleDefinitions() is valid
-        template<typename Kernel>
-        struct hasUserDefinedCTuneable<
-            Kernel,
-            std::void_t<decltype(alpaka::tune::trait::CompileTimeTuneableTrait<Kernel>::tuneAbleDefinitions())>>
-        {
-        private:
-            using TupleType = decltype(alpaka::tune::trait::CompileTimeTuneableTrait<Kernel>::tuneAbleDefinitions());
-
-        public:
-            static constexpr bool value = !is_empty_tuple<TupleType>::value;
-        };
-    } // namespace trait
 
     namespace CompileTimeHelpers
     {
-        namespace expandFromDefinition
-        {
-            template<typename A, typename B>
-            struct all_less_equal;
 
-            template<typename T, T... As, T... Bs>
-            struct all_less_equal<CVec<T, As...>, CVec<T, Bs...>> : std::bool_constant<((As <= Bs) && ...)>
-            {
-            };
-
-            template<typename T, T... A, T... B>
-            constexpr auto addCVec(CVec<T, A...> a, CVec<T, B...> b)
-            {
-                static_assert(sizeof...(A) == sizeof...(B));
-                return CVec<T, (A + B)...>{};
-            }
-
-            template<typename Current, typename End, typename Stride, typename = void>
-            struct GenerateRecursive;
-
-            // Recursive case
-            template<typename Current, typename End, typename Stride>
-            struct GenerateRecursive<Current, End, Stride, std::enable_if_t<all_less_equal<Current, End>::value>>
-            {
-                using next = decltype(addCVec(Current{}, Stride{}));
-                using tail = typename GenerateRecursive<next, End, Stride>::type;
-                using type = decltype(std::tuple_cat(std::tuple<Current>{}, tail{}));
-            };
-
-            // Base case
-            template<typename Current, typename End, typename Stride>
-            struct GenerateRecursive<Current, End, Stride, std::enable_if_t<!all_less_equal<Current, End>::value>>
-            {
-                using type = std::tuple<>;
-            };
-
-            template<typename Tuple>
-            constexpr auto expandValuesFromDefinition()
-            {
-                return expandValuesFromDefinition<Tuple>(std::make_index_sequence<std::tuple_size_v<Tuple>>{});
-            }
-        } // namespace expandFromDefinition
 
         namespace allCombinations
         {
@@ -226,27 +152,6 @@ namespace alpaka::tune
                 static constexpr std::size_t index = get_index<Seq>::value;
                 static constexpr bool value = index != static_cast<std::size_t>(-1);
             };
-            template<std::size_t N>
-            struct debug_print;
-
-            template<
-                typename A,
-                typename B,
-                bool = alpaka::trait::IsCVector<A>::value && alpaka::trait::IsCVector<B>::value>
-            struct CVectorCompatible
-            {
-                static constexpr bool typeMatches = false;
-                static constexpr bool dimensionMatches = false;
-                static constexpr bool value = false;
-            };
-
-            template<typename A, typename B>
-            struct CVectorCompatible<A, B, true>
-            {
-                static constexpr bool typeMatches = std::is_same_v<typename A::type, typename B::type>;
-                static constexpr bool dimensionMatches = (::alpaka::getDim(A{}) == ::alpaka::getDim(B{}));
-                static constexpr bool value = typeMatches && dimensionMatches;
-            };
             template<
                 typename Tuple,
                 typename Indices,
@@ -281,11 +186,11 @@ namespace alpaka::tune
 
                 using replacement = std::tuple_element_t<indexWhereCurrentKernelIndexWasFound, Replacements>;
                 // Check type and dimension if both are CVec
-                static constexpr bool typeMatches = CVectorCompatible<replacement, current_T>::value;
+                // static constexpr bool typeMatches = CVectorCompatible<replacement, current_T>::value;
 
 
-                static constexpr bool shouldReplace = index_in_T::value && typeMatches;
-
+                // static constexpr bool shouldReplace = index_in_T::value && typeMatches;
+                static constexpr bool shouldReplace = index_in_T::value;
                 static constexpr bool isDone = (CurrentKernelIndex + 1 >= NumberOfKernelArgs);
 
                 using type = typename std::conditional_t<
@@ -396,38 +301,23 @@ namespace alpaka::tune
         public:
             using type = std::tuple<typename ApplyTupleToTemplate<Template, ArgTuples>::type...>;
         };
+        template<typename TupleOfTuples>
+        struct TupleSizeSequence;
 
-        template<typename KernelTuple, std::size_t... Is>
-        constexpr auto getValues(std::index_sequence<Is...>)
+        template<typename... Tuples>
+        struct TupleSizeSequence<std::tuple<Tuples...>>
         {
-            KernelTuple initiatedTuple{};
-            static_assert(
-                (::alpaka::isCVector_v<std::remove_cvref_t<decltype(std::get<Is>(initiatedTuple))>> && ...),
-                "The (with tuned_indicies) selected Compile Time Tuneable Arguments of your Kernel type must all be "
-                "CVectors");
-            return std::make_tuple(std::get<Is>(initiatedTuple)...);
-        }
+            using type = std::index_sequence<std::tuple_size_v<Tuples>...>;
+        };
 
-        template<typename T, uint32_t N, T... Vals>
-        constexpr auto toRuntimeVec(Vec<T, N, ::alpaka::detail::CVec<T, Vals...>> const&)
+        template<typename T, T... Ns>
+        constexpr auto to_array(std::integer_sequence<T, Ns...>)
         {
-            return Vec<T, N, ArrayStorage<T, N>>{Vals...};
-        }
-
-        template<typename Tuple>
-        constexpr auto convertTupleOfCVecsToRuntimeVecs(Tuple const& t)
-        {
-            return std::apply([](auto const&... cvecs) { return std::make_tuple(toRuntimeVec(cvecs)...); }, t);
+            return std::array<T, sizeof...(Ns)>{Ns...};
         }
 
         template<typename TupleOfTuples>
-        constexpr auto convertAllCVecCombinationsToRuntimeVecs(TupleOfTuples const& all)
-        {
-            return std::apply(
-                [](auto const&... cvecTuple)
-                { return std::make_tuple(convertTupleOfCVecsToRuntimeVecs(cvecTuple)...); },
-                all);
-        }
+        using TupleSizeSequence_t = typename TupleSizeSequence<TupleOfTuples>::type;
         template<typename T>
         struct unwrapCTunablesToTuples;
 
@@ -442,28 +332,6 @@ namespace alpaka::tune
         template<typename T>
         using unwrapCTunablesToTuples_t = typename unwrapCTunablesToTuples<T>::type;
 
-        template<typename Definition, typename InitVal>
-        auto makeTuneable(std::size_t index, InitVal const& initialValue)
-        {
-            using Decayed = std::decay_t<Definition>;
-
-
-            using Scalar = typename Decayed::Scalar;
-            using ValueTuple = typename Decayed::Values;
-            constexpr std::size_t N = std::tuple_size_v<ValueTuple>;
-            auto vec = [&]<std::size_t... Is>(std::index_sequence<Is...>)
-            {
-                return std::vector<Vec<Scalar, Decayed::dim>>{
-                    CompileTimeHelpers::toRuntimeVec(std::tuple_element_t<Is, ValueTuple>{})...};
-            }(std::make_index_sequence<N>{});
-
-            // Now construct Tuneable from the vector
-            return ::alpaka::tune::Tuneable<Vec<Scalar, Decayed::dim>, Decayed::tag, DimensionsDependent>{
-                vec,
-                CompileTimeHelpers::toRuntimeVec(initialValue),
-                "CTune_" + std::to_string(index)};
-        }
-
 
     } // namespace CompileTimeHelpers
 
@@ -474,7 +342,6 @@ namespace alpaka::tune
         {
             using FromTrait = alpaka::tune::trait::CompileTimeTuneableTrait<std::decay_t<KernelFn>>;
             using TuneDefsTuple = decltype(FromTrait::tuneAbleDefinitions());
-            static constexpr auto tuneAbleDefinitions = FromTrait::tuneAbleDefinitions();
             static constexpr std::size_t numDefs = std::tuple_size_v<TuneDefsTuple>;
             static constexpr std::size_t numIndices = getDim(FromTrait::tuned_indices);
             static_assert(
@@ -482,13 +349,12 @@ namespace alpaka::tune
                 "Mismatch: number of tuneable definitions must match dimension of tuned_indices");
 
 
-            using unwrappedCTuneableTuples
-                = alpaka::tune::CompileTimeHelpers::unwrapCTunablesToTuples<TuneDefsTuple>::type;
+            using unwrappedCTuneableTuples =
+                typename alpaka::tune::CompileTimeHelpers::unwrapCTunablesToTuples<TuneDefsTuple>::type;
+            using Sizes = CompileTimeHelpers::TupleSizeSequence_t<unwrappedCTuneableTuples>;
             //  GEk<Flattened> expanded;
             using AllCombinations = typename alpaka::tune::CompileTimeHelpers::allCombinations::CartesianFromTuple<
                 unwrappedCTuneableTuples>::type;
-            static constexpr auto rCombinations
-                = alpaka::tune::CompileTimeHelpers::convertAllCVecCombinationsToRuntimeVecs(AllCombinations{});
 
             using KernelTuple =
                 typename alpaka::tune::CompileTimeHelpers::createNewKernel::ExtractTemplateArgsFromGenericKernel<
@@ -498,9 +364,6 @@ namespace alpaka::tune
                 KernelVersions<decltype(FromTrait::tuned_indices), KernelTuple, AllCombinations>::type;
             using T_KernelVariants = typename alpaka::tune::CompileTimeHelpers::
                 InstantiateKernelsFromTuple<KernelFn, T_KernelArguments>::type;
-            static constexpr auto KernelVariants = T_KernelVariants{};
-            static constexpr auto KernelInitialValues = alpaka::tune::CompileTimeHelpers::getValues<KernelTuple>(
-                toIntegerSequence(FromTrait::tuned_indices));
         };
 
         template<typename KernelFn>
@@ -521,67 +384,38 @@ namespace alpaka::tune
                 throw std::out_of_range("Index out of range");
         }
 
-        template<typename MapType, typename KernelFn>
-        auto constructMap()
+        template<typename KernelFn, auto Dim, concepts::Integral Integral>
+        inline Integral calculateRowMajorIndex(std::array<Integral, Dim> const& indicies)
         {
-            auto map = MapType{};
-            std::apply(
-                [&](auto&&... entries)
-                {
-                    std::size_t index = 0;
-                    ((map[entries] = index++), ...);
-                },
-                trait::RegisteredCTuneables<KernelFn>::rCombinations // no `typename` here
-            );
+            using sizes_T = typename trait::RegisteredCTuneables<KernelFn>::Sizes;
+            constexpr auto sizes = to_array(sizes_T{});
+            Integral idx = 0;
+            static_assert(
+                Dim == sizes_T::size(),
+                "Input Index for Kernel Variant Access does not match expected sizes!");
+            for(auto i = 0u; i < Dim; ++i)
+            {
+                idx = idx * sizes[i] + indicies[i];
+            }
+            return idx;
+        }
 
-            return map;
+        template<typename KernelFn, auto Dim, concepts::Integral Integral, typename Fn>
+        void runtime_Kernel_dispatch(std::array<Integral, Dim> const& indicies, Fn&& fn)
+        {
+            static constexpr auto variants =
+                typename trait::RegisteredCTuneables<std::decay_t<KernelFn>>::T_KernelVariants{};
+            static constexpr auto numVars
+                = std::tuple_size_v<typename trait::RegisteredCTuneables<std::decay_t<KernelFn>>::T_KernelVariants>;
+            uint32_t rowMajorIndex = CompileTimeHelpers::calculateRowMajorIndex<KernelFn>(indicies);
+            CompileTimeHelpers::runtime_tuple_dispatch_impl(
+                rowMajorIndex,
+                variants,
+                std::forward<Fn>(fn),
+                std::make_index_sequence<numVars>{});
         }
     } // namespace CompileTimeHelpers
 
-    namespace trait
-    {
-        template<typename KernelFn, typename... Args>
-        auto constructRuntimeCtuneablesForActiveKernel(alpaka::KernelBundle<KernelFn, Args...>& kernelBundle)
-        {
-            if constexpr(!hasUserDefinedCTuneable<KernelFn>::value)
-            {
-                return std::tuple<>{};
-            }
-            else
-            {
-                constexpr auto ctune = trait::registeredCTuneables<KernelFn>();
-                constexpr auto definitions = decltype(ctune)::tuneAbleDefinitions;
-                using KernelInitialValues_t = decltype(decltype(ctune)::KernelInitialValues);
-                constexpr KernelInitialValues_t KernelInitialValues = decltype(ctune)::KernelInitialValues;
 
-                constexpr std::size_t N = std::tuple_size_v<std::decay_t<decltype(definitions)>>;
-                // use index sequence to access each tuple element
-                return [&]<std::size_t... Is>(std::index_sequence<Is...>)
-                {
-                    return std::make_tuple(
-                        alpaka::tune::CompileTimeHelpers::makeTuneable<
-                            std::decay_t<decltype(std::get<Is>(definitions))>,
-                            decltype(std::get<Is>(KernelInitialValues))>(Is, std::get<Is>(KernelInitialValues))...);
-                }(std::make_index_sequence<N>{});
-            }
-        }
-
-        template<typename KernelFn, typename... Args>
-        static auto& getRtimeIndexMap(alpaka::KernelBundle<KernelFn, Args...> const& kernelBundle)
-        {
-            using rCombination = decltype(trait::RegisteredCTuneables<KernelFn>::rCombinations);
-            using KeyType = std::tuple_element_t<0, decltype(trait::RegisteredCTuneables<KernelFn>::rCombinations)>;
-            using MapType = std::unordered_map<KeyType, std::size_t, TuneableTupleHash>;
-            static MapType map = CompileTimeHelpers::constructMap<MapType, KernelFn>();
-            return map; // should return a non-owning reference to the pointer that resides in that scope..
-        };
-    } // namespace trait
-
-    template<typename Tuple, typename Fn>
-    void runtime_Kernel_dispatch(std::size_t i, Tuple& tup, Fn&& fn)
-    {
-        constexpr std::size_t N = std::tuple_size_v<std::remove_reference_t<Tuple>>;
-        CompileTimeHelpers::runtime_tuple_dispatch_impl(i, tup, std::forward<Fn>(fn), std::make_index_sequence<N>{});
-    }
 } // namespace alpaka::tune
 #endif // COMPILETIMETEMPLATES_H

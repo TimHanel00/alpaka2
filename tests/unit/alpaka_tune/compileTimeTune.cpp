@@ -4,7 +4,8 @@
 //
 // Created by tim on 06.10.25.
 //
-#include <alpaka/alpaka.hpp>
+#include "alpaka/tune/tuneable/tuneable.hpp"
+
 #include <alpaka/tune/utils/compileTimeTemplates.hpp>
 
 #include <catch2/catch_test_macros.hpp>
@@ -64,6 +65,83 @@ struct TestKernelMD
     }
 };
 
+struct foo
+{
+    template<typename T_Other>
+    bool operator==(T_Other const& other)
+    {
+        if constexpr(std::is_same_v<foo, std::remove_cvref_t<T_Other>>)
+        {
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+};
+
+struct bar
+{
+    template<typename T_Other>
+    bool operator==(T_Other const& other)
+    {
+        if constexpr(std::is_same_v<bar, std::remove_cvref_t<T_Other>>)
+        {
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+};
+
+struct baz
+{
+    template<typename T_Other>
+    bool operator==(T_Other const& other)
+    {
+        if constexpr(std::is_same_v<baz, std::remove_cvref_t<T_Other>>)
+        {
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+};
+
+template<typename T, typename A, typename B>
+struct TestKernelArbitrary
+{
+    using Param1 = T;
+    using Param2 = A;
+    using Param3 = B;
+
+    TestKernelArbitrary() = default;
+
+    ALPAKA_FN_HOST void operator()(auto const&) const
+    {
+    }
+
+    auto getValue_1() const
+    {
+        return T{};
+    }
+
+    auto getValue_2() const
+    {
+        return A{};
+    }
+
+    auto getValue_3() const
+    {
+        return B{};
+    }
+};
+
 namespace alpaka
 {
 
@@ -76,9 +154,9 @@ namespace alpaka
             static constexpr auto tuned_indices = CVec<std::size_t, static_cast<std::size_t>(0)>{};
             using t = typename T::type;
 
-            static constexpr auto tuneAbleDefinitions()
+            static auto tuneAbleDefinitions()
             {
-                constexpr auto tune1
+                auto tune1
                     = tune::CTunable<static_cast<std::size_t>(0), CVec<t, 1>, CVec<t, 2>, CVec<t, 8>, CVec<t, 10>>{};
                 return std::tuple{tune1};
             }
@@ -91,9 +169,9 @@ namespace alpaka
             static constexpr auto tuned_indices = CVec<std::size_t, static_cast<std::size_t>(1)>{};
             using t = typename CVec_type::type;
 
-            static constexpr auto tuneAbleDefinitions()
+            static auto tuneAbleDefinitions()
             {
-                constexpr auto tune1
+                auto tune1
                     = tune::CTunable<static_cast<std::size_t>(6), CVec<t, 1>, CVec<t, 2>, CVec<t, 8>, CVec<t, 10>>{};
                 return std::tuple{tune1};
             }
@@ -107,16 +185,33 @@ namespace alpaka
                 = CVec<std::size_t, static_cast<std::size_t>(1), static_cast<std::size_t>(2)>{};
             using t = typename CVec_type::type;
 
-            static constexpr auto tuneAbleDefinitions()
+            static auto tuneAbleDefinitions()
             {
-                constexpr auto tune1
-                    = tune::CTunable<static_cast<std::size_t>(6), CVec<t, 1>, CVec<t, 2>, CVec<t, 8>, CVec<t, 10>>{};
-                constexpr auto tune2 = tune::CTunable<
+                auto tune1 = CTunable<static_cast<std::size_t>(6), CVec<t, 1>, CVec<t, 2>, CVec<t, 8>, CVec<t, 10>>{};
+                auto tune2 = tune::CTunable<
                     static_cast<std::size_t>(12),
                     CVec<double_t, 15.1>,
                     CVec<double_t, 20.3>,
                     CVec<double_t, 200.5>>{};
                 return std::tuple{tune1, tune2};
+            }
+        };
+
+        template<typename T, typename A, typename B>
+        struct CompileTimeTuneableTrait<TestKernelArbitrary<T, A, B>>
+        {
+            static constexpr auto tuned_indices = CVec<std::size_t, 0u, 1u, 2u>{};
+
+            static auto tuneAbleDefinitions()
+            {
+                auto tune1 = tune::CTunable<140u /***ID***/, foo, bar, baz>{};
+                auto tune2 = tune::CTunable<140u /***ID***/, bar, baz, foo>{};
+                auto tune3 = tune::CTunable<
+                    140u /***ID***/,
+                    CVec<uint32_t, 1u, 2u>,
+                    CVec<uint32_t, 3u, 2u>,
+                    CVec<uint32_t, 4u, 5u>>{};
+                return std::tuple{tune1, tune2, tune3};
             }
         };
     } // namespace tune::trait
@@ -156,8 +251,6 @@ namespace alpaka
                 alpaka::tune::utils::visitIndex(idx, vals, [&](auto const& val2) { CHECK(val.getValue() == val2); });
             });
     };
-    template<typename T_Dummy>
-    struct Dummy2;
 
     TEST_CASE("parseCompileTimeTuneableMultiDim", "[KernelVariantGenerationWithMultipleDimensions]")
     {
@@ -166,48 +259,84 @@ namespace alpaka
         using kernelFn = typename decltype(bundle)::KernelFn;
         static_assert(alpaka::tune::trait::hasUserDefinedCTuneable<kernelFn>::value);
         static auto variants = typename tune::trait::RegisteredCTuneables<std::decay_t<kernelFn>>::T_KernelVariants{};
+
         /* manual cross product of definition:
         constexpr auto tune1
-                    = tune::CTunable<static_cast<std::size_t>(6), CVec<t, 1>, CVec<t, 2>, CVec<t, 8>, CVec<t, 10>>{};
+                    = tune::CTunable<static_cast<std::size_t>(6), CVec<t, 1>, CVec<t, 2>, CVec<t, 8>, CVec<t,
+                    10>>{};
         constexpr auto tune2 = tune::CTunable<
             static_cast<std::size_t>(12),
             CVec<double_t, 15.1>,
             CVec<double_t, 20.3>,
             CVec<double_t, 200.5>>{};
             */
-        auto testCartesianProduct = std::tuple{
-            std::tuple{CVec<uint32_t, 1>{}, CVec<double_t, 15.1>{}},
-            std::tuple{CVec<uint32_t, 1>{}, CVec<double_t, 20.3>{}},
-            std::tuple{CVec<uint32_t, 1>{}, CVec<double_t, 200.5>{}},
-
-            std::tuple{CVec<uint32_t, 2>{}, CVec<double_t, 15.1>{}},
-            std::tuple{CVec<uint32_t, 2>{}, CVec<double_t, 20.3>{}},
-            std::tuple{CVec<uint32_t, 2>{}, CVec<double_t, 200.5>{}},
-
-            std::tuple{CVec<uint32_t, 8>{}, CVec<double_t, 15.1>{}},
-            std::tuple{CVec<uint32_t, 8>{}, CVec<double_t, 20.3>{}},
-            std::tuple{CVec<uint32_t, 8>{}, CVec<double_t, 200.5>{}},
-
-            std::tuple{CVec<uint32_t, 10>{}, CVec<double_t, 15.1>{}},
-            std::tuple{CVec<uint32_t, 10>{}, CVec<double_t, 20.3>{}},
-            std::tuple{CVec<uint32_t, 10>{}, CVec<double_t, 200.5>{}}};
-        tune::utils::for_each(
-            testCartesianProduct,
-            [&](auto& tuple)
+        constexpr auto testIndicies
+            = std::tuple{std::array<uint32_t, 2>{0, 2}, std::array<uint32_t, 2>{1, 1}, std::array<uint32_t, 2>{3, 0}};
+        // elementList for indicies 0,1,3
+        constexpr auto expectedValues_1 = std::tuple{CVec<uint32_t, 1>{}, CVec<uint32_t, 2>{}, CVec<uint32_t, 10>{}};
+        // elementList for indicies 2,1,0
+        constexpr auto expectedValues_2
+            = std::tuple{CVec<double_t, 200.5>{}, CVec<double_t, 20.3>{}, CVec<double_t, 15.1>{}};
+        tune::utils::for_each_enumerate(
+            testIndicies,
+            [&]<std::size_t I>(auto const& mdim_Idx)
             {
-                std::size_t i = tune::trait::getRtimeIndexMap(bundle)[tuple];
-
-                alpaka::tune::runtime_Kernel_dispatch(
-                    i,
-                    variants,
+                alpaka::tune::CompileTimeHelpers::runtime_Kernel_dispatch<kernelFn>(
+                    mdim_Idx,
                     [&]<typename T_KernelBundle>(T_KernelBundle&& element)
                     {
-                        static_assert(std::is_same_v<typename T_KernelBundle::T, nonTrivial>);
-                        static_assert(std::is_convertible_v<typename T_KernelBundle::CVec, CVec<uint32_t, 18>>);
-                        static_assert(std::is_same_v<typename T_KernelBundle::CVec2, CVec<double_t, 900.0>>);
-                        CHECK(std::get<0>(tuple) == element.getValue_1());
-                        CHECK(std::get<1>(tuple) == element.getValue_2());
+                        using T_raw = std::remove_cvref_t<T_KernelBundle>;
+                        CHECK(std::get<I>(expectedValues_1) == element.getValue_1());
+                        CHECK(std::get<I>(expectedValues_2) == element.getValue_2());
                     });
             });
     };
+
+    template<typename T>
+    struct Dummy;
+
+    TEST_CASE("runtime_Kernel_dispatch for arbitrary 3D kernel", "[KernelVariantGeneration]")
+    {
+        TestKernelArbitrary<nonTrivial, foo, bar> tuned{};
+        using kernelFn = TestKernelArbitrary<nonTrivial, foo, bar>;
+
+        static_assert(alpaka::tune::trait::hasUserDefinedCTuneable<kernelFn>::value);
+
+        static auto variants =
+            typename alpaka::tune::trait::RegisteredCTuneables<std::decay_t<kernelFn>>::T_KernelVariants{};
+
+        // Now 3-dimensional indices for three parameters
+        constexpr auto testIndices = std::tuple{
+            std::array<std::size_t, 3>{0, 1, 2},
+            std::array<std::size_t, 3>{1, 2, 0},
+            std::array<std::size_t, 3>{2, 0, 1}};
+        // constexpr auto testIndices = std::tuple{std::array<std::size_t, 3>{0, 1, 2}};
+        //  auto tune1 = tune::CTunable<140u /***ID***/, foo, bar, baz>{};
+        //  auto tune2 = tune::CTunable<140u /***ID***/, bar, baz, foo>{};
+        //  auto tune3 = tune::CTunable<
+        //      140u /***ID***/,
+        //      CVec<uint32_t, 1u, 2u>,
+        //      CVec<uint32_t, 3u, 2u>,
+        //      CVec<uint32_t, 4u, 5u>>{};
+        constexpr auto expectedValues_1 = std::tuple{foo{}, bar{}, baz{}};
+        constexpr auto expectedValues_2 = std::tuple{baz{}, foo{}, bar{}};
+        constexpr auto expectedValues_3
+            = std::tuple{CVec<uint32_t, 4u, 5u>{}, CVec<uint32_t, 1u, 2u>{}, CVec<uint32_t, 3u, 2u>{}};
+
+        tune::utils::for_each_enumerate(
+            testIndices,
+            [&]<std::size_t I>(auto const& mdimIdx)
+            {
+                alpaka::tune::CompileTimeHelpers::runtime_Kernel_dispatch<kernelFn>(
+                    mdimIdx,
+                    [&]<typename T_KernelBundle>(T_KernelBundle&& element)
+                    {
+                        CHECK(std::get<I>(expectedValues_1) == element.getValue_1());
+
+                        CHECK(std::get<I>(expectedValues_2) == element.getValue_2());
+
+                        CHECK(std::get<I>(expectedValues_3) == element.getValue_3());
+                    });
+            });
+    }
 } // namespace alpaka

@@ -13,6 +13,16 @@
 #include <type_traits>
 #include <vector>
 
+namespace alpaka::tune::detail
+{
+    enum class Comparison
+    {
+        Less,
+        Greater,
+        Inconclusive
+    };
+} // namespace alpaka::tune::detail
+
 struct t_ns
 {
 };

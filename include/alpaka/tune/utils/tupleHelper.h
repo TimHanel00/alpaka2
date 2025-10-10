@@ -12,6 +12,16 @@
 namespace alpaka::tune::utils
 {
 
+    template<typename T>
+    struct is_empty_tuple : std::false_type
+    {
+    };
+
+    template<>
+    struct is_empty_tuple<std::tuple<>> : std::true_type
+    {
+    };
+
     template<typename Tuple, typename F, std::size_t... I>
     void for_each_impl(Tuple&& tup, F&& f, std::index_sequence<I...>)
     {
