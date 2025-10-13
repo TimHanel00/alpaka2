@@ -5,9 +5,8 @@
 #ifndef TRAITS_HPP
 #define TRAITS_HPP
 
-#include <alpaka/tune/active/MetricInterface.hpp>
-#include <alpaka/tune/utils/tupleHash.h>
-#include <alpaka/tune/utils/tupleHelper.h>
+#include <alpaka/tune/interfaces/MetricInterface.hpp>
+#include <alpaka/tune/utils/tupleHelper.hpp>
 
 namespace alpaka::tune::trait
 {

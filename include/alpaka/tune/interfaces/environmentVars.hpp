@@ -71,7 +71,7 @@ namespace alpaka::tune
 
         static std::size_t getRunsPerConfig_Env()
         {
-            if(char const* var = std::getenv("TunerRunsPerConfig")) //runs per config
+            if(char const* var = std::getenv("TunerRunsPerConfig")) //runs per Config
             {
                 try
                 {

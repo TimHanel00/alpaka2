@@ -4,9 +4,9 @@
 
 #ifndef GENERATORS_H
 #define GENERATORS_H
-#include "alpaka/CVec.hpp"
-#include "alpaka/tune/concepts.hpp"
-#include "alpaka/tune/utils/VecUtils.h"
+#include <alpaka/CVec.hpp>
+#include <alpaka/tune/concepts.hpp>
+#include <alpaka/tune/utils/VecUtils.hpp>
 
 /**
  * @brief Generate a sequence using a function f

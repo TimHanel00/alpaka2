@@ -5,11 +5,11 @@
 #ifndef TUNEABLE_H
 #define TUNEABLE_H
 #include "alpaka/mem/IdxRange.hpp"
-#include "alpaka/tune/utils/tupleHelper.h"
+#include "alpaka/tune/utils/tupleHelper.hpp"
 
 #include <alpaka/concepts.hpp>
 #include <alpaka/tune/concepts.hpp>
-#include <alpaka/tune/utils/VecUtils.h>
+#include <alpaka/tune/utils/VecUtils.hpp>
 
 #include <algorithm>
 #include <string>
@@ -23,20 +23,28 @@ namespace alpaka::tune
         enum class SpecialTuneableID : std::size_t
         {
             userDef = 3123,
-            NumBlocks = 4321,
-            ThreadBlock = 7124,
-            NumFrames = 1238,
-            FrameExtent = 3748,
+            numBlocks = 4321,
+            numThreads = 7124,
+            numFrames = 1238,
+            frameExtent = 3748,
             NoTune = 1489,
             DefaultCompileTune = 43279,
             Count
         };
+    } // namespace detail
+
+    namespace detail
+    {
 
         template<std::size_t N>
         std::string getNameFromTag_comp()
         {
             static int numCompileTuneables = 0;
-            return "C_Tunable " + std::to_string(numCompileTuneables++);
+            if(N == static_cast<std::size_t>(SpecialTuneableID::DefaultCompileTune))
+            {
+                return "C_Tunable " + std::to_string(numCompileTuneables++);
+            }
+            return "C_Tunable " + std::to_string(N);
         }
 
         // this is runtime
@@ -47,18 +55,20 @@ namespace alpaka::tune
 
             switch(N)
             {
-            case static_cast<std::size_t>(SpecialTuneableID::NumBlocks):
+            case static_cast<std::size_t>(SpecialTuneableID::userDef):
+                return "Tunable " + std::to_string(numUserTuneables++);
+            case static_cast<std::size_t>(SpecialTuneableID::numBlocks):
                 return "NumBlocksTune";
-            case static_cast<std::size_t>(SpecialTuneableID::ThreadBlock):
+            case static_cast<std::size_t>(SpecialTuneableID::numThreads):
                 return "ThreadBlockTune";
-            case static_cast<std::size_t>(SpecialTuneableID::NumFrames):
+            case static_cast<std::size_t>(SpecialTuneableID::numFrames):
                 return "NumFramesTune";
-            case static_cast<std::size_t>(SpecialTuneableID::FrameExtent):
+            case static_cast<std::size_t>(SpecialTuneableID::frameExtent):
                 return "FrameExtentTune";
             default:
                 break;
             }
-            return "Tunable " + std::to_string(numUserTuneables++);
+            return "Tunable " + std::to_string(N);
         }
 
         struct NoTune
@@ -88,22 +98,22 @@ namespace alpaka::tune
 
     /**
      * @brief kind of tuneable to ease compile-time handling**/
-    enum class TuneableKind
+    enum class TunableKind
     {
-        TuneableMD,
-        Tuneable,
-        CTuneable
+        TunableMD,
+        Tunable,
+        CTunable
     };
 
-    template<typename T, uint32_t ID, auto Dim, TuneableKind kind, typename T_Storage>
-    struct BaseTuneable
+    template<uint32_t ID, typename T, auto Dim, TunableKind kind, typename T_Storage>
+    struct BaseTunable
     {
         using ValueType = T;
         using StorageType = T_Storage;
-        BaseTuneable() = default;
-        virtual ~BaseTuneable() = default;
-        virtual Vec<uint32_t, Dim> getNumValues() = 0;
-        virtual std::string getName() = 0;
+        BaseTunable() = default;
+        virtual ~BaseTunable() = default;
+        virtual Vec<uint32_t, Dim> getNumValues() const = 0;
+        virtual std::string getName() const = 0;
         static constexpr auto tag = ID;
         static constexpr auto tuneableType = kind;
         std::optional<uint32_t> startingIndex;
@@ -131,22 +141,21 @@ namespace alpaka::tune
 
     template<uint32_t ID = static_cast<uint32_t>(detail::SpecialTuneableID::DefaultCompileTune), typename... T>
     struct CTunable
-        : public BaseTuneable<
-              std::tuple_element_t<0, std::tuple<T...>>,
+        : public BaseTunable<
               ID,
+              std::tuple_element_t<0, std::tuple<T...>>,
               1u,
-              TuneableKind::CTuneable,
+              TunableKind::CTunable,
               std::array<std::tuple<T...>, 1u>>
     {
-        using Base = BaseTuneable<
-            std::tuple_element_t<0, std::tuple<T...>>,
+        using Base = BaseTunable<
             ID,
+            std::tuple_element_t<0, std::tuple<T...>>,
             1u,
-            TuneableKind::CTuneable,
+            TunableKind::CTunable,
             std::array<std::tuple<T...>, 1u>>;
-
         static constexpr auto tag = ID;
-        static constexpr auto tuneableType = TuneableKind::CTuneable;
+        static constexpr auto tuneableType = TunableKind::CTunable;
         static constexpr auto dim = 1u;
         // All CVecs must be compatible
         static_assert(sizeof...(T) > 0, "CTunable requires at least one Parameter");
@@ -156,10 +165,11 @@ namespace alpaka::tune
         template<std::size_t I>
         static constexpr auto getValueByIndex()
         {
+            static_assert(I < std::tuple_size_v<Values>, " Ctuneable index access, exceeds boundaries!");
             return std::get<I>(Values{});
         }
 
-        // Runtime storage (for BaseTuneable interface)
+        // Runtime storage (for BaseTunable interface)
         std::array<Tuple, 1u> values;
         std::string m_name = detail::getNameFromTag_comp<ID>();
 
@@ -169,14 +179,14 @@ namespace alpaka::tune
                 m_name = name;
         }
 
-        // --- BaseTuneable Interface Implementations ---
+        // --- BaseTunable Interface Implementations ---
 
-        std::string getName() override
+        std::string getName() const override
         {
             return m_name;
         }
 
-        constexpr Vec<uint32_t, 1u> getNumValues() override
+        [[nodiscard]] constexpr Vec<uint32_t, 1u> getNumValues() const override
         {
             return Vec<uint32_t, 1u>{sizeof...(T)};
         }
@@ -209,9 +219,9 @@ namespace alpaka::tune
      * struct bar{};
      * using namespace alpaka::tune;
      * auto tune = Tunable<ID>({foo{}, bar{}});
-     * auto learningRate = Tunable({0.005, 0.02, 0.1});
-     * static constexpr learningID=2;
-     * auto learningRate = Tunable<learningID>(generate::logSpace(1e-6,0.1,2),0,"learning");
+     * auto learningRateA = Tunable({0.005, 0.02, 0.1});
+     * static constexpr auto learningID=2;
+     * auto learningRateB = Tunable<learningID>(generate::logSpace(1e-6,0.1,2),0,"learningRate");
      * @endcode
      *
      * @tparam ID Identifier for the tuneable ->
@@ -222,29 +232,33 @@ namespace alpaka::tune
      *
      * @tparam T Type of the values stored in the vector.
      */
-    template<typename T, std::size_t ID = static_cast<std::size_t>(detail::SpecialTuneableID::userDef)>
-    struct Tuneable : public BaseTuneable<T, ID, 1u, TuneableKind::Tuneable, std::vector<T>>
+    template<
+        uint32_t ID = static_cast<uint32_t>(detail::SpecialTuneableID::userDef),
+        typename T = alpaka::Vec<uint32_t, 1u>>
+    struct Tunable : public BaseTunable<ID, T, 1u, TunableKind::Tunable, std::vector<T>>
     {
-        using Base = BaseTuneable<T, ID, 1u, TuneableKind::Tuneable, std::vector<T>>;
+        using Base = BaseTunable<ID, T, 1u, TunableKind::Tunable, std::vector<T>>;
         using T_Storage = typename Base::StorageType;
         T_Storage values;
+        using value_type = T;
         /// an index within the tuningSpace
         std::optional<uint32_t> startingIndex = std::nullopt;
         std::string m_name = detail::getNameFromTag<ID>();
         static constexpr auto dim = 1u;
 
-        std::string getName() override
+        std::string getName() const override
         {
             return m_name;
         }
 
-        Vec<uint32_t, 1u> getNumValues() override
+        [[nodiscard]] alpaka::Vec<uint32_t, 1u> getNumValues() const override
         {
             return Vec<uint32_t, 1u>{values.size()};
         }
 
         T const& getValueByIndex(alpaka::Vec<uint32_t, 1u> const& idx) const
         {
+            assert(idx[0u] < values.size());
             return values[idx[0u]];
         };
 
@@ -255,7 +269,7 @@ namespace alpaka::tune
          * @param startingValue  Optional starting Value for runtime tuning.
          * @param name Optional name for this tuneable.
          */
-        constexpr Tuneable(
+        constexpr Tunable(
             std::initializer_list<T> input,
             std::optional<T> startingValue = std::nullopt,
             std::string const& name = "")
@@ -276,7 +290,7 @@ namespace alpaka::tune
          * @param startingValue  Optional starting Value for runtime tuning.
          * @param name Optional name for this tuneable.
          */
-        constexpr explicit Tuneable(
+        constexpr explicit Tunable(
             std::vector<T> input,
             std::optional<T> startingValue = std::nullopt,
             std::string const& name = "")
@@ -293,13 +307,15 @@ namespace alpaka::tune
         /**
          * @brief Construct from an `IdxRange<T>` to generate a tuning space.
          *
-         * might need to specify T since type deduction fails (Tuneable<T>{}).
+         * might need to specify T since type deduction fails (Tunable<T>{}).
          * requires T to be  alpaka::Vec type or scalar type,
          *
-         * @param idx One dimensional index vec to access a data element of the tuning space
+         * @param input  IdxRange (m_begin<=val<=m_end (inclusive Range))
+         * @param startingValue optional starting value contained within the space the range describes.
+         * @param name optional string identifier (only used for history purposes)
          */
         template<alpaka::concepts::Vector U = T>
-        constexpr explicit Tuneable(
+        constexpr explicit Tunable(
             alpaka::IdxRange<U, U, U> input,
             std::optional<T> startingValue = std::nullopt,
             std::string const& name = "")
@@ -329,12 +345,8 @@ namespace alpaka::tune
         }
     };
 
-    template<typename T>
-    Tuneable(alpaka::IdxRange<T, T, T>, std::optional<T>, std::string const&) -> Tuneable<T>;
-
-    // Deduction guide if starting value is not provided
-    template<typename T>
-    Tuneable(alpaka::IdxRange<T, T, T>, std::nullopt_t, std::string const&) -> Tuneable<T>;
+    template<auto N, typename T>
+    Tunable(alpaka::IdxRange<T, T, T>, std::optional<T>, std::string const&) -> Tunable<N, T>;
 
     /**
      * @brief Used to define a Runtime tuneable.
@@ -357,48 +369,50 @@ namespace alpaka::tune
      * @tparam T Type of the values stored in the vector.
      * */
     template<
-        alpaka::concepts::Vector T = alpaka::Vec<uint32_t, 2u>,
-        std::size_t ID = static_cast<uint32_t>(detail::SpecialTuneableID::userDef)>
-    struct TuneableMD
-        : public BaseTuneable<
-              T,
+        uint32_t ID = static_cast<uint32_t>(detail::SpecialTuneableID::userDef),
+        alpaka::concepts::Vector T = alpaka::Vec<uint32_t, 2u>>
+    struct TunableMD
+        : public BaseTunable<
               ID,
+              T,
               alpaka::getDim(T{}),
-              TuneableKind::TuneableMD,
+              TunableKind::TunableMD,
               std::array<std::vector<typename T::type>, alpaka::getDim(T{})>>
     {
         static constexpr auto dim = alpaka::getDim(T{});
-        using Base = BaseTuneable<
-            T,
+        using Base = BaseTunable<
             ID,
+            T,
             dim,
-            TuneableKind::TuneableMD,
+            TunableKind::TunableMD,
             std::array<std::vector<typename T::type>, alpaka::getDim(T{})>>;
-
+        using value_type = T;
         using T_Storage = typename Base::StorageType;
         using idxType = typename T::index_type;
-        static_assert(dim > 1, "Given alpaka Vector - dimension must be higher then 1, use Tuneable instead.");
+        static_assert(dim > 1, "Given alpaka Vector - dimension must be higher then 1, use Tunable instead.");
         T_Storage values{};
         std::optional<alpaka::Vec<idxType, dim>> startingIndex = std::nullopt;
         std::string m_name = detail::getNameFromTag<ID>();
 
+        // this is currently a value copy, coule be improved by using a reference Storage on the Vector Vec<T,dim,Ref>
         T getValueByIndex(alpaka::Vec<idxType, dim> const& vec) const
         {
             T ret{};
             for(idxType i = 0; i < dim; ++i)
             {
+                assert(vec[i] < values[i.size()]);
                 ret[i] = values[i][vec[i]];
             }
             return ret;
         };
 
-        std::string getName() override
+        std::string getName() const override
         {
             return m_name;
         }
 
         /// Return the number of values in the tuning space
-        Vec<idxType, dim> getNumValues() override
+        Vec<idxType, dim> getNumValues() const override
         {
             Vec<idxType, dim> ret{};
             for(idxType i = 0; i < dim; ++i)
@@ -413,7 +427,7 @@ namespace alpaka::tune
          * @param startingValue  Optional starting Value for runtime tuning.
          * @param name Optional name for this tuneable.
          */
-        constexpr TuneableMD(
+        constexpr TunableMD(
             std::initializer_list<T> input,
             std::optional<T> startingValue = std::nullopt,
             std::string const& name = "")
@@ -436,7 +450,7 @@ namespace alpaka::tune
          * @param startingValue  Optional starting Value for runtime tuning.
          * @param name Optional name for this tuneable.
          */
-        constexpr explicit TuneableMD(
+        constexpr explicit TunableMD(
             std::vector<T> input,
             std::optional<uint32_t> startingValue = std::nullopt,
             std::string const& name = "")
@@ -464,13 +478,14 @@ namespace alpaka::tune
          * Each dimension is treated independently. For example, if
          * `start = {2,3}`, `end = {4,5}`, `stride = {3,2}`, then
          * `{2,5}` is included in the generated space.
-         * If this behavior is not intended, use a normal `Tuneable`.
+         * If this behavior is not intended, use a normal `Tunable`.
          *
          * @param input Index range defining the start, end, and stride per dimension.
-         * @param startingIndex Optional starting index.
+         * @param startingValue Optional starting value (has to be part of the constructed space in order to be
+         * considered)
          * @param name Optional name for the tuneable.
          */
-        constexpr explicit TuneableMD(
+        constexpr explicit TunableMD(
             IdxRange<T> input,
             std::optional<uint32_t> startingValue = std::nullopt,
             std::string const& name = "")
@@ -538,7 +553,7 @@ namespace alpaka::tune
             }
             if(!foundStart)
             {
-                std::cerr << " Warning: starting Value " << startingValue.toString() << " for Tuneable"
+                std::cerr << " Warning: starting Value " << startingValue.toString() << " for Tunable"
                           << this->getName() << " has to be part of its tuning space!" << std::endl;
             }
             else
@@ -562,10 +577,10 @@ namespace alpaka::tune
      */
     namespace frameTune
     {
-        static constexpr uint32_t numBlocks(static_cast<uint32_t>(detail::SpecialTuneableID::NumBlocks));
-        static constexpr uint32_t ThreadBlock(static_cast<uint32_t>(detail::SpecialTuneableID::ThreadBlock));
-        static constexpr uint32_t NumFrames(static_cast<uint32_t>(detail::SpecialTuneableID::NumFrames));
-        static constexpr uint32_t FrameExtent(static_cast<uint32_t>(detail::SpecialTuneableID::FrameExtent));
+        static constexpr uint32_t numBlocks(static_cast<uint32_t>(detail::SpecialTuneableID::numBlocks));
+        static constexpr uint32_t numThreads(static_cast<uint32_t>(detail::SpecialTuneableID::numThreads));
+        static constexpr uint32_t numFrames(static_cast<uint32_t>(detail::SpecialTuneableID::numFrames));
+        static constexpr uint32_t frameExtent(static_cast<uint32_t>(detail::SpecialTuneableID::frameExtent));
     } // namespace frameTune
 
     // namespace alpaka::tune

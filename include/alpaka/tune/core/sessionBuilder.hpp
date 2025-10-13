@@ -1,21 +1,17 @@
 
 #ifndef SESSIONBUILDER_HPP
 #define SESSIONBUILDER_HPP
-//#include "alpaka/onHost.hpp"
-#include "alpaka/tune/active/tuningEnvironment.hpp"
-#include "alpaka/tune/utils/environmentVars.hpp"
-
+// #include "alpaka/onHost.hpp"
 #include <alpaka/tune/IO/tuningHistory.hpp>
-#include <alpaka/tune/active/MetricInterface.hpp>
-#include <alpaka/tune/active/constraint.hpp>
-#include <alpaka/tune/active/strategy.hpp>
+#include <alpaka/tune/core/peripherals/constraint.hpp>
+#include <alpaka/tune/core/tuningContext.hpp>
+#include <alpaka/tune/interfaces/MetricInterface.hpp>
+#include <alpaka/tune/interfaces/strategy.hpp>
 
 #include <cmath>
 #include <iostream>
-#include <numeric>
 #include <string>
 #include <tuple>
-#include <unordered_map>
 #include <variant>
 
 namespace alpaka
@@ -34,7 +30,7 @@ namespace alpaka::tune
         T_Strategy_&& strategy,
         T_MetricInterface const& interface,
         T_ConstraintTuple const& newTuple,
-        KernelTuningModel<Args...> const& run)
+        ConfigDescriptor<Args...> const& run)
     {
         return TuningBuilder<T_Strategy_, T_MetricInterface, T_ConstraintTuple, Args...>(
             std::forward<T_Strategy_>(strategy),
@@ -73,6 +69,7 @@ namespace alpaka::tune
             return strat_name;
         }
     } // namespace strategy::detail
+
     static uint32_t nr_builder = 0;
 #ifdef strategy_randomSearch
     using DefaultStrategy = alpaka::tune::strategy::randomSearch;
@@ -104,7 +101,7 @@ namespace alpaka::tune
             T_Strategy&& strategy,
             T_MetricInterface interface,
             T_ConstraintTuple constraints,
-            KernelTuningModel<T_KernelRunArgs...> const& run)
+            ConfigDescriptor<T_KernelRunArgs...> const& run)
             : m_constraintTuple(constraints)
             , m_run(run)
             , m_strategy(std::forward<T_Strategy>(strategy))
@@ -392,7 +389,7 @@ namespace alpaka::tune
         std::string m_config;
         std::vector<std::string> m_sessionSpecifiers;
 
-        KernelTuningModel<T_KernelRunArgs...> m_run;
+        ConfigDescriptor<T_KernelRunArgs...> m_run;
 
     private:
         // numframe,frameExtent,numBlocks,numThreads

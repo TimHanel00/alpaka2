@@ -15,6 +15,8 @@ namespace alpaka::tune::concepts
         { a == b } -> std::convertible_to<bool>;
     };
     template<typename T>
+    concept Floating = std::is_floating_point_v<T>;
+    template<typename T>
     concept Integral = std::is_integral_v<T>;
     template<typename T>
     concept ArithmeticComparableOrVec = ArithmeticComparable<T> || isVector_v<T>;

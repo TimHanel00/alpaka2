@@ -4,13 +4,11 @@
 
 #ifndef STRATEGY_HPP
 #define STRATEGY_HPP
-#include "alpaka/tune/IO/storageTypes.hpp"
-#include "alpaka/tune/utils/Random.h"
-#include "alpaka/tune/utils/environmentVars.hpp"
-#include "alpaka/tune/utils/tupleHelper.h"
-#include "bayesianOptimizer.hpp"
-
-#include <alpaka/tune/active/MetricInterface.hpp>
+#include <alpaka/tune/IO/storageTypes.hpp>
+#include <alpaka/tune/interfaces/MetricInterface.hpp>
+#include <alpaka/tune/interfaces/environmentVars.hpp>
+#include <alpaka/tune/utils/Random.hpp>
+#include <alpaka/tune/utils/tupleHelper.hpp>
 
 #include <bitset>
 #include <random>
@@ -56,7 +54,7 @@ namespace alpaka::tune::strategy
         auto operator()(
             T_metricInterface& metricInterface, // the user specified metricInterface
             KernelTuningModelView<T_TuningModel>& model, // contains tuneables and provides accessors
-            ConfigStorage<T_Config>& config_storage, // this is the history for a specific kernel backend config
+            ConfigStorage<T_Config>& config_storage, // this is the history for a specific kernel backend Config
             EnvironmentState<T_Config>& environmentState) // contains global break criterias
         {
             for_each(
@@ -230,7 +228,7 @@ namespace alpaka::tune::strategy
             }
             else
             {
-                std::cout << " rejected proposed config as it was slower " << temperature << std::endl;
+                std::cout << " rejected proposed Config as it was slower " << temperature << std::endl;
             }
 #endif
             return std::move(a);
@@ -253,7 +251,7 @@ namespace alpaka::tune::strategy
                 activeKernel.fromConfig(newKernel);
 #endif
                 // toActive(activeKernel, newKernel); -> we dont have to do anything since ActiveKernel is already
-                // in the newKernel config
+                // in the newKernel Config
             }
             else
             {
@@ -337,7 +335,7 @@ namespace alpaka::tune::strategy
         template<typename T_Config>
         bool handleInvalidCases(ConfigEntry<T_Config>& neu, ConfigEntry<T_Config>& old, auto& model)
         {
-            // assumption: model is at the neu config
+            // assumption: model is at the neu Config
             if(neu.state == ConfigState::Dummy || old.state == ConfigState::Dummy)
             {
                 if(neu.state == ConfigState::Dummy && old.state != ConfigState::Dummy)
@@ -481,21 +479,21 @@ namespace alpaka::tune::strategy
                 }
                 else
                 {
-                    model.fromConfig(lastEvalEntry.config);
-                    oldConfig = lastEvalEntry.config;
+                    model.fromConfig(lastEvalEntry.eonfig);
+                    oldConfig = lastEvalEntry.eonfig;
                 }
             }
 
 
 #ifdef SimDebug
-            std::cout << " current config after initial revert: " << oldConfig.toString() << std::endl;
+            std::cout << " current Config after initial revert: " << oldConfig.toString() << std::endl;
             std::cout << " total nr of cache steps: " << totalNrOfCacheSteps << std::endl;
 #endif
 
             while(currentRuns < SimA_MaxCachedSteps)
             {
 #ifdef SimDebug
-                std::cout << "[SimA] Iteration " << currentRuns << " — Old config: " << oldConfig.toString()
+                std::cout << "[SimA] Iteration " << currentRuns << " — Old Config: " << oldConfig.toString()
                           << std::endl;
 #endif
 
@@ -504,7 +502,7 @@ namespace alpaka::tune::strategy
                 T_Config newConfig = model.toConfig();
 
 #ifdef SimDebug
-                std::cout << "[SimA] New config: " << newConfig.toString() << std::endl;
+                std::cout << "[SimA] New Config: " << newConfig.toString() << std::endl;
 #endif
 
                 if(newConfig == oldConfig)
@@ -517,7 +515,7 @@ namespace alpaka::tune::strategy
                 {
                     m_lastReturnedKernel.emplace(newConfig); // store a copy
 #ifdef SimDebug
-                    std::cout << "[SimA] New config found — returning." << std::endl;
+                    std::cout << "[SimA] New Config found — returning." << std::endl;
 #endif
                     return;
                 }
@@ -544,13 +542,13 @@ namespace alpaka::tune::strategy
                 auto newMedian = newEntry.getMetrics().get(median_t{}).template as<t_ns>();
 
 #ifdef SimDebug
-                std::cout << "[SimA] config was actually already evaluated --- whooo." << std::endl;
+                std::cout << "[SimA] Config was actually already evaluated --- whooo." << std::endl;
                 std::cout << "[SimA] Comparing median: old = " << oldMedian << ", new = " << newMedian << std::endl;
 #endif
 
                 acceptNewKernel<T_metricInterface>(oldEntry, newEntry, model, temperature);
 #ifdef SimDebug
-                std::cout << "[SimA] Accepted new config: " << model.toConfig().toString() << "\n" << std::endl;
+                std::cout << "[SimA] Accepted new Config: " << model.toConfig().toString() << "\n" << std::endl;
 #endif
 
                 oldConfig = model.toConfig();
@@ -558,8 +556,8 @@ namespace alpaka::tune::strategy
             }
         }
 
-        // if we already have been to that config we still jump there with the propability function but we go to
-        // the next config afterwards
+        // if we already have been to that Config we still jump there with the propability function but we go to
+        // the next Config afterwards
     };
 #if defined(strategy_bayesianOptimization)
     namespace detail
@@ -615,7 +613,7 @@ namespace alpaka::tune::strategy
         T_metricInterface& metricInterface, // the user specified metricInterface
         KernelTuningModelView<T_TuningModel>& model,
         ConfigStorage<T_Config>&
-            config_storage, // this already returns the config for a specific kernel backend config
+            config_storage, // this already returns the Config for a specific kernel backend Config
         EnvironmentState<T_Config>& environmentState);
 
     // -----------------------------------------------------------------------------
@@ -666,7 +664,7 @@ namespace alpaka::tune::strategy
             std::size_t const h = cfg.toHash();
             auto it = idx_map_.find(h);
 
-            if(it == idx_map_.end()) // new config
+            if(it == idx_map_.end()) // new Config
             {
                 Vec v = encode(ui, cardinality_);
                 RowId row = X_.size();
@@ -772,7 +770,7 @@ namespace alpaka::tune::strategy
             auto& ui_ref = model.getUniformInterface();
             auto snapshot = snapshot_indices(ui_ref); // save param indices
 
-            /* ingest the freshly-measured config & metric ------------------ */
+            /* ingest the freshly-measured Config & metric ------------------ */
             T_Config const cfg = model.toConfig();
             std::size_t const h = cfg.toHash();
             bool gp_dirty = false;
@@ -791,7 +789,7 @@ namespace alpaka::tune::strategy
             if(gp_dirty && !X_.empty())
                 gp_.fit(X_, y_);
 
-            /* maintain candidate pool - the pool of configs from which the suggested config will be selected */
+            /* maintain candidate pool - the pool of configs from which the suggested Config will be selected */
             maintain_pool(metricInterface, model, history, env, snapshot, ui_ref, h);
 
             if(pool_.empty())
@@ -951,7 +949,7 @@ namespace alpaka::tune::strategy
         auto operator()(
             T_metricInterface& metricInterface, // the user specified metricInterface
             KernelTuningModelView<T_TuningModel>& model, // contains tuneables and provides accessors
-            ConfigStorage<T_Config>& config_storage, // this is the history for a specific kernel backend config
+            ConfigStorage<T_Config>& config_storage, // this is the history for a specific kernel backend Config
             EnvironmentState<T_Config>& environmentState) // contains global break criterias
         {
             using T_interface = decltype(model.getUniformInterface());
@@ -1093,7 +1091,7 @@ namespace alpaka::tune::strategy
         auto operator()(
             T_metricInterface& metricInterface, // the user specified metricInterface
             KernelTuningModelView<T_TuningModel>& model, // contains tuneables and provides accessors
-            ConfigStorage<T_Config>& config_storage, // this is the history for a specific kernel backend config
+            ConfigStorage<T_Config>& config_storage, // this is the history for a specific kernel backend Config
             EnvironmentState<T_Config>& environmentState) // contains global break criterias
         {
             exhaustiveSearch{}(metricInterface, model, config_storage, environmentState);
@@ -1145,7 +1143,7 @@ namespace alpaka::tune::strategy
             T_metricInterface& metricInterface, // the user specified metricInterface
             KernelTuningModelView<T_TuningModel>& model,
             ConfigStorage<T_Config>&
-                config_storage, // this already returns the config for a specific kernel backend config
+                config_storage, // this already returns the Config for a specific kernel backend Config
             EnvironmentState<T_Config>& environmentState) // contains
         {
             randomSample{}(metricInterface, model, config_storage, environmentState);
@@ -1162,7 +1160,7 @@ namespace alpaka::tune::strategy
         T_metricInterface& metricInterface, // the user specified metricInterface
         KernelTuningModelView<T_TuningModel>& model,
         ConfigStorage<T_Config>&
-            config_storage, // this already returns the config for a specific kernel backend config
+            config_storage, // this already returns the Config for a specific kernel backend Config
         EnvironmentState<T_Config>& environmentState)
 
     {

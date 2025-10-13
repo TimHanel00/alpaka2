@@ -6,6 +6,7 @@
 #define QUEUE_H
 #include <functional>
 #include <optional>
+#include <queue>
 #include <vector>
 
 namespace alpaka::tune
@@ -109,7 +110,7 @@ namespace alpaka::tune
                 {
 #ifdef Debug
                     std::cout << "[ConfigQueue::get] Slot at index " << currentIndex
-                              << " is fullFlag. Removing. Config: " << cfg.toString() << "\n";
+                              << " is fullFlag. Removing. eonfig: " << cfg.toString() << "\n";
 #endif
                     lastEvaluatedConfigAccessor(std::make_optional(std::ref((cfg))));
                     opt.reset();
@@ -124,14 +125,14 @@ namespace alpaka::tune
                 if(consecutiveCount < maxConsecutiveRuns)
                 {
 #ifdef Debug
-                    std::cout << "[ConfigQueue::get] Returning config at index " << currentIndex
+                    std::cout << "[ConfigQueue::get] Returning Config at index " << currentIndex
                               << " (consecutiveCount = " << consecutiveCount + 1 << ")\n";
 #endif
                     ++consecutiveCount;
                     return cfg;
                 }
 
-                // Move to next config
+                // Move to next Config
                 currentIndex = (currentIndex + 1) % configs.size();
                 consecutiveCount = 0;
 
@@ -139,7 +140,7 @@ namespace alpaka::tune
                 if(nextOpt.has_value())
                 {
 #ifdef Debug
-                    std::cout << "[ConfigQueue::get] Switching to next config at index " << currentIndex
+                    std::cout << "[ConfigQueue::get] Switching to next Config at index " << currentIndex
                               << ". Marking as WarmUp.\n";
 #endif
                     nextOpt.value().get().state = ConfigState::WarmUp;

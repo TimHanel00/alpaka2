@@ -7,7 +7,6 @@
 #define COMPILETIMETEMPLATES_H
 #include <alpaka/Vec.hpp>
 #include <alpaka/tune/traits/traits.hpp>
-#include <alpaka/tune/utils/tupleHash.h>
 
 namespace alpaka::tune
 {

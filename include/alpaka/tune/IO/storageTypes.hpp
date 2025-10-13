@@ -1,117 +1,24 @@
 //
 // Created by tim on 16.03.25.
 //
-
 #ifndef STORAGETYPES_H
-//
-// Created by tim on 16.03.25.
-//
 #define STORAGETYPES_H
-#include "alpaka/core/RemoveRestrict.hpp"
+#include "alpaka/mem/concepts.hpp"
 #include "alpaka/meta/IntegerSequence.hpp"
-#include "alpaka/tune/active/kernelTuningModel.hpp"
+#include "alpaka/tune/concepts.hpp"
+#include "alpaka/tune/tuneable/kernelTuningModel.hpp"
 
+#include <alpaka/tune/IO/config.hpp>
 #include <alpaka/tune/IO/metricContainer.hpp>
 
+#include <assert.h>
+
 #include <cmath>
-#include <numeric>
 #include <queue>
 #include <span>
 #include <variant>
 
-template<typename T_ConfigTuple>
-struct Config
 
-{
-    using TupleType = T_ConfigTuple;
-    constexpr Config() = default;
-
-    constexpr explicit Config(T_ConfigTuple&& vals) : values(std::forward<T_ConfigTuple>(vals))
-    {
-        this->hashVal = computeHash(this->values);
-    }
-
-    constexpr explicit Config(T_ConfigTuple const& vals) : values(vals)
-    {
-        this->hashVal = computeHash(this->values);
-    }
-
-    std::string toString() const
-    {
-        return std::apply([](auto const&... args) { return (std::string{} + ... + args.toString()); }, values);
-    };
-
-    std::size_t toHash() const
-    {
-        return hashVal;
-    }
-
-    constexpr TupleType const& getValues() const
-    {
-        return values;
-    }
-
-    bool operator==(Config const& other) const
-    {
-        return this->toHash() == other.toHash() && this->values == other.values;
-    }
-
-    bool operator!=(Config const& other) const
-    {
-        return !(*this == other);
-    }
-
-    template<typename KModel>
-    static Config fromModel(KModel const& model)
-    {
-        auto tuple = std::apply(
-            [&](auto const&... frameElems)
-            {
-                return std::apply(
-                    [&](auto const&... userElems)
-                    {
-                        return std::apply(
-                            [&](auto const&... compileElems)
-                            {
-                                return std::make_tuple(userElems.value..., frameElems.value..., compileElems.value...);
-                                // here we actually copy by value
-                            },
-                            model.m_compileTimeTuneables);
-                    },
-                    model.m_userTuneables);
-            },
-            model.m_frameTuneables);
-        return Config{tuple};
-    }
-
-private:
-    TupleType values;
-    std::size_t hashVal;
-
-    static constexpr std::size_t computeHash(TupleType const& vals)
-    {
-        return std::apply(
-            [](auto const&... val)
-            {
-                std::size_t seed = 0;
-                (..., (seed ^= hashVec(val) + 0x9e37'79b9 + (seed << 6) + (seed >> 2)));
-                return seed;
-            },
-            vals);
-    }
-
-    template<typename Vec>
-    static constexpr std::size_t hashVec(Vec const& vec)
-    {
-        std::size_t hash = 0;
-        constexpr auto dim = alpaka::getDim(Vec{});
-        for(std::size_t i = 0; i < dim; ++i)
-        {
-            hash ^= std::hash<typename Vec::type>{}(vec[i]) + 0x9e37'79b9 + (hash << 6) + (hash >> 2);
-        }
-        return hash;
-    }
-};
 enum class ConfigState
 {
     Uninitialized,
@@ -120,7 +27,7 @@ enum class ConfigState
     Dummy
 };
 
-// Shared helper to perform Kruskal-Wallis comparison
+// forward declarations
 enum class Comparison;
 template<typename TConfig>
 struct ConfigEntry;
@@ -219,7 +126,7 @@ struct ConfigEntry
         return metrics;
     }
 
-    std::size_t getRunCount() const
+    [[nodiscard]] std::size_t getRunCount() const
     {
         return nr_runs;
     }
@@ -233,6 +140,17 @@ struct ConfigEntry
     static constexpr std::size_t warmUpThreshold = 1;
 };
 
+namespace std
+{
+    template<alpaka::tune::concepts::Integral T, auto N>
+    struct hash<ConfigEntry<Config<T, N>>>
+    {
+        std::size_t operator()(ConfigEntry<Config<T, N>> const& c) const noexcept
+        {
+            return std::hash{c.config};
+        }
+    };
+} // namespace std
 // Shared helper to perform Kruskal-Wallis comparison
 enum class Comparison
 {
@@ -251,7 +169,7 @@ enum class Comparison
 template<typename T_Config>
 inline Comparison kruskalCompare(ConfigEntry<T_Config>& current, ConfigEntry<T_Config>& other)
 {
-    using T_state = ALPAKA_TYPEOF(current.state);
+    using T_state = decltype(current.state);
     if(other.state == T_state::Dummy)
     {
         return Comparison::Dummy;
@@ -339,7 +257,7 @@ public:
 
     bool remove(ConfigEntry<TConfig> const& configEntry)
     {
-        return entries.erase(configEntry.config) > 0;
+        return entries.erase(configEntry.eonfig) > 0;
     }
 
     uint32_t size()
@@ -354,7 +272,7 @@ public:
 
     bool contains(ConfigEntry<TConfig> const& config) const
     {
-        return entries.contains(config.config);
+        return entries.contains(config.eonfig);
     }
 
     bool contains(TConfig const& config) const
@@ -363,30 +281,18 @@ public:
     }
 
 private:
-    std::unordered_map<TConfig, Entry> entries;
+    std::unordered_map<TConfig, Entry> entries{};
 };
-
-namespace std
-{
-    template<typename... Ts>
-    struct hash<Config<Ts...>>
-    {
-        std::size_t operator()(Config<Ts...> const& c) const
-        {
-            auto hash = c.toHash();
-            return hash;
-        }
-    };
-} // namespace std
 
 /*
  * This class is associated with a certain tuning context.
  */
-template<typename TConfig, typename T_ConfigDescriptor>
+template<typename TConfig, typename T_ParameterAccessor>
 struct KernelData
 {
     ConfigStorage<TConfig> configEntries;
-    T_ConfigDescriptor descriptor;
+    //contains metaData of tuneables and types
+    T_ParameterAccessor descriptor;
     std::string device;
     std::string executor;
     std::string kernel;
@@ -399,55 +305,6 @@ struct KernelData
     std::size_t maxRuns{0};
 };
 
-template<typename T_Vec>
-requires(alpaka::isVector_v<T_Vec>)
-struct ConfigDescriptorEntry
-{
-    std::string name;
-    ConfigDescriptorEntry() = default;
-    static constexpr std::size_t dimension = alpaka::getDim(T_Vec{});
-    using type = typename T_Vec::type;
-    using vecType = T_Vec;
-
-    explicit ConfigDescriptorEntry(std::string name_) : name(std::move(name_))
-    {
-    }
-};
-
-template<typename... TVec>
-struct ConfigDescriptor
-{
-    using Entries = std::tuple<ConfigDescriptorEntry<TVec>...>;
-    Entries entries;
-    ConfigDescriptor() = default;
-
-    explicit ConfigDescriptor(std::tuple<ConfigDescriptorEntry<TVec>...> v) : entries(std::move(v))
-    {
-    }
-
-    static constexpr std::size_t size = sizeof...(TVec);
-};
-template<typename Tuple>
-struct DescriptorFromAllTuneables;
-
-template<typename... Tuneables>
-struct DescriptorFromAllTuneables<std::tuple<Tuneables...>>
-{
-    using type = ConfigDescriptor<ConfigDescriptorEntry<typename std::remove_cvref_t<Tuneables>::ValueType>...>;
-};
-
-template<typename Tuple>
-auto buildDescriptorFromTuneables(Tuple&& tuneables)
-{
-    return std::apply(
-        [](auto const&... tune)
-        {
-            return ConfigDescriptor<typename std::remove_cvref_t<decltype(tune)>::ValueType...>(std::make_tuple(
-                ConfigDescriptorEntry<typename std::remove_cvref_t<decltype(tune)>::ValueType>{tune.name()}...));
-        },
-        tuneables);
-}
-
 template<typename KernelTuningModel>
 auto createKernelDataFromModel(
     KernelTuningModel& model,
@@ -457,25 +314,16 @@ auto createKernelDataFromModel(
     std::vector<std::string> const& sessionSpecs,
     std::string const& targetMetric = "time")
 {
-    // Step 1: Flatten allTuneables
-    auto all = model.allTuneables(); // tuple<Tuneable<T_Vec, ...>...>
-
-    // Step 2: Build Config<Ts...> and Descriptor<...> from tuneables
-    using TConfig = decltype(Config{model.allValues()});
-    using TupleOfVecs = decltype(std::apply(
-        [](auto const&... t) { return std::tuple<typename std::remove_cvref_t<decltype(t)>::ValueType...>{}; },
-        all));
-
-
-    using TDescriptor = decltype(buildDescriptorFromTuneables(all));
+    using TConfig = decltype(ConfigDescriptor<std::remove_cvref_t<KernelTuningModel>>::getEmptyConfig());
+    using T_ParameterAccessor = decltype(model.getValuesFromConfig(TConfig{}));
     // Step 3: Construct and return KernelData
-    KernelData<TConfig, TDescriptor> data{};
+    KernelData<TConfig, T_ParameterAccessor> data{};
     data.kernel = bundle;
     data.device = device;
     data.executor = exec;
     data.targetMetric = targetMetric;
     data.specifiers = sessionSpecs;
-    data.descriptor = buildDescriptorFromTuneables(all);
+    data.description = model.getValuesFromConfig(TConfig{});
     return data;
 }
 

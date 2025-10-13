@@ -94,10 +94,10 @@ namespace alpaka::tune::utils
         return false;
     }
 
-    // overload for generic usage (for Vec and non-vec types)
-    constexpr auto allTrue(bool a)
+    // overload for generic usage (for non-vec types)
+    constexpr auto allTrue(bool const a)
     {
-        return std::move(a);
+        return a;
     }
 
     template<alpaka::concepts::Vector T_Vec>

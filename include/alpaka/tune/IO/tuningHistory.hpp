@@ -198,11 +198,11 @@ namespace alpaka::tune
                         std::get<I>(tuple) = parsed;
                     });
 
-                auto config = Config<decltype(tuple)>{std::move(tuple)};
+                auto config = config<decltype(tuple)>{std::move(tuple)};
                 auto& entry = kernelData.configEntries.getOrCreate(std::move(config));
 
 #ifdef Debug
-                std::cout << "[parseKernelRuns] Inserted config:\n" << entry.toString() << "\n";
+                std::cout << "[parseKernelRuns] Inserted Config:\n" << entry.toString() << "\n";
 #endif
 
                 // Metrics
@@ -383,7 +383,7 @@ namespace alpaka::tune
 
 
 #ifdef Debug
-            std::cout << "[loadConfig] Parsing config with " << nr_StakeHolders << " stakeholders left.\n";
+            std::cout << "[loadConfig] Parsing Config with " << nr_StakeHolders << " stakeholders left.\n";
 #endif
 
             try
@@ -502,7 +502,7 @@ namespace alpaka::tune
 
             // --- Runs
 #ifdef Debug
-            std::cout << "[storeConfig] Writing config entries\n";
+            std::cout << "[storeConfig] Writing Config entries\n";
 #endif
             toml::array runs;
             for(auto& [config, entry] : kernelData.configEntries.getAll())

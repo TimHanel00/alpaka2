@@ -8,10 +8,8 @@
 
 
 #        include <alpaka/math/constants.hpp>
-#        include <alpaka/tune/active/constraint.hpp>
-#        include <alpaka/tune/active/sessionBuilder.h>
-#        include <alpaka/tune/active/updateMetric.hpp>
-#        include <alpaka/tune/utils/TimeEvent.hpp>
+#        include <alpaka/tune/core/peripherals/constraint.hpp>
+#        include <alpaka/tune/core/sessionBuilder.hpp>
 #        include <alpaka/tune/utils/compileTimeTemplates.hpp>
 
 namespace alpaka
@@ -40,46 +38,46 @@ namespace alpaka
     }
 
     /*
-     *converts a frameSpec to a KernelTuningModel
+     *converts a frameSpec to a ConfigDescriptor
      *returns wether any part of the frameSpec was larger than the specified idxRange of the tuneable
      **/
     template<typename T_FrameSpec, typename... T_Args>
-    static void addSpecToRun(KernelTuningModel<T_Args...>& kernelRun, T_FrameSpec& spec)
+    static void addSpecToRun(ConfigDescriptor<T_Args...>& kernelRun, T_FrameSpec& spec)
     {
-        if constexpr(KernelTuningModel<T_Args...>::hasNumFramesTune())
+        if constexpr(ConfigDescriptor<T_Args...>::hasNumFramesTune())
         {
             kernelRun.getNumFramesTune().inputList.push_back(spec.m_numFrames);
         }
-        if constexpr(KernelTuningModel<T_Args...>::hasFrameExtentTune())
+        if constexpr(ConfigDescriptor<T_Args...>::hasFrameExtentTune())
         {
             kernelRun.getFrameExtentTune().inputList.push_back(spec.m_frameExtent);
         }
-        if constexpr(KernelTuningModel<T_Args...>::hasNumBlocksTune())
+        if constexpr(ConfigDescriptor<T_Args...>::hasNumBlocksTune())
         {
             kernelRun.getNumBlocksTune().inputList.push_back(spec.m_threadSpec.m_numBlocks);
         }
-        if constexpr(KernelTuningModel<T_Args...>::hasThreadBlockSizeTune())
+        if constexpr(ConfigDescriptor<T_Args...>::hasThreadBlockSizeTune())
         {
             kernelRun.getThreadBlockSizeTune().inputList.push_back(spec.m_threadSpec.m_numThreads);
         }
     }
 
     template<typename T_FrameSpec, typename... T_Args>
-    static T_FrameSpec& applyCustomThreadSpec(KernelTuningModel<T_Args...>& kernelRun, T_FrameSpec& spec)
+    static T_FrameSpec& applyCustomThreadSpec(ConfigDescriptor<T_Args...>& kernelRun, T_FrameSpec& spec)
     {
-        if constexpr(KernelTuningModel<T_Args...>::hasNumFramesTune())
+        if constexpr(ConfigDescriptor<T_Args...>::hasNumFramesTune())
         {
             spec.m_numFrames = kernelRun.getNumFramesTune().value;
         }
-        if constexpr(KernelTuningModel<T_Args...>::hasFrameExtentTune())
+        if constexpr(ConfigDescriptor<T_Args...>::hasFrameExtentTune())
         {
             spec.m_frameExtent = kernelRun.getFrameExtentTune().value;
         }
-        if constexpr(KernelTuningModel<T_Args...>::hasNumBlocksTune())
+        if constexpr(ConfigDescriptor<T_Args...>::hasNumBlocksTune())
         {
             spec.m_threadSpec.m_numBlocks = kernelRun.getNumBlocksTune().value;
         }
-        if constexpr(KernelTuningModel<T_Args...>::hasThreadBlockSizeTune())
+        if constexpr(ConfigDescriptor<T_Args...>::hasThreadBlockSizeTune())
         {
             spec.m_threadSpec.m_numThreads = kernelRun.getThreadBlockSizeTune().value;
         }
@@ -107,7 +105,7 @@ namespace alpaka::tune::detail::internal
 
         T_Device device,
         T_Exec exec,
-        alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent,T_ThreadExtent> const& frameSpec,
+        alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent, T_ThreadExtent> const& frameSpec,
         T_KernelBundle const& kernelBundle,
         T_Strategy& strategy,
         T_Interface& metricInterface,
@@ -155,7 +153,7 @@ namespace alpaka::tune::detail::internal
                 if(run.second.state == ConfigState::Dummy || run.second.fullFlag)
                     continue;
 
-                auto& stored = run.second; // here we are certain the config is valid but not yet fully evaluated.
+                auto& stored = run.second; // here we are certain the Config is valid but not yet fully evaluated.
                 kernelptr->env_config_queue.push_back(stored);
             }*/
             if(environment_state.globalBreakCriteriaFinished())
@@ -168,7 +166,7 @@ namespace alpaka::tune::detail::internal
 
 #        define maxConsecutiveStrategyRuns 4000
 
-    // Check if a m_strategy should be applied and config should be skipped
+    // Check if a m_strategy should be applied and Config should be skipped
 
 
     // Validate constraint or mark as Dummy
@@ -197,7 +195,7 @@ namespace alpaka
         T_Strategy m_strategy;
         T_MetricInterface m_metricInterface;
         T_Constraints m_constraint;
-        KernelTuningModel<T_KernelRunArgs...> m_run;
+        ConfigDescriptor<T_KernelRunArgs...> m_run;
 
         uint32_t finishedConfigs = 0;
         T_Integer dynamicRuns_Nr{0};
@@ -214,7 +212,7 @@ namespace alpaka
             std::size_t reRuns,
             std::size_t dynamicRuns,
             std::vector<std::string> sessionSpecifiers,
-            KernelTuningModel<T_KernelRunArgs...> const& kernel_run)
+            ConfigDescriptor<T_KernelRunArgs...> const& kernel_run)
             : m_strategy(std::forward<T_Strategy>(strategy))
             , m_metricInterface(std::move(interface))
             , m_constraint(std::move(constraints))
@@ -274,7 +272,7 @@ namespace alpaka
         auto enqueue(
             T_Queue& queue,
             T_Exec exec,
-            onHost::FrameSpec<T_NumFrames, T_FrameExtent,T_ThreadSpec>& frameSpec,
+            onHost::FrameSpec<T_NumFrames, T_FrameExtent, T_ThreadSpec>& frameSpec,
             T_KernelBundle const& kernelBundle)
         {
             auto* environmentPtr = tune::detail::internal::setup_enqueue<T_MetricInterface>(
