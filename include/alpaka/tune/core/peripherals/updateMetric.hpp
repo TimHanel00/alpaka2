@@ -54,7 +54,7 @@ namespace alpaka::tune::detail::internal
 
         case ConfigState::Dummy:
 #ifdef Debug
-            std::cout << "  -> State is Dummy. Skipping update.\n";
+            std::cout << "  -> State is Invalid. Skipping update.\n";
 #endif
             return;
         case ConfigState::Initialized:

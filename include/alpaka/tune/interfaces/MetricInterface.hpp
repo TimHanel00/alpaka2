@@ -6,7 +6,9 @@
 #define METRICINTERFACE_H
 // #include "alpaka/tune/IO/storageTypes.hpp"
 
+#include <cmath>
 #include <thread>
+#include <vector>
 
 namespace alpaka::tune
 {
@@ -84,17 +86,6 @@ namespace alpaka::tune
             }
         };
     } // namespace metricInterface
-
-    namespace concepts
-    {
-        template<typename T>
-        concept MetricInterface = requires(T t) {
-            { t.returnComparison } -> std::convertible_to<detail::returnComparison>;
-            { t.start() } -> std::same_as<void>;
-            { t.end() } -> std::same_as<double_t>;
-            //{ t.end(std::declval<R&>(), std::declval<S&>()) } -> std::same_as<void>;
-        }; // namespace concepts
-    } // namespace concepts
 
     // wraps any type of metric (usually double) and adds overloads according to
     template<typename T_Metric>

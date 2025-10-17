@@ -6,57 +6,75 @@
 #define CONFIG_H
 #include <alpaka/tune/concepts.hpp>
 
+#include <cassert>
 #include <cmath>
 
-template<alpaka::tune::concepts::Integral T, uint32_t NumTunables>
-struct Config
+namespace alpaka::tune::config
 {
-    using value_type = T;
-    std::array<value_type, NumTunables> config{};
-
-    explicit Config(std::array<value_type, NumTunables> const& config) : config(config)
+    template<alpaka::tune::concepts::Integral T, uint32_t NumTunables>
+    struct Config
     {
-        static_assert(NumTunables > 0, " A parameter configuration can not be empty!");
-    };
+        using value_type = T;
+        std::array<value_type, NumTunables> config{};
+        static constexpr auto size = NumTunables;
+        Config() = default;
 
-    bool operator==(Config const& other) const noexcept
-    {
-        return config == other.config;
-    }
-};
+        explicit Config(std::array<value_type, NumTunables> const& config) : config(config) {};
 
-template<alpaka::tune::concepts::Floating T, uint32_t NumTunables>
-struct NormalizedConfig
-{
-    using value_type = T;
-    std::array<value_type, NumTunables> config{};
-
-    explicit NormalizedConfig(std::array<value_type, NumTunables> const& config) : config(config)
-    {
-        static_assert(NumTunables > 0, " A parameter configuration can not be empty!");
-        for(auto const& val : config)
+        bool operator==(Config const& other) const noexcept
         {
-            assert(0.0 <= val && val <= 1.0, "normalized Config values have to be between 0.0 and 1.0!");
+            return config == other.config;
+        }
+
+        value_type const& operator[](std::size_t i) const
+        {
+            assert(i < size);
+            return config[i];
         }
     };
 
-    bool operator==(NormalizedConfig const& other) const noexcept
+    template<alpaka::tune::concepts::Floating T, uint32_t NumTunables>
+    struct NormalizedConfig
     {
-        // compare with tolerance for floating point
-        constexpr double eps = 1e-9;
-        for(std::size_t i = 0; i < NumTunables; ++i)
-            if(std::fabs(config[i] - other.config[i]) > eps)
-                return false;
-        return true;
-    }
-};
+        using value_type = T;
+        std::array<value_type, NumTunables> config{};
+        static constexpr auto size = NumTunables;
+        NormalizedConfig() = default;
+
+        explicit NormalizedConfig(std::array<value_type, NumTunables> const& config) : config(config)
+        {
+            for(auto const& val : config)
+            {
+                assert(0.0 <= val && val <= 1.0);
+            }
+        };
+
+        bool operator==(NormalizedConfig const& other) const noexcept
+        {
+            // compare with tolerance for floating point
+            constexpr double eps = 1e-9;
+            for(std::size_t i = 0; i < NumTunables; ++i)
+                if(std::fabs(config[i] - other.config[i]) > eps)
+                    return false;
+            return true;
+        }
+
+        value_type const& operator[](std::size_t i) const
+        {
+            return config[i];
+        }
+    };
+
+    template<typename T, std::size_t N>
+    Config(std::array<T, N>) -> Config<T, N>;
+} // namespace alpaka::tune::config
 
 namespace std
 {
     template<alpaka::tune::concepts::Integral T, auto N>
-    struct hash<Config<T, N>>
+    struct hash<alpaka::tune::config::Config<T, N>>
     {
-        std::size_t operator()(Config<T, N> const& c) const noexcept
+        std::size_t operator()(alpaka::tune::config::Config<T, N> const& c) const noexcept
         {
             std::size_t seed = 0;
             std::hash<T> hasher;
@@ -70,6 +88,5 @@ namespace std
     };
 } // namespace std
 
-template<typename T, std::size_t N>
-Config(std::array<T, N>) -> Config<T, N>;
+
 #endif // CONFIG_H

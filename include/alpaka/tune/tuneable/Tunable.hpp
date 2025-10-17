@@ -8,7 +8,7 @@
 #include "alpaka/tune/utils/tupleHelper.hpp"
 
 #include <alpaka/concepts.hpp>
-#include <alpaka/tune/concepts.hpp>
+#include <alpaka/tune/tuneable/tuneableHelper.hpp>
 #include <alpaka/tune/utils/VecUtils.hpp>
 
 #include <algorithm>
@@ -17,93 +17,6 @@
 
 namespace alpaka::tune
 {
-
-    namespace detail
-    {
-        enum class SpecialTuneableID : std::size_t
-        {
-            userDef = 3123,
-            numBlocks = 4321,
-            numThreads = 7124,
-            numFrames = 1238,
-            frameExtent = 3748,
-            NoTune = 1489,
-            DefaultCompileTune = 43279,
-            Count
-        };
-    } // namespace detail
-
-    namespace detail
-    {
-
-        template<std::size_t N>
-        std::string getNameFromTag_comp()
-        {
-            static int numCompileTuneables = 0;
-            if(N == static_cast<std::size_t>(SpecialTuneableID::DefaultCompileTune))
-            {
-                return "C_Tunable " + std::to_string(numCompileTuneables++);
-            }
-            return "C_Tunable " + std::to_string(N);
-        }
-
-        // this is runtime
-        template<std::size_t N>
-        std::string getNameFromTag()
-        {
-            static int numUserTuneables = 0;
-
-            switch(N)
-            {
-            case static_cast<std::size_t>(SpecialTuneableID::userDef):
-                return "Tunable " + std::to_string(numUserTuneables++);
-            case static_cast<std::size_t>(SpecialTuneableID::numBlocks):
-                return "NumBlocksTune";
-            case static_cast<std::size_t>(SpecialTuneableID::numThreads):
-                return "ThreadBlockTune";
-            case static_cast<std::size_t>(SpecialTuneableID::numFrames):
-                return "NumFramesTune";
-            case static_cast<std::size_t>(SpecialTuneableID::frameExtent):
-                return "FrameExtentTune";
-            default:
-                break;
-            }
-            return "Tunable " + std::to_string(N);
-        }
-
-        struct NoTune
-        {
-            [[nodiscard]] static NoTune copy()
-            {
-                return NoTune{};
-            }
-
-            [[nodiscard]] static std::string toHash()
-            {
-                return "";
-            }
-        };
-
-        template<typename T>
-        constexpr bool is_NoTune_v = std::is_same_v<T, NoTune>;
-
-        inline constexpr alpaka::tune::detail::NoTune noTune{};
-    } // namespace detail
-
-    template<typename TuneableA, typename TuneableB>
-    constexpr bool isSameTuneable(TuneableA const& a, TuneableB const& b)
-    {
-        return TuneableA::tag == TuneableB::tag;
-    }
-
-    /**
-     * @brief kind of tuneable to ease compile-time handling**/
-    enum class TunableKind
-    {
-        TunableMD,
-        Tunable,
-        CTunable
-    };
 
     template<uint32_t ID, typename T, auto Dim, TunableKind kind, typename T_Storage>
     struct BaseTunable
@@ -161,6 +74,7 @@ namespace alpaka::tune
         static_assert(sizeof...(T) > 0, "CTunable requires at least one Parameter");
         using Tuple = std::tuple<T...>;
         using Values = Tuple; // this is the constexpr compile-time payload
+        using value_type = std::tuple_element_t<0, std::tuple<T...>>;
 
         template<std::size_t I>
         static constexpr auto getValueByIndex()
@@ -564,7 +478,7 @@ namespace alpaka::tune
     };
 
     /**
-     * @namespace frameTune
+     * @namespace frame
      * @brief Contains predefined identifier constants for special frameSpec-related tuneables.
      * They can be used to define constraints between frame related tuneables,
      * without the need to manual define identfier.
@@ -575,13 +489,13 @@ namespace alpaka::tune
      * { return frameElems%threads==0; };
      *
      */
-    namespace frameTune
+    namespace frame
     {
         static constexpr uint32_t numBlocks(static_cast<uint32_t>(detail::SpecialTuneableID::numBlocks));
         static constexpr uint32_t numThreads(static_cast<uint32_t>(detail::SpecialTuneableID::numThreads));
         static constexpr uint32_t numFrames(static_cast<uint32_t>(detail::SpecialTuneableID::numFrames));
         static constexpr uint32_t frameExtent(static_cast<uint32_t>(detail::SpecialTuneableID::frameExtent));
-    } // namespace frameTune
+    } // namespace frame
 
     // namespace alpaka::tune
 

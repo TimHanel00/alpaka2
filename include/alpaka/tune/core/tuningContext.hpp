@@ -21,45 +21,6 @@
 #include <utility>
 #define Tuner_MaxConsecutiveStrategyFailures 20000
 
-template<typename TuneablesTuple, typename ExpandedTuple>
-void printTuneableDimensions(TuneablesTuple const& allTuneables, ExpandedTuple const& expandedTuneables)
-{
-    for_each_enumerate(
-        expandedTuneables,
-        [&](auto const& wrapper, std::size_t)
-        {
-            visitIndex(
-                wrapper.id,
-                allTuneables,
-                [&](auto const& tuneable)
-                {
-                    std::cout << tuneable.name() << "_" << wrapper.dim << " = [ ";
-
-                    for(std::size_t i = 0; i < wrapper.list.size(); ++i)
-                    {
-                        std::cout << wrapper.list[i];
-                        if(i + 1 < wrapper.list.size())
-                            std::cout << ", ";
-                    }
-
-                    std::cout << " ]" << std::endl;
-                });
-        });
-}
-
-template<typename... Tuneables>
-void makeListsForAllTuneables(std::tuple<Tuneables...>&& allTuneables)
-{
-    std::apply(
-        [](auto&... tuns)
-        {
-            (void) std::initializer_list<int>{
-                (tuns.valueList = tuns.makeList(), 0)... // discard result
-            };
-        },
-        allTuneables);
-}
-
 template<typename... Tuneables>
 auto expand(std::tuple<Tuneables...>& tuneables)
 {
@@ -111,53 +72,54 @@ void shrinkTuningSpace(std::tuple<Tuneables...>&& allTuneables, std::size_t init
 
     while(initialMaxRuns > alpaka::tune::getMaxConfigs())
     {
-        std::vector<std::pair<std::size_t, std::size_t>> maxRunsVec;
-
-        for_each_enumerate(
-            expandedTuneables,
-            [&](auto& wrapper, std::size_t index) { maxRunsVec.emplace_back(wrapper.list.size(), index); });
-
-        std::sort(maxRunsVec.begin(), maxRunsVec.end(), std::greater<>());
-
-        std::size_t maxIndex = maxRunsVec.front().second;
-
-        bool shouldContinue = true;
-
-        visitIndex(
-            maxIndex,
-            expandedTuneables,
-            [&](auto& wrapper)
-            {
-                if(wrapper.list.size() < 2)
-                {
-                    shouldContinue = false;
-                    return;
-                }
-
-                bool removed = removeAllMatchingIndices(
-                    allTuneables,
-                    maxIndex,
-                    expandedTuneables,
-                    [](std::size_t i) { return (i & 1) == 1; } // odd indices
-                );
-
-                // fallback if nothing removed
-                if(!removed)
-                {
-                    removeAllMatchingIndices(
-                        allTuneables,
-                        maxIndex,
-                        expandedTuneables,
-                        [](std::size_t i) { return (i & 1) == 0; } // even indices
-                    );
-                }
-            });
-
-        if(!shouldContinue)
-            break;
-
-        initialMaxRuns = 1;
-        for_each(allTuneables, [&](auto& tunable) { initialMaxRuns *= tunable.numSteps(); });
+        //@TODO reimplement with new tuneable interface, ensure m_numValues is recalculated, use model as parameter
+        // std::vector<std::pair<std::size_t, std::size_t>> maxRunsVec;
+        //
+        // for_each_enumerate(
+        //     expandedTuneables,
+        //     [&](auto& wrapper, std::size_t index) { maxRunsVec.emplace_back(wrapper.list.size(), index); });
+        //
+        // std::sort(maxRunsVec.begin(), maxRunsVec.end(), std::greater<>());
+        //
+        // std::size_t maxIndex = maxRunsVec.front().second;
+        //
+        // bool shouldContinue = true;
+        //
+        // visitIndex(
+        //     maxIndex,
+        //     expandedTuneables,
+        //     [&](auto& wrapper)
+        //     {
+        //         if(wrapper.list.size() < 2)
+        //         {
+        //             shouldContinue = false;
+        //             return;
+        //         }
+        //
+        //         bool removed = removeAllMatchingIndices(
+        //             allTuneables,
+        //             maxIndex,
+        //             expandedTuneables,
+        //             [](std::size_t i) { return (i & 1) == 1; } // odd indices
+        //         );
+        //
+        //         // fallback if nothing removed
+        //         if(!removed)
+        //         {
+        //             removeAllMatchingIndices(
+        //                 allTuneables,
+        //                 maxIndex,
+        //                 expandedTuneables,
+        //                 [](std::size_t i) { return (i & 1) == 0; } // even indices
+        //             );
+        //         }
+        //     });
+        //
+        // if(!shouldContinue)
+        //     break;
+        //
+        // initialMaxRuns = 1;
+        // for_each(allTuneables, [&](auto& tunable) { initialMaxRuns *= tunable.numSteps(); });
     }
 #ifdef debug
     printTuneableDimensions(allTuneables, expandedTuneables);
@@ -510,9 +472,9 @@ inline std::string flattenSessionSpecifier(std::vector<std::string> const& vec)
 }
 
 template<
-    typename T_Device,
+    typename T_Queue,
     typename T_Exec,
-    typename T_NumFrames,
+    typename T_TuneSpec,
     typename T_FrameExtent,
     typename T_ThreadSpec,
     typename T_KernelBundle,
@@ -522,9 +484,9 @@ template<
     typename T_Run,
     typename T_SessionSpecifier>
 auto& getTuningEnvironment(
-    T_Device device,
+    T_Queue queue,
     T_Exec exec,
-    alpaka::onHost::FrameSpec<T_NumFrames, T_FrameExtent, T_ThreadSpec> const& spec,
+    T_TuneSpec const& spec,
     T_KernelBundle bundle,
     T_Strategy& strategy,
     T_MetricInterface& metric_interface,

@@ -17,7 +17,7 @@
 #include <type_traits>
 
 using namespace alpaka; // Vec, CVec, IdxRange etc.
-using namespace alpaka::tune; // Tunable, TunableMD, CTunable, frameTune, TunableKind
+using namespace alpaka::tune; // Tunable, TunableMD, CTunable, frame, TunableKind
 
 // ------------------------------------------------------------
 // Smoke: construct minimal models of different shapes
@@ -35,15 +35,15 @@ TEST_CASE("KernelTuningModel - construct models of varying dimensionality", "[KT
     using C2 = std::tuple<>;
 
     auto u2 = std::tuple{Tunable<2001, uint32_t>{{1u, 2u}, 2u, "algoVariant"}};
-    auto f2 = std::tuple{TunableMD<frameTune::numBlocks>({{2u, 3u}, {4u, 5u}}, std::nullopt, "Blocks")};
+    auto f2 = std::tuple{TunableMD<frame::numBlocks>({{2u, 3u}, {4u, 5u}}, std::nullopt, "Blocks")};
     KernelTuningModel m2{f2, u2, C2{}};
 
     // 4D: frame: NumFrames (Vec<2>) + FrameExtent (Vec<2>), user: scalar (1D), compile-time: scalar (1D)
 
     auto u3 = std::tuple{Tunable<3001>{{4u, 8u, 16u}, 8u, "tileY"}};
     auto f3 = std::tuple{
-        TunableMD<frameTune::numFrames>{{{1u, 1u}, {2u, 1u}, {3u, 1u}}},
-        TunableMD<frameTune::frameExtent>{{64u, 32u}, {128u, 64u}}};
+        TunableMD<frame::numFrames>{{{1u, 1u}, {2u, 1u}, {3u, 1u}}},
+        TunableMD<frame::frameExtent>{{64u, 32u}, {128u, 64u}}};
     using C3 = std::tuple<CTunable<3001, CVec<uint32_t, 3u, 4u>>>;
     KernelTuningModel m3{f3, u3, C3{}};
 
@@ -61,12 +61,12 @@ TEST_CASE("KernelTuningModel - hasTuneableTag utilities", "[KTM][introspection]"
     using C = std::tuple<CTunable<5002, CVec<double, 1.0>, CVec<double, 2.5>>>;
 
     KernelTuningModel m{
-        std::tuple{Tunable<frameTune::numBlocks>({Vec<uint32_t, 1>{1u}, Vec<uint32_t, 1>{2u}}, std::nullopt, "nb")},
+        std::tuple{Tunable<frame::numBlocks>({Vec<uint32_t, 1>{1u}, Vec<uint32_t, 1>{2u}}, std::nullopt, "nb")},
         std::tuple{Tunable<5001>{{10u, 20u}, 10u, "u"}},
         C{}};
 
     STATIC_REQUIRE(decltype(m)::hasUserTuneable<5001>());
-    STATIC_REQUIRE(decltype(m)::hasFrameTuneable<frameTune::numBlocks>());
+    STATIC_REQUIRE(decltype(m)::hasFrameTuneable<frame::numBlocks>());
     STATIC_REQUIRE(decltype(m)::hasTuneable<5001>());
     STATIC_REQUIRE_FALSE(decltype(m)::hasFrameExtentTune());
 }
@@ -75,7 +75,7 @@ struct Dummy;
 
 TEST_CASE("KernelTuningModel - minimal valueRetrieval", "[KTM][accessors]")
 {
-    auto f = std::tuple{Tunable<frameTune::numBlocks, uint32_t>{{{1u}, {2u}, {4u}}, std::nullopt, "Blocks"}};
+    auto f = std::tuple{Tunable<frame::numBlocks, uint32_t>{{{1u}, {2u}, {4u}}, std::nullopt, "Blocks"}};
     KernelTuningModel m{f, std::tuple{}, std::tuple{}};
     constexpr std::size_t dims = decltype(m)::numDims;
     Config<uint32_t, dims> cfg{{
@@ -84,7 +84,7 @@ TEST_CASE("KernelTuningModel - minimal valueRetrieval", "[KTM][accessors]")
     REQUIRE(dims == 1 /*numBlocks uint32_t*/);
     auto accessors = m.getValuesFromConfig(cfg);
     auto& a0 = std::get<0>(accessors); // numBlocks
-    CHECK(a0.ID == frameTune::numBlocks);
+    CHECK(a0.ID == frame::numBlocks);
     CHECK(a0.kind == TunableKind::Tunable);
     CHECK(a0.m_name == "Blocks");
     static_assert(std::is_same_v<std::remove_cvref_t<decltype(a0.m_value)>, uint32_t>);
@@ -101,8 +101,8 @@ TEST_CASE(
 {
     // frame tuneables (1D + 2D)
     auto f = std::tuple{
-        Tunable<frameTune::numBlocks, uint32_t>{{{1u}, {2u}, {4u}}, std::nullopt, "Blocks"},
-        TunableMD<frameTune::numThreads>{{{8u, 4u}, {16u, 8u}}, std::nullopt, "Threads"}};
+        Tunable<frame::numBlocks, uint32_t>{{{1u}, {2u}, {4u}}, std::nullopt, "Blocks"},
+        TunableMD<frame::numThreads>{{{8u, 4u}, {16u, 8u}}, std::nullopt, "Threads"}};
 
     // user tuneables
     auto u = std::tuple{Tunable<6001, uint32_t>{{3u, 6u, 9u}, 6u, "factor"}};
@@ -144,8 +144,8 @@ TEST_CASE(
 
     // frame tuneables (1D + 2D)
     auto f = std::tuple{
-    Tunable<frameTune::numBlocks>{{{1u}, {2u}, {4u}}, std::nullopt, "Blocks"},
-    TunableMD<frameTune::ThreadBlock>{{{8u, 4u}, {16u, 8u}}, std::nullopt, "Threads"}};
+    Tunable<frame::numBlocks>{{{1u}, {2u}, {4u}}, std::nullopt, "Blocks"},
+    TunableMD<frame::ThreadBlock>{{{8u, 4u}, {16u, 8u}}, std::nullopt, "Threads"}};
 
     // compile-time tuneables (2D)
     auto c = std::tuple{CTune2D<6002>{}};*/
@@ -154,7 +154,7 @@ TEST_CASE(
 
     // Check IDs & kinds
     auto& a0 = std::get<0>(accessors); // numBlocks
-    CHECK(a0.ID == frameTune::numBlocks);
+    CHECK(a0.ID == frame::numBlocks);
     CHECK(a0.kind == TunableKind::Tunable);
     CHECK(a0.m_name == "Blocks");
     static_assert(std::is_same_v<std::remove_cvref_t<decltype(a0.m_value)>, uint32_t>);
@@ -187,7 +187,7 @@ TEST_CASE(
 TEST_CASE("KernelTuningModel - getValuesFor* subsets return the right slice", "[KTM][slices]")
 {
     auto m = KernelTuningModel{
-        std::tuple{TunableMD<frameTune::numFrames>{{{1u, 1u}, {2u, 3u}}, std::nullopt, "NF"}},
+        std::tuple{TunableMD<frame::numFrames>{{{1u, 1u}, {2u, 3u}}, std::nullopt, "NF"}},
         std::tuple{Tunable<10, uint32_t>{{5u, 10u}, 10u, "u"}},
         std::tuple{CTunable<1000u, CVec<double, 1.0>, CVec<double, 2.5>>{}}};
     static_assert(decltype(m)::numDims == 4);
@@ -221,13 +221,13 @@ TEST_CASE("KernelTuningModel - applyToFrameSpec writes fields correctly", "[KTM]
 {
     KernelTuningModel m{
         std::tuple{
-            tune::Tunable<frameTune::numBlocks, Vec<uint32_t, 2>>({{2u, 5u}, {4u, 8u}, {8u, 2u}}, std::nullopt, "nb"),
-            TunableMD<frameTune::numFrames>({{1u, 1u}, {2u, 1u}}, std::nullopt, "nf"),
-            TunableMD<frameTune::numThreads>(
+            tune::Tunable<frame::numBlocks, Vec<uint32_t, 2>>({{2u, 5u}, {4u, 8u}, {8u, 2u}}, std::nullopt, "nb"),
+            TunableMD<frame::numFrames>({{1u, 1u}, {2u, 1u}}, std::nullopt, "nf"),
+            TunableMD<frame::numThreads>(
                 {Vec<uint32_t, 2>{8u, 4u}, Vec<uint32_t, 2>{16u, 8u}},
                 std::nullopt,
                 "tb"),
-            TunableMD<frameTune::frameExtent>(
+            TunableMD<frame::frameExtent>(
                 {Vec<uint32_t, 2>{128u, 64u}, Vec<uint32_t, 2>{256u, 128u}},
                 std::nullopt,
                 "fe")},
@@ -288,8 +288,8 @@ TEST_CASE("KernelTuningModel - edge cases: single-value dims", "[KTM][edges]")
         Tunable<10001, uint32_t>{{7u}, 7u, "single"},
         Tunable<10002, uint32_t>{{0u, 1u}, 1u, "boolAsIdx"}};
     auto f = std::tuple{
-        TunableMD<frameTune::numFrames>({{1u, 1u}}, std::nullopt, "one"),
-        TunableMD<frameTune::numThreads>({{32u, 1u}}, std::nullopt, "tb1")};
+        TunableMD<frame::numFrames>({{1u, 1u}}, std::nullopt, "one"),
+        TunableMD<frame::numThreads>({{32u, 1u}}, std::nullopt, "tb1")};
 
     KernelTuningModel m{f, u, {}};
 
@@ -306,7 +306,7 @@ TEST_CASE("KernelTuningModel - getConfigSubset_CompileTuneables returns correct 
     // Model composition: 1 frame + 1 user + 2 compile-time tuneables
     // ------------------------------------------------------------------------
     auto frame
-        = std::tuple{tune::Tunable<frameTune::numBlocks, uint32_t>{{{1u}, {2u}, {4u}}, std::nullopt, "numBlocks"}};
+        = std::tuple{tune::Tunable<frame::numBlocks, uint32_t>{{{1u}, {2u}, {4u}}, std::nullopt, "numBlocks"}};
 
     auto user = std::tuple{tune::Tunable<42, uint32_t>{{10u, 20u, 30u}, 20u, "userParam"}};
 

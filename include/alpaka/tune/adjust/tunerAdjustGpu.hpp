@@ -22,7 +22,7 @@ namespace alpaka::tune
     struct tunerAdjust::Op<
         alpaka::onHost::Device<T_Platform, T_Kind>,
         T_Mapping,
-        alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads,T_ThreadSpec>,
+        alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads, T_ThreadSpec>,
         T_KernelRun>
     {
         auto operator()(
@@ -33,7 +33,7 @@ namespace alpaka::tune
         {
             auto newRun = kernelRun;
             using T_newActiveRunType = ALPAKA_TYPEOF(newRun);
-            if constexpr(T_newActiveRunType::hasThreadBlockSizeTune())
+            if constexpr(T_newActiveRunType::hasNumThreadsTune())
             {
                 if(!newRun.getThreadBlockSizeTune().userDef)
                 {

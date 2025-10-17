@@ -91,7 +91,7 @@ using Vec3u = alpaka::Vec<uint32_t, 3u>;
 
 TEST_CASE("TunableMD - construction from initializer list", "[TunableMD]")
 {
-    TunableMD<Vec2u> tmd{{{1u, 10u}, {2u, 20u}, {3u, 15u}}, std::optional<Vec2u>{{2u, 20u}}, "InitListTuneable"};
+    TunableMD tmd{{{1u, 10u}, {2u, 20u}, {3u, 15u}}, std::optional<Vec2u>{{2u, 20u}}, "InitListTuneable"};
 
     CHECK(tmd.getName() == "InitListTuneable");
 
@@ -113,7 +113,7 @@ TEST_CASE("TunableMD - construction from initializer list", "[TunableMD]")
 TEST_CASE("TunableMD - construction from vector of Vec", "[TunableMD]")
 {
     std::vector<Vec2u> v = {{1u, 10u}, {4u, 40u}, {2u, 20u}};
-    TunableMD<Vec2u> tmd(v, std::nullopt, "VectorTuneable");
+    TunableMD tmd(v, std::nullopt, "VectorTuneable");
 
     CHECK(tmd.getName() == "VectorTuneable");
     auto numVals = tmd.getNumValues();
@@ -132,7 +132,7 @@ TEST_CASE("TunableMD - construction from IdxRange", "[TunableMD]")
     Vec3u stride{1, 2, 2};
     alpaka::IdxRange<Vec3u> range(begin, end, stride);
 
-    TunableMD<Vec3u> tmd(range, std::nullopt, "RangeTuneable");
+    TunableMD tmd(range, std::nullopt, "RangeTuneable");
 
     CHECK(tmd.getName() == "RangeTuneable");
 
@@ -145,7 +145,7 @@ TEST_CASE("TunableMD - construction from IdxRange", "[TunableMD]")
 TEST_CASE("TunableMD - findStartingIndex valid value", "[TunableMD]")
 {
     Vec2u start{2u, 20u};
-    TunableMD<Vec2u> tmd{{{1u, 10u}, {2u, 20u}, {3u, 30u}}, start, ""};
+    TunableMD<1000, Vec2u> tmd{{{1u, 10u}, {2u, 20u}, {3u, 30u}}, start, ""};
 
     CHECK(tmd.startingIndex.has_value());
     auto idx = tmd.startingIndex.value();
@@ -156,7 +156,7 @@ TEST_CASE("TunableMD - findStartingIndex valid value", "[TunableMD]")
 TEST_CASE("TunableMD - findStartingIndex invalid value", "[TunableMD]")
 {
     Vec2u start{999u, 999u};
-    TunableMD<Vec2u> tmd{{{1u, 10u}, {2u, 20u}, {3u, 30u}}, start};
+    TunableMD<100, Vec2u> tmd{{{1u, 10u}, {2u, 20u}, {3u, 30u}}, start};
 
     CHECK(!tmd.startingIndex.has_value());
 }
@@ -165,7 +165,7 @@ TEST_CASE("TunableMD - 3D consistency check", "[TunableMD]")
 {
     std::vector<Vec3u> space = {{1u, 10u, 100u}, {2u, 20u, 200u}, {3u, 30u, 300u}};
 
-    TunableMD<Vec3u> tmd(space, std::nullopt, "3DTest");
+    TunableMD<90, Vec3u> tmd(space, std::nullopt, "3DTest");
 
     CHECK(tmd.getNumValues()[0] == 3u);
     CHECK(tmd.getNumValues()[1] == 3u);
@@ -186,7 +186,7 @@ TEST_CASE("TunableMD - 3D consistency check", "[TunableMD]")
 ///
 TEST_CASE("Tunable basic construction from initializer list", "[Tunable]")
 {
-    auto t = Tunable<int, 1001u>{{1, 2, 3, 4, 5}};
+    auto t = Tunable<1001u, int>{{1, 2, 3, 4, 5}};
     CHECK(t.getNumValues()[0] == 5);
     CHECK(t.getValueByIndex({0u}) == 1);
     CHECK(t.getValueByIndex({4u}) == 5);
@@ -195,7 +195,7 @@ TEST_CASE("Tunable basic construction from initializer list", "[Tunable]")
 
 TEST_CASE("Tunable with explicit name and starting value", "[Tunable]")
 {
-    Tunable<int, 2001> t({10, 20, 30, 40}, 30, "MyIntTuneable");
+    Tunable<2001, int> t({10, 20, 30, 40}, 30, "MyIntTuneable");
     CHECK(t.getName() == "MyIntTuneable");
     CHECK(t.getNumValues()[0] == 4);
     CHECK(t.startingIndex.has_value());
@@ -205,7 +205,7 @@ TEST_CASE("Tunable with explicit name and starting value", "[Tunable]")
 TEST_CASE("Tunable constructed from vector", "[Tunable]")
 {
     std::vector<int> vals = {3, 6, 9};
-    Tunable<int, 3001> t(vals, 6, "VectorTuneable");
+    Tunable<3001, int> t(vals, 6, "VectorTuneable");
     CHECK(t.getName() == "VectorTuneable");
     CHECK(t.getNumValues()[0] == 3);
     CHECK(t.startingIndex == std::optional<uint32_t>{1u});
@@ -217,7 +217,7 @@ TEST_CASE("Tunable constructed from IdxRange", "[Tunable]")
     using alpaka::IdxRange;
     using Vec1 = alpaka::Vec<uint32_t, 1>;
     auto range = IdxRange{Vec1{1u}, Vec1{5u}, Vec1{1u}}; // generates [1,2,3,4,5]
-    auto tune = Tunable<Vec1>(range, Vec1{3u}, "RangeTuneable");
+    auto tune = Tunable<80, Vec1>(range, Vec1{3u}, "RangeTuneable");
     CHECK(tune.getName() == "RangeTuneable");
     CHECK(tune.getNumValues()[0] == 5);
     CHECK(tune.startingIndex == std::optional<uint32_t>{2u});
@@ -226,7 +226,7 @@ TEST_CASE("Tunable constructed from IdxRange", "[Tunable]")
 
 TEST_CASE("Tunable handles missing starting value gracefully", "[Tunable]")
 {
-    Tunable<int, 5001> t({1, 2, 3}, 999, "InvalidStart");
+    Tunable<5001, int> t({1, 2, 3}, 999, "InvalidStart");
     CHECK_FALSE(t.startingIndex.has_value());
 }
 
@@ -234,7 +234,7 @@ TEST_CASE("Tunable with Vec type", "[Tunable][Vec]")
 {
     using Vec2 = alpaka::Vec<unsigned int, 2>;
     std::vector<Vec2> values = {Vec2{1u, 2u}, Vec2{3u, 4u}, Vec2{5u, 6u}};
-    Tunable<Vec2, 6001> t(values, Vec2{3u, 4u}, "VecTuneable");
+    Tunable<6001, Vec2> t(values, Vec2{3u, 4u}, "VecTuneable");
 
     CHECK(t.getName() == "VecTuneable");
     CHECK(t.getNumValues()[0] == 3);
