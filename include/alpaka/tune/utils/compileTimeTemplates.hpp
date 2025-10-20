@@ -6,6 +6,7 @@
 
 #define COMPILETIMETEMPLATES_H
 #include <alpaka/Vec.hpp>
+#include <alpaka/tune/concepts.hpp>
 #include <alpaka/tune/traits/traits.hpp>
 
 namespace alpaka::tune
@@ -374,6 +375,19 @@ namespace alpaka::tune
 
     namespace CompileTimeHelpers
     {
+        template<typename KernelFn>
+        constexpr auto getCTunables()
+        {
+            if constexpr(trait::hasUserDefinedCTuneable<KernelFn>::value)
+            {
+                return trait::RegisteredCTuneables<KernelFn>::unwrappedCTuneableTuples;
+            }
+            else
+            {
+                return std::tuple{};
+            }
+        }
+
         template<typename Tuple, typename Fn, std::size_t... Is>
         void runtime_tuple_dispatch_impl(std::size_t i, Tuple& tup, Fn&& fn, std::index_sequence<Is...>)
         {
@@ -383,12 +397,12 @@ namespace alpaka::tune
                 throw std::out_of_range("Index out of range");
         }
 
-        template<typename KernelFn, auto Dim, concepts::Integral Integral>
-        inline Integral calculateRowMajorIndex(std::array<Integral, Dim> const& indicies)
+        template<typename KernelFn, alpaka::tune::concepts::Integral IntType, auto Dim>
+        inline IntType calculateRowMajorIndex(std::array<IntType, Dim> const& indicies)
         {
             using sizes_T = typename trait::RegisteredCTuneables<KernelFn>::Sizes;
             constexpr auto sizes = to_array(sizes_T{});
-            Integral idx = 0;
+            IntType idx = 0;
             static_assert(
                 Dim == sizes_T::size(),
                 "Input Index for Kernel Variant Access does not match expected sizes!");
@@ -399,8 +413,8 @@ namespace alpaka::tune
             return idx;
         }
 
-        template<typename KernelFn, auto Dim, concepts::Integral Integral, typename Fn>
-        void runtime_Kernel_dispatch(std::array<Integral, Dim> const& indicies, Fn&& fn)
+        template<typename KernelFn, auto Dim, concepts::Integral IntType, typename Fn>
+        void runtime_Kernel_dispatch(std::array<IntType, Dim> const& indicies, Fn&& fn)
         {
             static constexpr auto variants =
                 typename trait::RegisteredCTuneables<std::decay_t<KernelFn>>::T_KernelVariants{};

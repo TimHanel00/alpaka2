@@ -4,10 +4,11 @@
 #ifndef TUNINGSESSION_H
 #define TUNINGSESSION_H
 
-#include <alpaka/tune/core/peripherals/constraint.hpp>
+#include "alpaka/onHost/Queue.hpp"
+
 #include <alpaka/tune/core/sessionBuilder.hpp>
-#include <alpaka/tune/tuneable/frameSpecTuningModel.hpp>
-#include <alpaka/tune/tuneable/kernelTuningModel.hpp>
+#include <alpaka/tune/core/tuningContext.hpp>
+#include <alpaka/tune/tunable/frameSpecTuningModel.hpp>
 #include <alpaka/tune/utils/compileTimeTemplates.hpp>
 
 #include <utility>
@@ -21,23 +22,25 @@ namespace alpaka::tune::detail::internal
         typename T_FrameSpecTuningModel,
         typename T_Session>
     auto* setup_enqueue(
-        T_Queue& queue,
-        T_Exec exec,
+        T_Queue const& queue,
+        T_Exec const& exec,
         T_FrameSpecTuningModel const& frameSpecTune,
         T_KernelBundle const& kernelBundle,
         T_Session const& session)
     {
-        static auto* kernelptr = getTuningEnvironment(queue, exec, frameSpecTune, kernelBundle, session).get();
+        static auto* kernelptr
+            = alpaka::tune::core::getTuningEnvironment(queue, exec, frameSpecTune, kernelBundle, session).get();
         auto& data = kernelptr->env_kernelData;
         // always use the same context unless session specifier change.
-        if(session.sessionSpecifier != data.specifiers)
+        if(session.m_sessionSpecifier != data.specifiers)
         {
-            kernelptr = getTuningEnvironment(queue, exec, frameSpecTune, kernelBundle, session).get();
+            kernelptr
+                = alpaka::tune::core::getTuningEnvironment(queue, exec, frameSpecTune, kernelBundle, session).get();
         }
         if(!data.histEvaluated)
         {
             data.histEvaluated = true;
-            auto& environment_state = kernelptr->environmentState;
+            auto& environment_state = kernelptr->env_environmentState;
             if(environment_state.globalBreakCriteriaFinished())
             {
                 environment_state.sessionFinished = true;
@@ -61,7 +64,7 @@ namespace alpaka::tune::detail::internal
 namespace alpaka::tune
 {
     template<
-        concepts::Strategy T_Strategy = tune::strategy::randomSearch,
+        typename T_Strategy = tune::strategy::randomSearch,
         concepts::MetricInterface T_MetricInterface = tune::metricInterface::Timing,
         typename T_Constraints = std::tuple<>>
     struct TuningSession
@@ -69,8 +72,8 @@ namespace alpaka::tune
         T_Strategy m_strategy;
         T_MetricInterface m_metricInterface;
         T_Constraints m_constraintTuple;
-        std::string config;
-        std::vector<std::string> sessionSpecifier;
+        std::string m_outputFile;
+        std::vector<std::string> m_sessionSpecifier;
         TuningSession() = default;
         uint32_t finishedEnvironment = 0;
 
@@ -83,8 +86,8 @@ namespace alpaka::tune
             : m_strategy(strategy)
             , m_metricInterface(interface)
             , m_constraintTuple(constraints)
-            , config(std::move(config))
-            , sessionSpecifier(sessionSpecifiers)
+            , m_outputFile(std::move(config))
+            , m_sessionSpecifier(sessionSpecifiers)
         {
         }
 
@@ -92,7 +95,6 @@ namespace alpaka::tune
          * @param queue
          * @param exec
          * @param frameSpecTune
-         * @param frameSpec
          * @param kernelBundle the compute kernel and there arguments
          */
         template<
@@ -104,14 +106,14 @@ namespace alpaka::tune
             typename T_BlockTune,
             typename T_KernelBundle>
         auto enqueue(
-            T_Queue& queue,
-            T_Exec exec,
-            FrameSpecTuningModel<T_FramesTune, T_FrameExtentTune, T_ThreadTune, T_BlockTune> const& frameSpecTune,
+            T_Queue const& queue,
+            T_Exec const& exec,
+            FrameSpecTuningModel<T_FramesTune, T_FrameExtentTune, T_ThreadTune, T_BlockTune>&& frameSpecTune,
             T_KernelBundle const& kernelBundle)
         {
-            auto* environmentPtr
-                = tune::detail::internal::setup_enqueue<T_MetricInterface>(queue, exec, frameSpecTune, *this);
-
+            using bar_frame = std::remove_cvref_t<
+                FrameSpecTuningModel<T_FramesTune, T_FrameExtentTune, T_ThreadTune, T_BlockTune>>;
+            auto* environmentPtr = tune::detail::internal::setup_enqueue(queue, exec, frameSpecTune, *this);
             bool bef = environmentPtr->readyForTerminate;
             environmentPtr->launch(queue, exec, frameSpecTune, kernelBundle);
             if(bef != environmentPtr->readyForTerminate)
@@ -134,9 +136,9 @@ namespace alpaka::tune
             typename T_ThreadSpec,
             typename T_KernelBundle>
         auto enqueue(
-            T_Queue& queue,
-            T_Exec exec,
-            onHost::FrameSpec<T_NumFrames, T_FrameExtent, T_ThreadSpec>& frameSpec,
+            T_Queue const& queue,
+            T_Exec const& exec,
+            onHost::FrameSpec<T_NumFrames, T_FrameExtent, T_ThreadSpec> const& frameSpec,
             T_KernelBundle const& kernelBundle)
         {
             return enqueue(queue, exec, FrameSpecTuningModel{frameSpec}, kernelBundle);
@@ -152,7 +154,7 @@ namespace alpaka::tune
         }
     };
 
-    // KernelData stores Tuneable parameters as objects
+    // KernelTuningMetadata stores Tuneable parameters as objects
 
     /*
      * is holding

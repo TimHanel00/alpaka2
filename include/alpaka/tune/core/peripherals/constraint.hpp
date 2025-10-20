@@ -3,7 +3,7 @@
 //
 #ifndef CONSTRAINT_HPP
 #define CONSTRAINT_HPP
-#include "alpaka/tune/tuneable/kernelTuningModel.hpp"
+#include "alpaka/tune/tunable/kernelTuningModel.hpp"
 
 #include <iostream>
 #include <tuple> // for std::tuple

@@ -11,61 +11,84 @@
 
 namespace alpaka::tune
 {
-    template<
-        typename T_Platform,
-        typename T_Kind,
-        typename T_Mapping,
-        typename T_NumBlocks,
-        typename T_NumThreads,
-        typename T_ThreadSpec,
-        typename T_KernelRun>
-    struct tunerAdjust::Op<
-        alpaka::onHost::Device<T_Platform, T_Kind>,
-        T_Mapping,
-        alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads, T_ThreadSpec>,
-        T_KernelRun>
+    template<typename T_Platform, typename T_Kind, typename T_Mapping, typename T_FrameSpecTuningModel>
+    struct tunerAdjust::Op<alpaka::onHost::Device<T_Platform, T_Kind>, T_Mapping, T_FrameSpecTuningModel>
     {
         auto operator()(
             alpaka::onHost::Device<T_Platform, T_Kind>& device,
             T_Mapping const& executor,
-            alpaka::onHost::FrameSpec<T_NumBlocks, T_NumThreads, T_ThreadSpec> const& dataBlocking,
-            T_KernelRun& kernelRun)
+            T_FrameSpecTuningModel&& frameTuningModel)
         {
-            auto newRun = kernelRun;
-            using T_newActiveRunType = ALPAKA_TYPEOF(newRun);
-            if constexpr(T_newActiveRunType::hasNumThreadsTune())
+            using Spec = std::remove_cvref_t<decltype(frameTuningModel.m_spec)>;
+            using NumBlocks = typename Spec::ThreadSpecType::NumBlocksVecType;
+            using NumThreads = typename Spec::ThreadSpecType::NumThreadsVecType;
+
+            // ---------- numThreads tuning (using multipleOfPartitioning) ----------
+            if constexpr(
+                T_FrameSpecTuningModel::hasNumThreadsTune()
+                && alpaka::tune::concepts::shallowTunable<
+                    std::remove_cvref_t<decltype(frameTuningModel.getNumThreadsTune())>>)
             {
-                if(!newRun.getThreadBlockSizeTune().userDef)
-                {
-                    newRun.getThreadBlockSizeTune().idxRange.m_begin
-                        = primeFactorPartitioning(device.getDeviceProperties().m_warpSize, T_NumThreads{});
-                    // if(dataBlocking.m_frameExtent.product()<alpaka::onHost::getDeviceProperties(device).m_maxThreadsPerBlock)
-                    newRun.getThreadBlockSizeTune().idxRange.m_end = multipleOfPartitioning(
-                        device.getDeviceProperties().m_maxThreadsPerBlock,
-                        newRun.getThreadBlockSizeTune().idxRange.m_begin);
-                    newRun.getThreadBlockSizeTune().idxRange.m_stride
-                        = newRun.getThreadBlockSizeTune().idxRange.m_begin;
-                }
+                auto begin = primeFactorPartitioning(device.getDeviceProperties().m_warpSize, NumThreads{});
+                auto end = multipleOfPartitioning(device.getDeviceProperties().m_maxThreadsPerBlock, begin);
+                auto stride = begin;
+
+                auto numThreadsTune = TunableMD<tune::frame::numThreads>{alpaka::IdxRange(begin, end, stride)};
+
+                // keep other tunables as-is
+                auto neuSpec = FrameSpecTuningModel{
+                    frameTuningModel.m_spec,
+                    frameTuningModel.getNumFramesTune(),
+                    frameTuningModel.getFrameExtentTune(),
+                    frameTuningModel.getNumBlocksTune(),
+                    std::move(numThreadsTune)};
+
+                using DevT = decltype(device);
+                using ExecT = decltype(executor);
+                return tunerAdjust::Op<DevT, ExecT, decltype(neuSpec)>{}(device, executor, neuSpec);
             }
-#    define minNumBlocks 10
-#    define maxNumBlocks 20
-            if constexpr(T_newActiveRunType::hasNumBlocksTune())
+
+            // ---------- numBlocks tuning (use boundedPartitionExpansion) ----------
+            else if constexpr(
+                T_FrameSpecTuningModel::hasNumBlocksTune()
+                && alpaka::tune::concepts::shallowTunable<
+                    std::remove_cvref_t<decltype(frameTuningModel.getNumBlocksTune())>>)
             {
-                if(!newRun.getNumBlocksTune().userDef)
-                {
-                    auto partitionedMultiprocessors
-                        = primeFactorPartitioning(device.getDeviceProperties().m_multiProcessorCount, T_NumBlocks{});
-                    auto nonConstnumFrames = dataBlocking.m_numFrames;
-                    extendInputListFromPartition(
-                        newRun.getNumBlocksTune(),
-                        dataBlocking.m_numFrames,
-                        partitionedMultiprocessors,
-                        4,
-                        8);
-                    newRun.getNumBlocksTune().hasRange = false;
-                }
+                // seed by multiprocessor count
+                auto partitionedMP
+                    = primeFactorPartitioning(device.getDeviceProperties().m_multiProcessorCount, NumBlocks{});
+
+                // generate candidate list using your vector-producing helper
+                // (min/max steps can be adjusted to match your original 4..8 behaviour)
+                auto values = boundedPartitionExpansion<NumBlocks>(
+                    frameTuningModel.m_spec.m_numFrames, // max
+                    partitionedMP, // partition base
+                    /*minSteps*/ 4,
+                    /*maxSteps*/ 8);
+
+                auto numBlocksTune = TunableMD<tune::frame::numBlocks>{std::move(values)};
+
+                auto neuSpec = FrameSpecTuningModel{
+                    frameTuningModel.m_spec,
+                    frameTuningModel.getNumFramesTune(),
+                    frameTuningModel.getFrameExtentTune(),
+                    std::move(numBlocksTune),
+                    frameTuningModel.getNumThreadsTune()};
+
+                using DevT = decltype(device);
+                using ExecT = decltype(executor);
+                return tunerAdjust::Op<DevT, ExecT, decltype(neuSpec)>{}(device, executor, neuSpec);
             }
-            return std::make_pair(dataBlocking.getThreadSpec(), newRun);
+            else
+            {
+                // ---------- nothing to adjust; pass-through ----------
+                return FrameSpecTuningModel{
+                    frameTuningModel.m_spec,
+                    frameTuningModel.getNumFramesTune(),
+                    frameTuningModel.getFrameExtentTune(),
+                    frameTuningModel.getNumBlocksTune(),
+                    frameTuningModel.getNumThreadsTune()};
+            }
         }
     };
 }; // namespace alpaka::tune

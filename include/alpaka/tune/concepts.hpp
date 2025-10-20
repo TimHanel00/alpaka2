@@ -5,9 +5,9 @@
 #ifndef CONCEPTS_H
 #define CONCEPTS_H
 
-
+// #include <alpaka/tune/IO/runTimeHistory.hpp>
 #include <alpaka/tune/interfaces/MetricInterface.hpp>
-#include <alpaka/tune/tuneable/Tunable.hpp>
+#include <alpaka/tune/tunable/Tunable.hpp>
 
 namespace alpaka::tune::concepts
 {
@@ -38,6 +38,8 @@ namespace alpaka::tune::config
 namespace alpaka::tune::concepts
 {
     template<typename T>
+    concept shallowTunable = std::is_same_v<detail::ShallowTunableDummy<T::tag>, T>;
+    template<typename T>
     concept runtimeTuneable =
         // must have a static member `tuneableType`
         requires {
@@ -56,8 +58,13 @@ namespace alpaka::tune::concepts
         { t.end() } -> std::same_as<double_t>;
         //{ t.end(std::declval<R&>(), std::declval<S&>()) } -> std::same_as<void>;
     }; // namespace concepts
+
+
     template<typename T>
-    concept Strategy = std::invocable<T>;
+    concept Config = std::is_convertible_v<T, config::Config<typename T::value_type, T::size>>
+                     || std::is_convertible_v<T, config::NormalizedConfig<typename T::value_type, T::size>>;
+
+
     template<typename T>
     concept KernelTuningModel = requires(T t) {
         // static member

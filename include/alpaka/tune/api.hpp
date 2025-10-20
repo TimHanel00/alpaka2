@@ -4,7 +4,11 @@
 
 #ifndef API_H
 #define API_H
-#include "alpaka/tune/tuneable/generators.hpp"
+#include <alpaka/tune/core/sessionBuilder.hpp>
+#include <alpaka/tune/core/tuningSession.hpp>
+#include <alpaka/tune/tunable/Tunable.hpp>
+#include <alpaka/tune/tunable/generators.hpp>
+
 // #include "alpaka/tune/tuneable/tuneable.hpp"
 //    #include "alpaka/tune/active/tuningSession.hpp"
 

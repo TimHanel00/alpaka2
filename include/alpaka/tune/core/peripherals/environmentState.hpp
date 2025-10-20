@@ -4,56 +4,110 @@
 
 #ifndef ENVIRONMENTSTATE_H
 #define ENVIRONMENTSTATE_H
+#include <alpaka/tune/IO/runTimeHistory.hpp>
 
-template<typename T_Config>
-struct environmentState
+#include <cstdint>
+
+namespace alpaka::tune::core::peripherals
 {
-    bool sessionFinished{false};
-    bool strategyFinished{false};
-    uint32_t numberOfCheckedConfigs{0};
-    uint32_t numValidConfigs{0};
-    uint32_t maxValidEvaluations{UINT32_MAX};
-    uint32_t maxConfigsTotal{0};
-    uint32_t stamp{0};
-    uint32_t strategyLimit = Tuner_MaxConsecutiveStrategyFailures;
+#define Tuner_MaxConsecutiveStrategyFailures 20000
 
-    auto setStrategyFinished() -> void
+    template<typename T_Config>
+    struct EnvironmentState
     {
-        strategyFinished = true;
-    }
+        bool sessionFinished{false};
+        bool strategyFinished{false};
+        uint32_t numberOfCheckedConfigs{0};
+        uint32_t numValidConfigs{0};
+        uint32_t maxValidEvaluations{UINT32_MAX};
+        uint32_t maxConfigsTotal{0};
+        uint32_t stamp{0};
+        uint32_t strategyLimit = Tuner_MaxConsecutiveStrategyFailures;
 
-    bool strategyCriteriaReached(std::optional<uint32_t> currentIndex = std::nullopt)
-    {
-        if(currentIndex.has_value())
+        auto setStrategyFinished() -> void
         {
-            if(currentIndex >= strategyLimit)
-            {
-                strategyFinished = true;
-            }
+            strategyFinished = true;
         }
-        return strategyFinished;
-    }
 
-    std::optional<std::reference_wrapper<ConfigEntry<T_Config>>> bestConfig;
+        bool strategyCriteriaReached(std::optional<uint32_t> currentIndex = std::nullopt)
+        {
+            if(currentIndex.has_value())
+            {
+                if(currentIndex >= strategyLimit)
+                {
+                    strategyFinished = true;
+                }
+            }
+            return strategyFinished;
+        }
 
-    auto& getBestConfig()
-    {
-        return bestConfig.value().get();
-    }
+        /**
+         * @brief Update the tracked best configuration with a new candidate.
+         *
+         * Compares @p config_entry against the current best (if any) using
+         * @p T_MetricInterface and replaces the best when appropriate. Skips
+         * candidates without full results and promotes entries that have collected measurements
+         * over those that do not.
+         *
+         * @tparam T_MetricInterface  Metric policy used to compare two configs.
+         * @param  config_entry       Candidate configuration to consider.
+         *
+         * @pre stored.getMetrics() is not empty.
+         */
+        template<typename T_MetricInterface>
+        void updateBestConfig(config::ConfigRecord<T_Config>& config_entry)
+        {
+            // Precondition: we expect to have collected some metrics already.
+            assert(!stored.getMetrics().empty());
 
-    uint32_t getMaxEvals() const
-    {
-        return std::min(maxValidEvaluations, maxConfigsTotal);
-    }
+            // If a best configuration already exists...
+            if(bestConfig.has_value())
+            {
+                // Current best (by reference, since bestConfig holds a reference_wrapper)
+                auto& before = bestConfig->get();
 
-    bool globalBreakCriteriaFinished()
-    {
-        return numValidConfigs >= maxValidEvaluations || numberOfCheckedConfigs >= maxConfigsTotal;
-    }
+                // A) Current best has no metrics, new candidate does -> promote immediately.
+                if(before.getMetrics().empty() && !config_entry.getMetrics().empty())
+                {
+                    bestConfig.emplace(std::ref(config_entry));
+                    return;
+                }
 
-    bool localBreakCriteriaFinished(auto const& config)
-    {
-        return config.fullFlag;
-    }
-};
+                // B) New candidate isn't complete -> ignore it.
+                if(!config_entry.fullFlag)
+                    return;
+
+                // C) Both comparable -> keep the better one according to the metric interface.
+                auto& better = compareGetBest<T_MetricInterface>(before, config_entry);
+                bestConfig.emplace(std::ref(better));
+                return;
+            }
+
+            // No best yet -> initialize with this candidate.
+            bestConfig.emplace(std::ref(config_entry));
+        }
+
+        std::optional<std::reference_wrapper<alpaka::tune::config::ConfigRecord<T_Config>>> bestConfig;
+
+        auto& getBestConfig()
+        {
+            return bestConfig.value().get();
+        }
+
+        [[nodiscard]] uint32_t getMaxEvals() const
+        {
+            return std::min(maxValidEvaluations, maxConfigsTotal);
+        }
+
+        bool globalBreakCriteriaFinished()
+        {
+            return numValidConfigs >= maxValidEvaluations || numberOfCheckedConfigs >= maxConfigsTotal;
+        }
+
+        bool localBreakCriteriaFinished(auto const& config)
+        {
+            return config.fullFlag;
+        }
+    };
+} // namespace alpaka::tune::core::peripherals
 #endif // ENVIRONMENTSTATE_H

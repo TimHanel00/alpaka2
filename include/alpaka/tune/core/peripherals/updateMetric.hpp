@@ -4,11 +4,11 @@
 
 #ifndef UPDATEMETRIC_H
 #define UPDATEMETRIC_H
-#include <alpaka/tune/IO/storageTypes.hpp>
+#include <alpaka/tune/IO/runTimeHistory.hpp>
 #include <alpaka/tune/interfaces/MetricInterface.hpp>
 #include <alpaka/tune/interfaces/environmentVars.hpp>
 
-namespace alpaka::tune::detail::internal
+namespace alpaka::tune::core::peripherals
 {
     template<typename T_MetricInterface, typename T_ConfigEntry>
     void assignBestIfBetter(T_ConfigEntry& best, T_ConfigEntry& stored)
@@ -32,8 +32,8 @@ namespace alpaka::tune::detail::internal
 
     template<typename T_MetricInterface, typename T_Config, typename T_Descriptor>
     inline void updateMetrics(
-        ConfigEntry<T_Config>& stored,
-        KernelData<T_Config, T_Descriptor>& data,
+        config::ConfigRecord<T_Config>& stored,
+        IO::KernelTuningMetadata<T_Config, T_Descriptor>& data,
         auto& state,
         double metric)
     {
@@ -45,20 +45,20 @@ namespace alpaka::tune::detail::internal
 
         switch(stored.state)
         {
-        case ConfigState::Uninitialized:
+        case config::ConfigState::Uninitialized:
             stored.stamp = data.highestStamp + state.stamp++;
 #ifdef Debug
             std::cout << "  -> State is Uninitialized. Assigned stamp: " << stored.stamp << "\n";
 #endif
             break;
 
-        case ConfigState::Dummy:
+        case config::ConfigState::Invalid:
 #ifdef Debug
             std::cout << "  -> State is Invalid. Skipping update.\n";
 #endif
             return;
-        case ConfigState::Initialized:
-        case ConfigState::WarmUp:
+        case config::ConfigState::Initialized:
+        case config::ConfigState::WarmUp:
         default:
 #ifdef Debug
             std::cout << "  -> State is Initialized or evaluated. Proceeding.\n";
@@ -105,7 +105,7 @@ namespace alpaka::tune::detail::internal
                 }
                 else
                 {
-                    alpaka::tune::detail::internal::assignBestIfBetter<T_MetricInterface>(
+                    alpaka::tune::core::peripherals::assignBestIfBetter<T_MetricInterface>(
                         state.getBestConfig(),
                         stored);
                 }
@@ -137,12 +137,12 @@ namespace alpaka::tune::detail::internal
                 }
                 else
                 {
-                    alpaka::tune::detail::internal::assignBestIfBetter<T_MetricInterface>(
+                    alpaka::tune::core::peripherals::assignBestIfBetter<T_MetricInterface>(
                         state.getBestConfig(),
                         stored);
                 }
             }
         }
     }
-} // namespace alpaka::tune::detail::internal
+} // namespace alpaka::tune::core::peripherals
 #endif // UPDATEMETRIC_H

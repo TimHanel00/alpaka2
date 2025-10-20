@@ -4,9 +4,9 @@
 
 #ifndef STRATEGY_HPP
 #define STRATEGY_HPP
-#include <alpaka/tune/IO/storageTypes.hpp>
-#include <alpaka/tune/interfaces/MetricInterface.hpp>
-#include <alpaka/tune/interfaces/environmentVars.hpp>
+#include "alpaka/tune/core/strategyContext.hpp"
+
+#include <alpaka/tune/core/peripherals/environmentState.hpp>
 #include <alpaka/tune/utils/Random.hpp>
 
 #if defined(strategy_bayesianOptimization)
@@ -54,7 +54,7 @@ namespace alpaka::tune::strategy
         // auto operator()(
         //     T_metricInterface& metricInterface, // the user specified metricInterface
         //     KernelTuningModelView<T_TuningModel>& model, // contains tuneables and provides accessors
-        //     ConfigStorage<T_Config>& config_storage, // this is the history for a specific kernel backend Config
+        //     ActiveHistory<T_Config>& config_storage, // this is the history for a specific kernel backend Config
         //     EnvironmentState<T_Config>& environmentState) // contains global break criterias
         // {
         //     for_each(
@@ -167,7 +167,7 @@ namespace alpaka::tune::strategy
         //         auto operator()(
         //             T_metricInterface& metricInterface, // the user specified metricInterface
         //             KernelTuningModelView<T_TuningModel>& model, // contains tuneables and provides accessors
-        //             ConfigStorage<T_Config>& config_storage, // this is the history for a specific kernel backend
+        //             ActiveHistory<T_Config>& config_storage, // this is the history for a specific kernel backend
         //             Config EnvironmentState<T_Config>& environmentState) // contains global break criterias
         //         {
         //             using T_interface = decltype(model.getUniformInterface());
@@ -241,7 +241,7 @@ namespace alpaka::tune::strategy
         // auto operator()(
         //     T_metricInterface& metricInterface, // the user specified metricInterface
         //     KernelTuningModelView<T_TuningModel>& model, // contains tuneables and provides accessors
-        //     ConfigStorage<T_Config>& config_storage, // this is the history for a specific kernel backend Config
+        //     ActiveHistory<T_Config>& config_storage, // this is the history for a specific kernel backend Config
         //     EnvironmentState<T_Config>& environmentState) // contains global break criterias
         // {
         //     exhaustiveSearch{}(metricInterface, model, config_storage, environmentState);
@@ -288,22 +288,16 @@ namespace alpaka::tune::strategy
 
     struct randomSearch
     {
-        auto operator()() const noexcept {};
-        // template<concepts::MetricInterface T_metricInterface, typename T_TuningModel, typename T_Config>
-        // auto operator()(
-        //     T_metricInterface& metricInterface, // the user specified metricInterface
-        //     KernelTuningModelView<T_TuningModel>& model,
-        //     ConfigStorage<T_Config>&
-        //         config_storage, // this already returns the Config for a specific kernel backend Config
-        //     EnvironmentState<T_Config>& environmentState) // contains
-        // {
-        //     randomSample{}(metricInterface, model, config_storage, environmentState);
-        //
-        //     if(config_storage.contains(model.toConfig()))
-        //     {
-        //         exhaustiveSearch{}(metricInterface, model, config_storage, environmentState);
-        //     }
-        // };
+        std::uniform_real_distribution<double> m_dist{0.0, 1.0};
+
+        template<typename T_KernelModel, typename T_Metric>
+        auto operator()(StrategyContext<T_KernelModel, T_Metric> const& ctx) noexcept
+        {
+            auto config = typename StrategyContext<T_KernelModel, T_Metric>::NormalizedConfig{};
+            for(auto& val : config)
+                val = m_dist(RNG::get());
+            return config;
+        };
     };
 } // namespace alpaka::tune::strategy
 #endif // STRATEGY_HPP

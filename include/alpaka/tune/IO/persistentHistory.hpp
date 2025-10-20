@@ -4,13 +4,13 @@
 
 #ifndef TUNINGHISTORY_H
 #define TUNINGHISTORY_H
+
 #include <toml.hpp>
-#include <alpaka/tune/active/tuningEnvironment.hpp>
 
 #include <filesystem>
 namespace fs = std::filesystem;
 
-#include <alpaka/tune/active/updateMetric.hpp>
+#include <alpaka/tune/core/peripherals/updateMetric.hpp>
 
 // #define DEBUG_Hist 0
 
@@ -39,7 +39,7 @@ namespace alpaka::tune
         }
     } // namespace history::detail
 
-    class TuningHistory
+    class PersistentHistory
     {
     public:
         using T_parsedToml = decltype(toml::parse(""));
@@ -54,16 +54,16 @@ namespace alpaka::tune
         bool deleteContent = false;
 
     public:
-        explicit TuningHistory(std::string const& file)
+        explicit PersistentHistory(std::string const& file)
             : parsed_toml(history::detail::parseToml(file))
             , nr_StakeHolders(0)
             , filename(file)
         {
         }
 
-        static TuningHistory& get(std::string const& filename)
+        static PersistentHistory& get(std::string const& filename)
         {
-            static std::unordered_map<std::string, TuningHistory> instances;
+            static std::unordered_map<std::string, PersistentHistory> instances;
             auto [it, inserted] = instances.try_emplace(filename, filename);
 
             ++it->second.nr_StakeHolders; // read
@@ -71,7 +71,7 @@ namespace alpaka::tune
             return it->second;
         }
 
-        ~TuningHistory() = default;
+        ~PersistentHistory() = default;
 
         auto find_str(auto const& table, auto const& key)
         {
@@ -116,174 +116,176 @@ namespace alpaka::tune
             typename T_ConfigDescriptor,
             typename T_EnvironmentState>
         void parseKernelRuns(
-            KernelData<T_Config, T_ConfigDescriptor>& kernelData,
+            IO::KernelTuningMetadata<T_Config, T_ConfigDescriptor>& kernelData,
             toml::table const& kernelTable,
             T_EnvironmentState& env_state)
         {
-            if(!kernelTable.contains("runs"))
-                return;
-            alpaka::tune::benchmark::phaseAccessor(1);
-            auto const& runs = kernelTable.at("runs").as_array();
-            auto const& descriptorEntries = kernelData.descriptor.entries;
-
-#ifdef Debug
-            std::cout << "[parseKernelRuns] Found " << runs.size() << " run entries.\n";
-#endif
-
-            for(auto const& runVal : runs)
-            {
-                auto const& runTable = runVal.as_table();
-
-                auto const& tuneableVals = runTable.at("tuneableVals").as_array();
-                auto const& tuneableNames = runTable.at("tuneableNames").as_array();
-
-#ifdef Debug
-                std::cout << "[parseKernelRuns] Tuneable names: " << tuneableNames.size()
-                          << ", Tuneable values: " << tuneableVals.size() << "\n";
-#endif
-
-                if(tuneableVals.size() != tuneableNames.size())
-                {
-#ifdef Debug
-                    std::cerr << "[parseKernelRuns] Skipping run: name/value count mismatch.\n";
-#endif
-                    continue;
-                }
-
-                typename T_Config::TupleType tuple{};
-                std::size_t tuneableIndex = 0;
-
-                for_each_enumerate(
-                    descriptorEntries,
-                    [&]<std::size_t I, typename T0>(T0 const& entry)
-                    {
-                        using VecType = typename std::remove_cvref_t<T0>::vecType;
-                        constexpr std::size_t dim = std::remove_cvref_t<T0>::dimension;
-                        VecType parsed{};
-
-                        for(std::size_t k = 0; k < dim; ++k)
-                        {
-                            if(tuneableIndex >= tuneableNames.size())
-                                break;
-
-                            auto expectedName = entry.name + "_" + suffixes[k];
-                            auto foundName = tuneableNames[tuneableIndex].as_string();
-
-                            if(foundName != expectedName)
-                                continue;
-
-#ifdef Debug
-                            std::cout << "[parseKernelRuns] Matching tuneable: " << foundName << "\n";
-#endif
-
-                            if(tuneableVals[tuneableIndex].is_integer())
-                            {
-                                parsed[k]
-                                    = static_cast<typename VecType::type>(tuneableVals[tuneableIndex].as_integer());
-                            }
-                            else if(tuneableVals[tuneableIndex].is_floating())
-                            {
-                                parsed[k]
-                                    = static_cast<typename VecType::type>(tuneableVals[tuneableIndex].as_floating());
-                            }
-                            else
-                            {
-                                std::cout << "[parseKernelRuns] Unsupported TOML type for '" << entry.name << "'\n";
-                                return;
-                            }
-
-                            ++tuneableIndex;
-                        }
-
-                        std::get<I>(tuple) = parsed;
-                    });
-
-                auto config = config<decltype(tuple)>{std::move(tuple)};
-                auto& entry = kernelData.configEntries.getOrCreate(std::move(config));
-
-#ifdef Debug
-                std::cout << "[parseKernelRuns] Inserted Config:\n" << entry.toString() << "\n";
-#endif
-
-                // Metrics
-                if(runTable.contains("metric"))
-                {
-                    auto const& metricArray = runTable.at("metric").as_array();
-                    if(metricArray.size() > 0)
-                    {
-                        entry.state = ConfigState::Initialized;
-                    }
-                    else
-                    {
-                        if(runTable.contains("stamp"))
-                        {
-                            long long stamp = static_cast<long long>(runTable.at("stamp").as_integer());
-                            if(stamp == -1)
-                            {
-                                entry.state = ConfigState::Dummy;
-                                entry.stamp = -1;
-                                entry.fullFlag = true;
-                                entry.nr_runs = std::numeric_limits<decltype(entry.nr_runs)>::max();
-                            }
-                            else
-                            {
-                                kernelData.configEntries.remove(entry);
-                                continue;
-                            }
-                        }
-                    }
-                    for(auto const& val : metricArray)
-                    {
-                        updateMetrics<T_MetricInterface>(entry, kernelData, env_state, val.as_floating());
-                        entry.fullFlag = true;
-                    }
-                    ++env_state.numberOfCheckedConfigs;
-                    ++env_state.numValidConfigs;
-
-#ifdef Debug
-                    std::cout << "[parseKernelRuns] Metrics added: " << metricArray.size() << "\n";
-#endif
-                }
-
-                // Run count
-                if(runTable.contains("nrRuns"))
-                {
-                    entry.nr_runs = static_cast<std::size_t>(runTable.at("nrRuns").as_integer());
-
-#ifdef Debug
-                    std::cout << "[parseKernelRuns] Run count: " << entry.nr_runs << "\n";
-#endif
-                }
-
-                // Stamp
-                if(runTable.contains("stamp"))
-                {
-                    long long stamp = static_cast<long long>(runTable.at("stamp").as_integer());
-                    entry.stamp = stamp;
-#ifdef Debug
-                    std::cout << "Stamp: " << stamp << std::endl;
-#endif
-                    kernelData.highestStamp = std::max(kernelData.highestStamp, stamp);
-
-#ifdef Debug
-                    std::cout << "[parseKernelRuns] Updated stamp: " << stamp << "\n";
-#endif
-                }
-
-                ++kernelData.nrOfConfigs;
-            }
-
-            kernelData.highestStamp += 1;
-
-#ifdef Debug
-            std::cout << "[parseKernelRuns] Finished. Total configs: " << kernelData.nrOfConfigs
-                      << ", Next stamp: " << kernelData.highestStamp << "\n";
-#endif
+            //@TODO redo parse kernelruns with new interface
+            //             if(!kernelTable.contains("runs"))
+            //                 return;
+            //             auto const& runs = kernelTable.at("runs").as_array();
+            //             auto const& descriptorEntries = kernelData.descriptor.entries;
+            //
+            // #ifdef Debug
+            //             std::cout << "[parseKernelRuns] Found " << runs.size() << " run entries.\n";
+            // #endif
+            //
+            //             for(auto const& runVal : runs)
+            //             {
+            //                 auto const& runTable = runVal.as_table();
+            //
+            //                 auto const& tuneableVals = runTable.at("tuneableVals").as_array();
+            //                 auto const& tuneableNames = runTable.at("tuneableNames").as_array();
+            //
+            // #ifdef Debug
+            //                 std::cout << "[parseKernelRuns] Tuneable names: " << tuneableNames.size()
+            //                           << ", Tuneable values: " << tuneableVals.size() << "\n";
+            // #endif
+            //
+            //                 if(tuneableVals.size() != tuneableNames.size())
+            //                 {
+            // #ifdef Debug
+            //                     std::cerr << "[parseKernelRuns] Skipping run: name/value count mismatch.\n";
+            // #endif
+            //                     continue;
+            //                 }
+            //
+            //                 typename T_Config::TupleType tuple{};
+            //                 std::size_t tuneableIndex = 0;
+            //
+            //                 for_each_enumerate(
+            //                     descriptorEntries,
+            //                     [&]<std::size_t I, typename T0>(T0 const& entry)
+            //                     {
+            //                         using VecType = typename std::remove_cvref_t<T0>::vecType;
+            //                         constexpr std::size_t dim = std::remove_cvref_t<T0>::dimension;
+            //                         VecType parsed{};
+            //
+            //                         for(std::size_t k = 0; k < dim; ++k)
+            //                         {
+            //                             if(tuneableIndex >= tuneableNames.size())
+            //                                 break;
+            //
+            //                             auto expectedName = entry.name + "_" + suffixes[k];
+            //                             auto foundName = tuneableNames[tuneableIndex].as_string();
+            //
+            //                             if(foundName != expectedName)
+            //                                 continue;
+            //
+            // #ifdef Debug
+            //                             std::cout << "[parseKernelRuns] Matching tuneable: " << foundName << "\n";
+            // #endif
+            //
+            //                             if(tuneableVals[tuneableIndex].is_integer())
+            //                             {
+            //                                 parsed[k]
+            //                                     = static_cast<typename
+            //                                     VecType::type>(tuneableVals[tuneableIndex].as_integer());
+            //                             }
+            //                             else if(tuneableVals[tuneableIndex].is_floating())
+            //                             {
+            //                                 parsed[k]
+            //                                     = static_cast<typename
+            //                                     VecType::type>(tuneableVals[tuneableIndex].as_floating());
+            //                             }
+            //                             else
+            //                             {
+            //                                 std::cout << "[parseKernelRuns] Unsupported TOML type for '" <<
+            //                                 entry.name << "'\n"; return;
+            //                             }
+            //
+            //                             ++tuneableIndex;
+            //                         }
+            //
+            //                         std::get<I>(tuple) = parsed;
+            //                     });
+            //
+            //                 auto config = config<decltype(tuple)>{std::move(tuple)};
+            //                 auto& entry = kernelData.configEntries.getOrCreate(std::move(config));
+            //
+            // #ifdef Debug
+            //                 std::cout << "[parseKernelRuns] Inserted Config:\n" << entry.toString() << "\n";
+            // #endif
+            //
+            //                 // Metrics
+            //                 if(runTable.contains("metric"))
+            //                 {
+            //                     auto const& metricArray = runTable.at("metric").as_array();
+            //                     if(metricArray.size() > 0)
+            //                     {
+            //                         entry.state = config::ConfigState::Initialized;
+            //                     }
+            //                     else
+            //                     {
+            //                         if(runTable.contains("stamp"))
+            //                         {
+            //                             long long stamp = static_cast<long long>(runTable.at("stamp").as_integer());
+            //                             if(stamp == -1)
+            //                             {
+            //                                 entry.state = config::ConfigState::Invalid;
+            //                                 entry.stamp = -1;
+            //                                 entry.fullFlag = true;
+            //                                 entry.nr_runs = std::numeric_limits<decltype(entry.nr_runs)>::max();
+            //                             }
+            //                             else
+            //                             {
+            //                                 kernelData.configEntries.remove(entry);
+            //                                 continue;
+            //                             }
+            //                         }
+            //                     }
+            //                     for(auto const& val : metricArray)
+            //                     {
+            //                         updateMetrics<T_MetricInterface>(entry, kernelData, env_state,
+            //                         val.as_floating()); entry.fullFlag = true;
+            //                     }
+            //                     ++env_state.numberOfCheckedConfigs;
+            //                     ++env_state.numValidConfigs;
+            //
+            // #ifdef Debug
+            //                     std::cout << "[parseKernelRuns] Metrics added: " << metricArray.size() << "\n";
+            // #endif
+            //                 }
+            //
+            //                 // Run count
+            //                 if(runTable.contains("nrRuns"))
+            //                 {
+            //                     entry.nr_runs = static_cast<std::size_t>(runTable.at("nrRuns").as_integer());
+            //
+            // #ifdef Debug
+            //                     std::cout << "[parseKernelRuns] Run count: " << entry.nr_runs << "\n";
+            // #endif
+            //                 }
+            //
+            //                 // Stamp
+            //                 if(runTable.contains("stamp"))
+            //                 {
+            //                     long long stamp = static_cast<long long>(runTable.at("stamp").as_integer());
+            //                     entry.stamp = stamp;
+            // #ifdef Debug
+            //                     std::cout << "Stamp: " << stamp << std::endl;
+            // #endif
+            //                     kernelData.highestStamp = std::max(kernelData.highestStamp, stamp);
+            //
+            // #ifdef Debug
+            //                     std::cout << "[parseKernelRuns] Updated stamp: " << stamp << "\n";
+            // #endif
+            //                 }
+            //
+            //                 ++kernelData.nrOfConfigs;
+            //             }
+            //
+            //             kernelData.highestStamp += 1;
+            //
+            // #ifdef Debug
+            //             std::cout << "[parseKernelRuns] Finished. Total configs: " << kernelData.nrOfConfigs
+            //                       << ", Next stamp: " << kernelData.highestStamp << "\n";
+            // #endif
         }
 
         template<typename T_Config, typename T_ConfigDescriptor>
         bool matchKernelMetadata(
-            KernelData<T_Config, T_ConfigDescriptor> const& kernelData,
+            IO::KernelTuningMetadata<T_Config, T_ConfigDescriptor> const& kernelData,
             toml::table const& kernelTable)
         {
 #ifdef Debug
@@ -365,7 +367,7 @@ namespace alpaka::tune
         }
 
         template<typename T_MetricInterface, typename T_Config, typename T_ConfigDescriptor>
-        void loadConfig(KernelData<T_Config, T_ConfigDescriptor>& kernelData, auto& env_state)
+        void loadConfig(IO::KernelTuningMetadata<T_Config, T_ConfigDescriptor>& kernelData, auto& env_state)
         {
             if(!parsed_toml.has_value())
             {
@@ -437,7 +439,7 @@ namespace alpaka::tune
         // #define DEBUG_Hist 1
 
         template<typename T_Config, typename T_ConfigDescriptor>
-        std::string makeKernelKey(KernelData<T_Config, T_ConfigDescriptor> const& kernelData)
+        std::string makeKernelKey(IO::KernelTuningMetadata<T_Config, T_ConfigDescriptor> const& kernelData)
         {
             std::string key = kernelData.kernel + "-" + kernelData.device + "-" + kernelData.executor + "-"
                               + kernelData.targetMetric;
@@ -459,7 +461,7 @@ namespace alpaka::tune
         }
 
         template<typename T_Config, typename T_ConfigDescriptor>
-        void storeConfig(KernelData<T_Config, T_ConfigDescriptor>& kernelData)
+        auto storeConfig(IO::KernelTuningMetadata<T_Config, T_ConfigDescriptor>& kernelData) -> void
         {
 #ifdef Debug
             std::cout << "[storeConfig] Entering function\n";

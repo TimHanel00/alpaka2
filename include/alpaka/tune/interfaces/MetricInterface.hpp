@@ -42,6 +42,9 @@ namespace alpaka::tune
             }
         };
 
+        /*
+         * @TODO implement
+         */
         struct Energy
         {
         };

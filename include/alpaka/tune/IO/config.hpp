@@ -17,19 +17,46 @@ namespace alpaka::tune::config
         using value_type = T;
         std::array<value_type, NumTunables> config{};
         static constexpr auto size = NumTunables;
-        Config() = default;
+        constexpr Config() = default;
 
-        explicit Config(std::array<value_type, NumTunables> const& config) : config(config) {};
+        constexpr explicit Config(std::array<value_type, NumTunables> const& config) : config(config) {};
 
         bool operator==(Config const& other) const noexcept
         {
             return config == other.config;
         }
 
+        // make working with strategies easier this way
+        value_type& operator[](std::size_t i)
+        {
+            assert(i < size);
+            return config[i];
+        }
+
         value_type const& operator[](std::size_t i) const
         {
             assert(i < size);
             return config[i];
+        }
+
+        auto begin() noexcept
+        {
+            return config.begin();
+        }
+
+        auto end() noexcept
+        {
+            return config.end();
+        }
+
+        auto begin() const noexcept
+        {
+            return config.begin();
+        }
+
+        auto end() const noexcept
+        {
+            return config.end();
         }
     };
 
@@ -59,9 +86,34 @@ namespace alpaka::tune::config
             return true;
         }
 
+        value_type& operator[](std::size_t i)
+        {
+            return config[i];
+        }
+
         value_type const& operator[](std::size_t i) const
         {
             return config[i];
+        }
+
+        auto begin() noexcept
+        {
+            return config.begin();
+        }
+
+        auto end() noexcept
+        {
+            return config.end();
+        }
+
+        auto begin() const noexcept
+        {
+            return config.begin();
+        }
+
+        auto end() const noexcept
+        {
+            return config.end();
         }
     };
 
@@ -78,7 +130,7 @@ namespace std
         {
             std::size_t seed = 0;
             std::hash<T> hasher;
-            for(auto const& v : c.eonfig)
+            for(auto const& v : c.config)
             {
                 // combine hash
                 seed ^= hasher(v) + 0x9e37'79b9 + (seed << 6) + (seed >> 2);

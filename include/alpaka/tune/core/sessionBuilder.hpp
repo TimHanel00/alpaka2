@@ -1,6 +1,5 @@
 #ifndef SESSIONBUILDER_HPP
 #define SESSIONBUILDER_HPP
-// #include "alpaka/onHost.hpp"
 #include <alpaka/tune/core/peripherals/constraint.hpp>
 #include <alpaka/tune/interfaces/MetricInterface.hpp>
 #include <alpaka/tune/interfaces/strategy.hpp>
@@ -8,18 +7,14 @@
 
 #include <string>
 #include <tuple>
-#include <variant>
 
 namespace alpaka::tune
 {
     // Forward declarations
-    template<
-        tune::concepts::Strategy T_Strategy,
-        tune::concepts::MetricInterface T_MetricInterface,
-        typename T_Constraint>
+    template<typename T_Strategy, tune::concepts::MetricInterface T_MetricInterface, typename T_Constraint>
     struct TuningSession;
 
-    template<concepts::Strategy T_Strategy, concepts::MetricInterface T_MetricInterface, typename T_ConstraintTuple>
+    template<typename T_Strategy, concepts::MetricInterface T_MetricInterface, typename T_ConstraintTuple>
     class TuningBuilder;
 
     // -------------------------------------------------------------------------
@@ -113,8 +108,8 @@ namespace alpaka::tune
      * @tparam T_ConstraintTuple Tuple of constraint objects applied to parameter combinations.
      */
     template<
-        concepts::Strategy T_Strategy = DefaultStrategy,
-        concepts::MetricInterface T_MetricInterface = alpaka::tune::metricInterface::Timing,
+        typename T_Strategy = DefaultStrategy,
+        concepts::MetricInterface T_MetricInterface = metricInterface::Timing,
         typename T_ConstraintTuple = std::tuple<>>
     class TuningBuilder
     {
@@ -208,7 +203,7 @@ namespace alpaka::tune
          * @param strategy Instance of the strategy to use.
          * @return A new @ref TuningBuilder with the specified strategy.
          */
-        template<concepts::Strategy NewStrategy>
+        template<typename NewStrategy>
         auto withStrategy(NewStrategy&& strategy)
         {
             using CleanNewStrategy = std::remove_cvref_t<NewStrategy>; // dont bind lvalue

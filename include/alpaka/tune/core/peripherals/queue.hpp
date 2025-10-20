@@ -9,7 +9,7 @@
 #include <queue>
 #include <vector>
 
-namespace alpaka::tune
+namespace alpaka::tune::core::peripherals
 {
     template<typename T_ConfigEntry>
     std::optional<std::reference_wrapper<T_ConfigEntry>> lastEvaluatedConfigAccessor(
@@ -143,7 +143,7 @@ namespace alpaka::tune
                     std::cout << "[ConfigQueue::get] Switching to next Config at index " << currentIndex
                               << ". Marking as WarmUp.\n";
 #endif
-                    nextOpt.value().get().state = ConfigState::WarmUp;
+                    nextOpt.value().get().state = config::ConfigState::WarmUp;
                     return nextOpt;
                 }
 #ifdef Debug
@@ -161,5 +161,5 @@ namespace alpaka::tune
             return std::nullopt;
         }
     };
-} // namespace alpaka::tune
+} // namespace alpaka::tune::core::peripherals
 #endif // QUEUE_H

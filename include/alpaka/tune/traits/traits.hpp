@@ -141,4 +141,34 @@ namespace alpaka::tune::trait
     };*/
 
 } // namespace alpaka::tune::trait
+
+namespace alpaka::trait
+{
+    // a tunable is marked as trivially copyable if the underlying type is copyable (types get extracted prior to
+    // alpaka::enqueue)
+    template<auto Tag, typename T>
+    struct IsKernelArgumentTriviallyCopyable<tune::Tunable<Tag, T>>
+        : std::bool_constant<std::is_trivially_copyable_v<T>>
+    {
+    };
+
+    // a tunableMD is marked as trivially copyable if the underlying type is copyable (types get extracted prior to
+    // alpaka::enqueue)
+    template<auto Tag, typename Vec>
+    struct IsKernelArgumentTriviallyCopyable<tune::TunableMD<Tag, Vec>>
+        : std::bool_constant<std::is_trivially_copyable_v<Vec>>
+    {
+    };
+
+    // a Ctunable is marked as trivially copyable if the all of its elements are copyable (types get extracted prior to
+    // alpaka::enqueue)
+    template<std::uint32_t ID, typename... Ts>
+    struct IsKernelArgumentTriviallyCopyable<alpaka::tune::CTunable<ID, Ts...>>
+        : std::bool_constant<(std::is_trivially_copyable_v<Ts> && ...)>
+    {
+    };
+
+} // namespace alpaka::trait
+
+
 #endif // TRAITS_HPP

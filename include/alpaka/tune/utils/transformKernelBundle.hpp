@@ -5,34 +5,13 @@
 #ifndef RECONSTRUCTKERNELBUNDLE_H
 #define RECONSTRUCTKERNELBUNDLE_H
 #include <alpaka/KernelBundle.hpp>
-#include <alpaka/tune/active/KernelTuningModel.hpp>
-#include <alpaka/tune/tuneable/Tunable.hpp>
+#include <alpaka/tune/tunable/Tunable.hpp>
 
 namespace alpaka::tune::detail
 {
-    template<typename>
-    struct is_tuneable : std::false_type
-    {
-    };
-
-    template<typename T, auto N, typename policy>
-    struct is_tuneable<alpaka::tune::Tuneable<T, N, policy>> : std::true_type
-    {
-    };
 
     template<typename T>
-    constexpr bool is_tuneable_v = is_tuneable<T>::value;
-
-    template<typename>
-    struct tuneable_underlying
-    {
-    };
-
-    template<auto N, typename T, typename policy>
-    struct tuneable_underlying<alpaka::tune::Tuneable<T, N, policy>>
-    {
-        using type = T;
-    };
+    constexpr bool is_tuneable_v = alpaka::tune::concepts::runtimeTuneable<T>;
 
     // Helper: transform a tuple by applying a callable that receives an index and the element.
     template<typename F, typename Tuple, std::size_t... Is>
@@ -105,7 +84,7 @@ namespace alpaka::tune::detail
 
                 if constexpr(is_tuneable_v<ElemType>)
                 {
-                    return std::make_tuple(std::get<I>(kb.m_args));
+                    return std::make_tuple(alpaka::get<I>(kb.m_args));
                 }
                 else
                 {
