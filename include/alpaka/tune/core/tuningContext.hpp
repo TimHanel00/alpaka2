@@ -158,17 +158,17 @@ use model as parameter void shrinkTuningSpace(...)
                 return true;
             }
             bool valid = true;
-            for_each(
+            utils::for_each(
                 this->env_constraints,
                 [&](auto& constraint)
                 {
-                    if(!constraint.template operator()<T_KernelTuningModel>(env_kernelTuning))
+                    if(!constraint.template operator()<T_KernelTuningModel>(this->env_kernelTuning))
                         valid = false;
                 });
 
             if(!valid)
             {
-                stored.getMetrics().clear();
+                stored.clearMeasurements();//clear metric container
                 stored.stamp = -1;
                 stored.state = config::ConfigState::Invalid;
                 stored.fullFlag = true;
@@ -243,7 +243,7 @@ use model as parameter void shrinkTuningSpace(...)
         auto userTuple = alpaka::tune::detail::extractTuneables(bundle);
         // Combine into kernel model
         auto completeTuningModel
-            = KernelTuningModel{userTuple, detail::specToFrameTupleHelper(newFrameSpecTune), CTuneableBundle};
+            = KernelTuningModel{detail::specToFrameTupleHelper(newFrameSpecTune), userTuple, CTuneableBundle};
 
         using T_completeTuningModel = decltype(completeTuningModel);
         //---- reconfigure kerneltuningModel --- //

@@ -17,7 +17,8 @@ namespace alpaka::tune::detail
     template<typename F, typename Tuple, std::size_t... Is>
     constexpr auto transformTupleImpl(F&& f, Tuple&& t, std::index_sequence<Is...>)
     {
-        return Tuple{f(std::integral_constant<std::size_t, Is>{}, get<Is>(std::forward<Tuple>(t)))...};
+        return alpaka::Tuple<std::decay_t<decltype(f(std::integral_constant<std::size_t, Is>{}, get<Is>(t)))>...>{
+            f(std::integral_constant<std::size_t, Is>{}, get<Is>(t))...};
     }
 
     template<typename F, typename... Ts>
@@ -40,6 +41,8 @@ namespace alpaka::tune::detail
             return count_tuneables<I - 1, Tuple>() + (isPrev ? 1 : 0);
         }
     }
+    template<typename T>
+    struct Dummy;
 
     // Modified recreate: now newTuneables is a tuple of tuneables, each with a .value member.
     template<typename TKernelFn, typename... TArgs, typename UserTuple>
@@ -81,7 +84,6 @@ namespace alpaka::tune::detail
             {
                 using ElemType = std::decay_t<
                     std::tuple_element_t<I, typename alpaka::KernelBundle<TKernelFn, TArgs...>::ArgTuple>>;
-
                 if constexpr(is_tuneable_v<ElemType>)
                 {
                     return std::make_tuple(alpaka::get<I>(kb.m_args));

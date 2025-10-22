@@ -91,7 +91,7 @@ namespace alpaka::tune
         {
         }
 
-        /** Enqueue and Execute a kernel for the tuning session
+        /** @brief Enqueue and Execute a kernel, while performing exactly one step of the tuning process.
          * @param queue
          * @param exec
          * @param frameSpecTune
@@ -99,49 +99,37 @@ namespace alpaka::tune
          */
         template<
             typename T_Queue,
-            typename T_Exec,
             typename T_FramesTune,
             typename T_FrameExtentTune,
             typename T_ThreadTune,
-            typename T_BlockTune,
-            typename T_KernelBundle>
+            typename T_BlockTune>
         auto enqueue(
             T_Queue const& queue,
-            T_Exec const& exec,
-            FrameSpecTuningModel<T_FramesTune, T_FrameExtentTune, T_ThreadTune, T_BlockTune>&& frameSpecTune,
-            T_KernelBundle const& kernelBundle)
+            alpaka::concepts::Executor auto const& exec,
+            FrameSpecTuningModel<T_FramesTune, T_FrameExtentTune, T_ThreadTune, T_BlockTune> const& frameSpecTune,
+            alpaka::concepts::KernelBundle auto const& kernelBundle)
         {
-            using bar_frame = std::remove_cvref_t<
-                FrameSpecTuningModel<T_FramesTune, T_FrameExtentTune, T_ThreadTune, T_BlockTune>>;
-            auto* environmentPtr = tune::detail::internal::setup_enqueue(queue, exec, frameSpecTune, *this);
-            bool bef = environmentPtr->readyForTerminate;
-            environmentPtr->launch(queue, exec, frameSpecTune, kernelBundle);
-            if(bef != environmentPtr->readyForTerminate)
-            {
-                finishedEnvironment++;
-            }
+            return enqueue_impl(queue, exec, std::forward<decltype(frameSpecTune)>(frameSpecTune), kernelBundle);
         }
 
-        /** Enqueue and Execute a kernel for the tuning session
+        /** @brief Enqueue and Execute a kernel, while performing exactly one step of the tuning process.
          * @param queue
          * @param exec
          * @param frameSpec
          * @param kernelBundle the compute kernel and there arguments
          */
-        template<
-            typename T_Queue,
-            typename T_Exec,
-            typename T_NumFrames,
-            typename T_FrameExtent,
-            typename T_ThreadSpec,
-            typename T_KernelBundle>
+        template<typename T_Queue, typename T_NumFrames, typename T_FrameExtent, typename T_ThreadSpec>
         auto enqueue(
-            T_Queue const& queue,
-            T_Exec const& exec,
+            T_Queue& queue,
+            alpaka::concepts::Executor auto const& exec,
             onHost::FrameSpec<T_NumFrames, T_FrameExtent, T_ThreadSpec> const& frameSpec,
-            T_KernelBundle const& kernelBundle)
+            alpaka::concepts::KernelBundle auto const& kernelBundle)
         {
-            return enqueue(queue, exec, FrameSpecTuningModel{frameSpec}, kernelBundle);
+            return enqueue_impl(
+                queue,
+                exec,
+                FrameSpecTuningModel{std::forward<decltype(frameSpec)>(frameSpec)},
+                kernelBundle);
         }
 
         //@TODO implement a getBestValues method, implement a function based version (no queue, no exec, no
@@ -151,6 +139,29 @@ namespace alpaka::tune
 #ifdef Debug
             std::cout << " destructor called" << std::endl;
 #endif
+        }
+
+    private:
+        template<typename T_Queue, typename T_FrameSpec>
+        auto enqueue_impl(
+            T_Queue& queue,
+            alpaka::concepts::Executor auto const& exec,
+            T_FrameSpec&& spec,
+            alpaka::concepts::KernelBundle auto const& kernelBundle)
+        {
+            using bar_frame = std::remove_cvref_t<T_FrameSpec>;
+            auto* environmentPtr = tune::detail::internal::setup_enqueue(
+                queue,
+                exec,
+                std::forward<T_FrameSpec>(spec),
+                kernelBundle,
+                *this);
+            bool bef = environmentPtr->readyForTerminate;
+            environmentPtr->launch(queue, exec, std::forward<T_FrameSpec>(spec), kernelBundle);
+            if(bef != environmentPtr->readyForTerminate)
+            {
+                finishedEnvironment++;
+            }
         }
     };
 

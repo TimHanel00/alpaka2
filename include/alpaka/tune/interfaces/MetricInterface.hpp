@@ -34,7 +34,7 @@ namespace alpaka::tune
                 startTime = std::chrono::high_resolution_clock::now();
             }
 
-            auto end() -> double_t
+            auto end() const -> double_t
             {
                 auto endTime = std::chrono::high_resolution_clock::now();
                 auto const timeDuration = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime - startTime);
@@ -61,10 +61,9 @@ namespace alpaka::tune
             std::thread workerThread;
             std::atomic<bool> stopFlag{false};
             std::vector<double_t> occupancy{};
-            Occupancy(RegisterAPI_CALL& handle) : apiCaller(handle) {};
+            explicit Occupancy(RegisterAPI_CALL& handle) : apiCaller(handle) {};
 
-            template<typename T_KernelRun, typename T_FrameSpec>
-            void start(T_KernelRun& kernelRun, T_FrameSpec& frame_spec)
+            void start()
             {
                 stopFlag = false;
                 workerThread = std::thread(

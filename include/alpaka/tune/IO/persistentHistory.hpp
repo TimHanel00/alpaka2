@@ -547,7 +547,7 @@ namespace alpaka::tune
                           << "    has stamp: " << run["stamp"] << "\n";
 #endif
                 toml::array metricArray;
-                for(auto m : entry.getMetrics().getAll())
+                for(auto m : entry.getMeasurements().getAll())
                 {
 #ifdef Debug
                     std::cout << "    Metric: " << static_cast<double>(m) << "\n";

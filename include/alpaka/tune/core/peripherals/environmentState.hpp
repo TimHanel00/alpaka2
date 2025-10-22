@@ -55,7 +55,7 @@ namespace alpaka::tune::core::peripherals
          * @pre stored.getMetrics() is not empty.
          */
         template<typename T_MetricInterface>
-        void updateBestConfig(config::ConfigRecord<T_Config>& config_entry)
+        void updateBestConfig(config::ConfigRecord<T_Config> const& config_entry)
         {
             // Precondition: we expect to have collected some metrics already.
             assert(!stored.getMetrics().empty());
@@ -67,7 +67,7 @@ namespace alpaka::tune::core::peripherals
                 auto& before = bestConfig->get();
 
                 // A) Current best has no metrics, new candidate does -> promote immediately.
-                if(before.getMetrics().empty() && !config_entry.getMetrics().empty())
+                if(before.getMeasurements().empty() && !config_entry.getMeasurements().empty())
                 {
                     bestConfig.emplace(std::ref(config_entry));
                     return;
@@ -87,9 +87,9 @@ namespace alpaka::tune::core::peripherals
             bestConfig.emplace(std::ref(config_entry));
         }
 
-        std::optional<std::reference_wrapper<alpaka::tune::config::ConfigRecord<T_Config>>> bestConfig;
+        std::optional<std::reference_wrapper<alpaka::tune::config::ConfigRecord<T_Config> const>> bestConfig;
 
-        auto& getBestConfig()
+        auto const& getBestConfig()
         {
             return bestConfig.value().get();
         }

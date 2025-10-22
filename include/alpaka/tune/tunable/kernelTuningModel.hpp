@@ -90,6 +90,15 @@ namespace alpaka::tune
         }
 
         /**
+         * @brief turns a integer based Configuration into a floating point based configuration all vals between
+         * [0,1]*/
+        template<alpaka::tune::concepts::Integral IntType, auto NumTuneables>
+        constexpr auto createNormalizedFromConfig(config::Config<IntType, NumTuneables> const& config) const
+        {
+            return m_kernelTuningModel.createNormalizedFromConfig(config);
+        }
+
+        /**
          *
          * @returns a default initialized configuration
          */
@@ -202,6 +211,28 @@ namespace alpaka::tune
                 }
             }
             return config::Config{return_config_ar};
+        }
+
+        /**
+         * @brief Turns an integer-based configuration into a normalized (floating) configuration.
+         */
+        template<typename idx_type, auto NumTuneables>
+        constexpr auto createNormalizedFromConfig(config::Config<idx_type, NumTuneables> const& config) const
+        {
+            static_assert(NumTuneables == numDims, " Config does not have the correct number of parameters! ");
+
+            std::array<double, NumTuneables> normalized_values{};
+
+            for(std::size_t val = 0; val < NumTuneables; ++val)
+            {
+                normalized_values[val] = static_cast<double>(config[val]) / static_cast<double>(m_numValues[val]);
+
+                // numerical safety: clamp into [0, 1)
+                if(normalized_values[val] >= 1.0)
+                    normalized_values[val] = std::nextafter(1.0, 0.0);
+            }
+
+            return config::NormalizedConfig<double, NumTuneables>{normalized_values};
         }
 
         /**

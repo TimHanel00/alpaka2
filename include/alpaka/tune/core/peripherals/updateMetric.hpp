@@ -15,7 +15,7 @@ namespace alpaka::tune::core::peripherals
     {
         assert(!stored.getMetrics().empty());
         T_ConfigEntry& before = best;
-        if(best.getMetrics().empty() && !stored.getMetrics().empty())
+        if(best.getMeasurements().empty() && !stored.getMeasurements().empty())
         {
             best = stored;
             return;

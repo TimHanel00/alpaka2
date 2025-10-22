@@ -73,7 +73,7 @@ namespace alpaka::tune::config
          * @param other The other configuration record to compare against.
          * @return Comparison result (Less/Greater/Inconclusive/Invalid).
          */
-        auto compare(ConfigRecord& other)
+        auto compare(ConfigRecord const& other) const
         {
             return kruskalCompare(*this, other);
         }
@@ -120,13 +120,13 @@ namespace alpaka::tune::config
         ConfigState state = ConfigState::Uninitialized;
 
         /**
-         * @brief compare equality by hash and subsequently by values
+         * @brief compare equality by value
          * @param other Record to compare.
          * @return True if both represent the same configuration.
          */
         bool operator==(ConfigRecord const& other) const
         {
-            return this->toHash() == config.toHash() && this->config == other.config;
+            return this->toHash() == other.toHash() && this->config == other.config;
         }
 
         /**
@@ -186,11 +186,16 @@ namespace alpaka::tune::config
             return metrics.get(median_t{}).as<t_ns>();
         }
 
+        void clearMeasurements()
+        {
+            metrics.clear();
+        }
+
         /**
          * @brief Access the metric container.
          * @return Reference to the metric container.
          */
-        MetricContainer& getMetrics()
+        [[nodiscard]] MetricContainer const& getMeasurements() const
         {
             return metrics;
         }
@@ -228,16 +233,16 @@ namespace alpaka::tune::config
      */
     template<typename T_Config>
     inline Comparison kruskalCompare(
-        alpaka::tune::config::ConfigRecord<T_Config>& current,
-        alpaka::tune::config::ConfigRecord<T_Config>& other)
+        alpaka::tune::config::ConfigRecord<T_Config> const& current,
+        alpaka::tune::config::ConfigRecord<T_Config> const& other)
     {
         using T_state = decltype(current.state);
         if(other.state == T_state::Invalid)
         {
             return Comparison::Invalid;
         }
-        auto const& lhsVals = current.getMetrics().getAll();
-        auto const& rhsVals = other.getMetrics().getAll();
+        auto const& lhsVals = current.getMeasurements().getAll();
+        auto const& rhsVals = other.getMeasurements().getAll();
 
         if(lhsVals.size() < 3 || rhsVals.size() < 3)
             return Comparison::Inconclusive; // not enough data
@@ -279,8 +284,8 @@ namespace alpaka::tune::config
         if(H < chiSquareCritical)
             return Comparison::Inconclusive;
 
-        double_t lhsMedian = current.getMetrics().get(median_t{}).template as<t_ns>();
-        double_t rhsMedian = other.getMetrics().get(median_t{}).template as<t_ns>();
+        double_t lhsMedian = current.getMeasurements().get(median_t{}).template as<t_ns>();
+        double_t rhsMedian = other.getMeasurements().get(median_t{}).template as<t_ns>();
         return (lhsMedian < rhsMedian) ? Comparison::Less : Comparison::Greater;
     }
 } // namespace alpaka::tune::config
@@ -288,74 +293,115 @@ namespace alpaka::tune::config
 namespace alpaka::tune::IO
 {
     /**
-     * \brief Runtime history (active window) of measured configurations.
+     * @brief Runtime history (active window) of all measured configurations.
      *
-     * Associates each \c TConfig key with its \c ConfigEntry (samples, stats, state)
-     * for O(1) lookup/update during tuning. One instance per tuning context.
+     * `ActiveHistory` is a session-local database that records each tested configuration
+     * and its corresponding measurement record (`ConfigRecord<TConfig>`). It allows:
+     *   - O(1) lookup and update by configuration key.
+     *   - Sequential replay of configurations in insertion order.
      *
-     * \tparam TConfig Configuration key type (hashable, equality comparable).
+     * This history is **append-only**: once a configuration is added, it remains valid
+     * until the end of the tuning session. This guarantees consistency of references
+     * across other tuning subsystems (such as `EnvironmentState` or user strategies).
+     *
+     * @tparam TConfig
+     *         Configuration key type (must be hashable and equality comparable).
+     *
+     * @note
+     *  - Configurations are never removed.
+     *  - The map and ordered list share ownership of the same `Entry` instances.
+     *  - Thread-safety is not guaranteed; synchronization must be done externally if needed.
      */
     template<typename TConfig>
     class ActiveHistory
     {
     public:
+        /// @brief Alias for stored entry type (configuration + metrics).
         using Entry = alpaka::tune::config::ConfigRecord<TConfig>;
 
-        /// \brief Get or create an entry for \p config (move overload).
-        /// \param config Configuration to lookup/insert.
-        /// \return Reference to the stored entry.
+        /**
+         * @brief Insert or lookup an entry (move overload).
+         *
+         * If the configuration is new, a new entry is created and tracked in insertion order.
+         * Otherwise, returns a reference to the existing one.
+         *
+         * @param config Configuration to insert or retrieve.
+         * @return Reference to the stored entry.
+         */
         Entry& getOrCreate(TConfig&& config)
         {
-            auto res = entries.try_emplace(config, std::move(config));
-            return res.first->second;
+            auto [it, inserted] = entries.try_emplace(config, std::move(config));
+            if(inserted)
+                orderedHistory.emplace_back(std::ref(it->second));
+            return it->second;
         }
 
-        /// \brief Get or create an entry for \p config (copy overload).
+        /// \brief Lookup an entry by configuration (mutable access).
+        /// \param config Configuration key to lookup.
+        /// \return Optional reference to the stored entry, or std::nullopt if not found.
+        [[nodiscard]] std::optional<std::reference_wrapper<Entry const>> getRecord(
+            TConfig const& config) const noexcept
+        {
+            if(auto it = entries.find(config); it != entries.end())
+                return std::ref(it->second);
+            return std::nullopt;
+        }
+
+        /**
+         * @brief Insert or lookup an entry (copy overload).
+         *
+         * Behaves like the move overload but does not modify the input.
+         *
+         * @param config Configuration to insert or retrieve.
+         * @return Reference to the stored entry.
+         */
         Entry& getOrCreate(TConfig const& config)
         {
-            auto res = entries.try_emplace(config, config);
-            return res.first->second;
+            auto [it, inserted] = entries.try_emplace(config, config);
+            if(inserted)
+                orderedHistory.emplace_back(std::ref(it->second));
+            return it->second;
         }
 
-        /// \brief Remove an entry by key.
-        /// \return True if an entry was erased.
-        bool remove(TConfig const& config)
-        {
-            return entries.erase(config) > 0;
-        }
-
-        /// \brief Remove an entry by value object.
-        bool remove(alpaka::tune::config::ConfigRecord<TConfig> const& configEntry)
-        {
-            return entries.erase(configEntry.config) > 0;
-        }
-
-        /// \brief Number of tracked configurations.
-        uint32_t size()
+        /// @brief Number of tracked configurations.
+        [[nodiscard]] uint32_t size() const noexcept
         {
             return static_cast<uint32_t>(entries.size());
         }
 
-        /// \brief Access the container of all entries.
-        std::unordered_map<TConfig, Entry>& getAll()
+        /// @brief Unordered map access (fast lookup).
+        [[nodiscard]] std::unordered_map<TConfig, Entry>& getAll() noexcept
         {
             return entries;
         }
 
-        /// \brief Check existence by entry.
-        bool contains(alpaka::tune::config::ConfigRecord<TConfig> const& config) const
+        /// @brief Const unordered map access.
+        [[nodiscard]] std::unordered_map<TConfig, Entry> const& getAll() const noexcept
         {
-            return entries.contains(config.config); // NOTE: fixed typo from eonfig
+            return entries;
         }
 
-        /// \brief Check existence by key.
-        bool contains(TConfig const& config) const
+        /// @brief Access the configurations in insertion order.
+        [[nodiscard]] std::vector<std::reference_wrapper<Entry>> const& getOrderedHistory() const noexcept
+        {
+            return orderedHistory;
+        }
+
+        /// @brief Check existence by entry object.
+        [[nodiscard]] bool contains(Entry const& config) const noexcept
+        {
+            return entries.contains(config.config);
+        }
+
+        /// @brief Check existence by configuration key.
+        [[nodiscard]] bool contains(TConfig const& config) const noexcept
         {
             return entries.contains(config);
         }
 
     private:
         std::unordered_map<TConfig, Entry> entries{};
+        std::vector<std::reference_wrapper<Entry>> orderedHistory{};
     };
 
     /**
