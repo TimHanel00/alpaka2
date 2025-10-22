@@ -15,48 +15,53 @@ namespace alpaka::tune::config
     struct Config
     {
         using value_type = T;
-        std::array<value_type, NumTunables> config{};
-        static constexpr auto size = NumTunables;
+        std::array<value_type, NumTunables> m_values{};
+        static constexpr auto m_size = NumTunables;
         constexpr Config() = default;
 
-        constexpr explicit Config(std::array<value_type, NumTunables> const& config) : config(config) {};
+        constexpr explicit Config(std::array<value_type, NumTunables> const& config) : m_values(config) {};
 
         bool operator==(Config const& other) const noexcept
         {
-            return config == other.config;
+            return m_values == other.m_values;
+        }
+
+        static consteval auto size()
+        {
+            return m_size;
         }
 
         // make working with strategies easier this way
         value_type& operator[](std::size_t i)
         {
             assert(i < size);
-            return config[i];
+            return m_values[i];
         }
 
         value_type const& operator[](std::size_t i) const
         {
             assert(i < size);
-            return config[i];
+            return m_values[i];
         }
 
         auto begin() noexcept
         {
-            return config.begin();
+            return m_values.begin();
         }
 
         auto end() noexcept
         {
-            return config.end();
+            return m_values.end();
         }
 
         auto begin() const noexcept
         {
-            return config.begin();
+            return m_values.begin();
         }
 
         auto end() const noexcept
         {
-            return config.end();
+            return m_values.end();
         }
     };
 
@@ -64,11 +69,11 @@ namespace alpaka::tune::config
     struct NormalizedConfig
     {
         using value_type = T;
-        std::array<value_type, NumTunables> config{};
-        static constexpr auto size = NumTunables;
+        std::array<value_type, NumTunables> m_values{};
+        static constexpr auto m_size = NumTunables;
         NormalizedConfig() = default;
 
-        explicit NormalizedConfig(std::array<value_type, NumTunables> const& config) : config(config)
+        explicit NormalizedConfig(std::array<value_type, NumTunables> const& config) : m_values(config)
         {
             for(auto const& val : config)
             {
@@ -76,44 +81,49 @@ namespace alpaka::tune::config
             }
         };
 
+        static consteval auto size()
+        {
+            return m_size;
+        }
+
         bool operator==(NormalizedConfig const& other) const noexcept
         {
             // compare with tolerance for floating point
             constexpr double eps = 1e-9;
             for(std::size_t i = 0; i < NumTunables; ++i)
-                if(std::fabs(config[i] - other.config[i]) > eps)
+                if(std::fabs(m_values[i] - other.m_values[i]) > eps)
                     return false;
             return true;
         }
 
         value_type& operator[](std::size_t i)
         {
-            return config[i];
+            return m_values[i];
         }
 
         value_type const& operator[](std::size_t i) const
         {
-            return config[i];
+            return m_values[i];
         }
 
         auto begin() noexcept
         {
-            return config.begin();
+            return m_values.begin();
         }
 
         auto end() noexcept
         {
-            return config.end();
+            return m_values.end();
         }
 
         auto begin() const noexcept
         {
-            return config.begin();
+            return m_values.begin();
         }
 
         auto end() const noexcept
         {
-            return config.end();
+            return m_values.end();
         }
     };
 
@@ -130,7 +140,7 @@ namespace std
         {
             std::size_t seed = 0;
             std::hash<T> hasher;
-            for(auto const& v : c.config)
+            for(auto const& v : c.m_values)
             {
                 // combine hash
                 seed ^= hasher(v) + 0x9e37'79b9 + (seed << 6) + (seed >> 2);

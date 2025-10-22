@@ -4,6 +4,8 @@
 
 #ifndef QUEUE_H
 #define QUEUE_H
+#include <alpaka/tune/utils/Random.hpp>
+
 #include <functional>
 #include <optional>
 #include <queue>
@@ -11,50 +13,42 @@
 
 namespace alpaka::tune::core::peripherals
 {
-    template<typename T_ConfigEntry>
-    std::optional<std::reference_wrapper<T_ConfigEntry>> lastEvaluatedConfigAccessor(
-        std::optional<std::reference_wrapper<T_ConfigEntry>> config = std::nullopt)
-    {
-        static std::optional<std::reference_wrapper<T_ConfigEntry>> acc = std::nullopt;
-        if(config.has_value())
-        {
-            acc = config.value();
-        }
-        return acc;
-    }
 
-#define maxQueueSize 1
+#define MAXQUEUESIZE 1
 
     template<typename T_Configs>
     struct ConfigQueue
     {
         using OptionalRef = std::optional<std::reference_wrapper<T_Configs>>;
+        static constexpr uint32_t maxQueueSize = MAXQUEUESIZE;
 
         std::vector<OptionalRef> configs;
-        std::queue<std::size_t> freeSlots;
-        std::size_t currentIndex = 0;
-        std::size_t consecutiveCount = 0;
-        std::size_t maxConsecutiveRuns = 3;
-        std::size_t validCount = 0;
+        std::vector<uint32_t> consecutiveRuns;
+        std::queue<uint32_t> freeSlots;
+
+        uint32_t validCount = 0;
+        uint32_t maxConsecutiveRuns = 3;
+        std::optional<uint32_t> lastIndex = std::nullopt;
 
         ConfigQueue()
         {
             configs.resize(maxQueueSize);
-            for(std::size_t i = 0; i < maxQueueSize; ++i)
+            consecutiveRuns.resize(maxQueueSize, 0u);
+            for(uint32_t i = 0; i < maxQueueSize; ++i)
                 freeSlots.push(i);
         }
 
-        bool empty() const
+        [[nodiscard]] bool empty() const noexcept
         {
-            return validCount == 0;
+            return (validCount == 0);
         }
 
-        bool full() const
+        [[nodiscard]] bool full() const noexcept
         {
             return validCount >= maxQueueSize;
         }
 
-        std::size_t size() const
+        [[nodiscard]] uint32_t size() const noexcept
         {
             return validCount;
         }
@@ -63,15 +57,16 @@ namespace alpaka::tune::core::peripherals
         {
             if(!freeSlots.empty())
             {
-                std::size_t idx = freeSlots.front();
+                uint32_t idx = freeSlots.front();
                 freeSlots.pop();
                 configs[idx] = std::ref(config);
+                consecutiveRuns[idx] = 0u;
                 ++validCount;
             }
             else
             {
-                // fallback if user extends maxQueueSize on purpose
                 configs.emplace_back(std::ref(config));
+                consecutiveRuns.emplace_back(0u);
                 ++validCount;
             }
         }
@@ -79,85 +74,63 @@ namespace alpaka::tune::core::peripherals
         std::optional<std::reference_wrapper<T_Configs>> get()
         {
             if(validCount == 0)
-            {
-#ifdef Debug
-                std::cout << "[ConfigQueue::get] No valid configs remaining (validCount == 0).\n";
-#endif
                 return std::nullopt;
+
+            // Try to reuse the last returned config
+            if(lastIndex.has_value())
+            {
+                uint32_t idx = lastIndex.value();
+                auto& opt = configs[idx];
+
+                if(opt && !opt->get().fullFlag)
+                {
+                    if(consecutiveRuns[idx] < maxConsecutiveRuns)
+                    {
+                        ++consecutiveRuns[idx];
+                        return opt.value();
+                    }
+                    // reset counter after max consecutive runs
+                    consecutiveRuns[idx] = 0u;
+                }
+                else if(opt && opt->get().fullFlag)
+                {
+                    opt.reset();
+                    freeSlots.push(idx);
+                    --validCount;
+                    consecutiveRuns[idx] = 0u;
+                    lastIndex.reset();
+                }
             }
 
-#ifdef Debug
-            std::cout << "[ConfigQueue::get] Starting get() at index: " << currentIndex
-                      << ", consecutiveCount: " << consecutiveCount << ", validCount: " << validCount
-                      << ", totalSlots: " << configs.size() << "\n";
-#endif
+            // Pick a random new one
+            auto& rng = alpaka::tune::strategy::RNG::get();
+            std::uniform_int_distribution<uint32_t> dist(0u, static_cast<uint32_t>(configs.size() - 1));
 
-            for(std::size_t attempts = 0; attempts < configs.size(); ++attempts)
+            for(uint32_t attempts = 0; attempts < configs.size(); ++attempts)
             {
-                auto& opt = configs[currentIndex];
-                if(!opt.has_value())
-                {
-#ifdef Debug
-                    std::cout << "[ConfigQueue::get] Slot at index " << currentIndex << " is empty. Skipping.\n";
-#endif
-                    currentIndex = (currentIndex + 1) % configs.size();
+                uint32_t idx = dist(rng);
+                auto& opt = configs[idx];
+                if(!opt)
                     continue;
-                }
 
-                T_Configs& cfg = opt.value().get();
+                T_Configs& cfg = opt->get();
 
                 if(cfg.fullFlag)
                 {
-#ifdef Debug
-                    std::cout << "[ConfigQueue::get] Slot at index " << currentIndex
-                              << " is fullFlag. Removing. eonfig: " << cfg.toString() << "\n";
-#endif
-                    lastEvaluatedConfigAccessor(std::make_optional(std::ref((cfg))));
                     opt.reset();
-
-                    freeSlots.push(currentIndex);
+                    freeSlots.push(idx);
                     --validCount;
-                    currentIndex = (currentIndex + 1) % configs.size();
-                    consecutiveCount = 0;
+                    consecutiveRuns[idx] = 0u;
                     continue;
                 }
 
-                if(consecutiveCount < maxConsecutiveRuns)
-                {
-#ifdef Debug
-                    std::cout << "[ConfigQueue::get] Returning Config at index " << currentIndex
-                              << " (consecutiveCount = " << consecutiveCount + 1 << ")\n";
-#endif
-                    ++consecutiveCount;
-                    return cfg;
-                }
-
-                // Move to next Config
-                currentIndex = (currentIndex + 1) % configs.size();
-                consecutiveCount = 0;
-
-                auto& nextOpt = configs[currentIndex];
-                if(nextOpt.has_value())
-                {
-#ifdef Debug
-                    std::cout << "[ConfigQueue::get] Switching to next Config at index " << currentIndex
-                              << ". Marking as WarmUp.\n";
-#endif
-                    nextOpt.value().get().state = config::ConfigState::WarmUp;
-                    return nextOpt;
-                }
-#ifdef Debug
-                else
-                {
-                    std::cout << "[ConfigQueue::get] Next slot at index " << currentIndex
-                              << " is empty after switch. Continuing.\n";
-                }
-#endif
+                lastIndex = idx;
+                consecutiveRuns[idx] = 1u;
+                return cfg;
             }
 
-#ifdef Debug
-            std::cout << "[ConfigQueue::get] No valid configs found after full iteration.\n";
-#endif
+            // Nothing valid found
+            lastIndex.reset();
             return std::nullopt;
         }
     };

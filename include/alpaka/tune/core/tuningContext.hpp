@@ -153,7 +153,7 @@ use model as parameter void shrinkTuningSpace(...)
             if(stored.state == config::ConfigState::Invalid)
             {
 #ifdef Debug
-                std::cout << "[violatesConstraint] Already invalid: " << stored.Config.toString() << "\n";
+                std::cout << "[violatesConstraint] Already invalid: " << printConfigRecord(stored) << "\n";
 #endif
                 return true;
             }
@@ -168,13 +168,13 @@ use model as parameter void shrinkTuningSpace(...)
 
             if(!valid)
             {
-                stored.clearMeasurements();//clear metric container
+                stored.clearMeasurements(); // clear metric container
                 stored.stamp = -1;
                 stored.state = config::ConfigState::Invalid;
                 stored.fullFlag = true;
                 stored.nr_runs = std::numeric_limits<decltype(stored.nr_runs)>::max();
 #ifdef Debug
-                std::cout << "[violatesConstraint] Marked invalid: " << stored.Config.toString() << "\n";
+                std::cout << "[violatesConstraint] Marked invalid: " << printConfigRecord(stored) << "\n";
 #endif
                 ++this->env_environmentState.numberOfCheckedConfigs;
                 return true;
@@ -200,21 +200,23 @@ use model as parameter void shrinkTuningSpace(...)
 
         {
             //@TODO env_history.loadConfig<T_MetricInterface>(env_kernelData, environmentState);
+
+            // Ensure all environment variable–related getters are called (for has... checks)
+
             getRunsPerConfig();
+
             getMaxRuns();
-            getMaxConfigs(); // make sure all environment variables are called atleast once (for has.. to work)
+            getMaxConfigs();
 
-
-            // 1. Put the initial config in the queue
             auto initConfigTmp = env_kernelTuning.getInitConfig();
+
             config::ConfigRecord<T_Config>& configEntry = getConfigStorage().getOrCreate(initConfigTmp);
             env_config_queue.push_back(configEntry);
 
-            // retrieve global break criteria for this environment state via possible runs and environment
-            // variables
+            // Derive maximum counts based on tuning space and environment limits
             env_environmentState.maxConfigsTotal
                 = std::min(getMaxCheckConfigs(), env_kernelTuning.getMaxPossibleRuns());
-            env_environmentState.maxValidEvaluations = std::min(getMaxCheckConfigs(), getMaxRuns());
+            env_environmentState.maxValidEvaluations = std::min(env_environmentState.maxConfigsTotal, getMaxRuns());
         }
 
         // Prevent copy/move
@@ -244,6 +246,7 @@ use model as parameter void shrinkTuningSpace(...)
         // Combine into kernel model
         auto completeTuningModel
             = KernelTuningModel{detail::specToFrameTupleHelper(newFrameSpecTune), userTuple, CTuneableBundle};
+        auto vals = completeTuningModel.getNumValues();
 
         using T_completeTuningModel = decltype(completeTuningModel);
         //---- reconfigure kerneltuningModel --- //

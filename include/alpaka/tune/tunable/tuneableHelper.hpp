@@ -4,6 +4,8 @@
 
 #ifndef TUNEABLEHELPER_H
 #define TUNEABLEHELPER_H
+#include "alpaka/UniqueId.hpp"
+
 #include <string>
 
 namespace alpaka::tune
@@ -12,13 +14,13 @@ namespace alpaka::tune
     {
         enum class SpecialTuneableID : std::size_t
         {
-            userDef = 3123,
-            numBlocks = 4321,
-            numThreads = 7124,
-            numFrames = 1238,
-            frameExtent = 3748,
-            NoTune = 1489,
-            DefaultCompileTune = 43279,
+            userDef = alpaka::uniqueId(),
+            numBlocks = alpaka::uniqueId(),
+            numThreads = alpaka::uniqueId(),
+            numFrames = alpaka::uniqueId(),
+            frameExtent = alpaka::uniqueId(),
+            NoTune = alpaka::uniqueId(),
+            DefaultCompileTune = alpaka::uniqueId(),
             Count
         };
     } // namespace detail
@@ -102,7 +104,7 @@ namespace alpaka::tune
         /*
          * basically holds and stores an ID -> used to "enable" frameTuneables without specific typing, while
          */
-        template<uint32_t ID>
+        template<auto ID>
         struct ShallowTunableDummy
         {
             ShallowTunableDummy() = default;

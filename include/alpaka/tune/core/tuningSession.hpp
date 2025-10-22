@@ -1,8 +1,8 @@
 //
 // Created by tim on 05.02.25.
 //
-#ifndef TUNINGSESSION_H
-#define TUNINGSESSION_H
+#pragma once
+
 
 #include "alpaka/onHost/Queue.hpp"
 
@@ -120,7 +120,7 @@ namespace alpaka::tune
          */
         template<typename T_Queue, typename T_NumFrames, typename T_FrameExtent, typename T_ThreadSpec>
         auto enqueue(
-            T_Queue& queue,
+            T_Queue const& queue,
             alpaka::concepts::Executor auto const& exec,
             onHost::FrameSpec<T_NumFrames, T_FrameExtent, T_ThreadSpec> const& frameSpec,
             alpaka::concepts::KernelBundle auto const& kernelBundle)
@@ -157,6 +157,7 @@ namespace alpaka::tune
                 kernelBundle,
                 *this);
             bool bef = environmentPtr->readyForTerminate;
+
             environmentPtr->launch(queue, exec, std::forward<T_FrameSpec>(spec), kernelBundle);
             if(bef != environmentPtr->readyForTerminate)
             {
@@ -172,6 +173,3 @@ namespace alpaka::tune
      */
 
 } // namespace alpaka::tune
-
-
-#endif // TUNINGSESSION_H

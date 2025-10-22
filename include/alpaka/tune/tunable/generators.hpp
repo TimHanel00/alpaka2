@@ -122,8 +122,7 @@ namespace alpaka::tune::generate
      * important this container uses std::vector, it should not be used on the device side
      * Example:
      * @code
-     * auto gen = linSpace(0, 10, 2);
-     * auto values = gen(); // values = {0, 2, 4, 6, 8, 10}
+     * auto values = linSpace(0, 10, 2); // values = {0, 2, 4, 8, 10}
      * auto myTuneable = Tuneable{values};
      * @endcode
      *
@@ -149,12 +148,6 @@ namespace alpaka::tune::generate
      * Note that the operation cur * base is applied to all elements of a multidimensional vector at once
      * and its ensured that Vec{values...} <= range.m_end{valuesX...} for ALL values ∈ Vec{values...}
      * meaning if start{2,3} end{4,5} and stride {3,2} then {2,5} is NOT generated.
-     * Example:
-     * @code
-     * auto gen = logSpace(0, 10, 2);
-     * auto values = gen(); // values = {0, 2, 4, 6, 8, 10}
-     * auto myTuneable = Tuneable{values};
-     * @endcode
      *
      * @tparam T Arithmetic type of the sequence values.
      * @param range a alpaka::IdxRange
@@ -174,15 +167,14 @@ namespace alpaka::tune::generate
      * important this container uses std::vector, it should not be used on the device side
      * Example:
      * @code
-     * auto gen = logSpace(0, 10, 2);
-     * auto values = gen(); // values = {0, 2, 4, 6, 8, 10}
+     * auto values = logSpace(1, 10, 2); // values = {1, 2, 4, 8}
      * auto myTuneable = Tuneable{values};
      * @endcode
      *
      * @tparam T Arithmetic type of the sequence values.
      * @param start Start value of the sequence.
      * @param end End value of the sequence.
-     * @param step Step size between consecutive values.
+     * @param base log base (multiplier)
      * @return a std::vector<T>
      */
     template<alpaka::tune::concepts::ArithmeticComparableOrVec T>
@@ -200,13 +192,6 @@ namespace alpaka::tune::generate
      * When using this overload
      * Note that the operation cur * base is applied to all elements of a multidimensional vector at once
      * and its ensured that Vec{values...} <= range.m_end{valuesX...} for ALL values ∈ Vec{values...}
-     *
-     * Example:
-     * @code
-     * auto gen = logSpace(0, 10, 2);
-     * auto values = gen(); // values = {0, 2, 4, 6, 8, 10}
-     * auto myTuneable = Tuneable{values};
-     * @endcode
      *
      * @tparam T Arithmetic type of the sequence values.
      * @param range a alpaka::IdxRange -> m_step is used as the base

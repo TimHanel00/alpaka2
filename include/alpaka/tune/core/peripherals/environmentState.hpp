@@ -16,15 +16,16 @@ namespace alpaka::tune::core::peripherals
     struct EnvironmentState
     {
         bool sessionFinished{false};
-        bool strategyFinished{false};
+        mutable bool strategyFinished{false};
         uint32_t numberOfCheckedConfigs{0};
         uint32_t numValidConfigs{0};
         uint32_t maxValidEvaluations{UINT32_MAX};
         uint32_t maxConfigsTotal{0};
         uint32_t stamp{0};
         uint32_t strategyLimit = Tuner_MaxConsecutiveStrategyFailures;
+        std::optional<std::reference_wrapper<alpaka::tune::config::ConfigRecord<T_Config> const>> bestConfig;
 
-        auto setStrategyFinished() -> void
+        auto setStrategyFinished() const -> void
         {
             strategyFinished = true;
         }
@@ -86,8 +87,6 @@ namespace alpaka::tune::core::peripherals
             // No best yet -> initialize with this candidate.
             bestConfig.emplace(std::ref(config_entry));
         }
-
-        std::optional<std::reference_wrapper<alpaka::tune::config::ConfigRecord<T_Config> const>> bestConfig;
 
         auto const& getBestConfig()
         {

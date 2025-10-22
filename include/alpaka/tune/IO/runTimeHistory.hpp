@@ -7,8 +7,7 @@
 #include "alpaka/meta/IntegerSequence.hpp"
 
 #include <alpaka/tune/IO/metricContainer.hpp>
-
-#include <assert.h>
+#include <alpaka/tune/tunable/kernelTuningModel.hpp>
 
 #include <cmath>
 
@@ -57,15 +56,6 @@ namespace alpaka::tune::config
          */
         explicit ConfigRecord(TConfig const& cfg) : config(cfg)
         {
-        }
-
-        /**
-         * @brief Convert the underlying configuration to a string.
-         * @return String representation of the configuration.
-         */
-        std::string toString()
-        {
-            return config.toString();
         }
 
         /**
@@ -390,7 +380,7 @@ namespace alpaka::tune::IO
         /// @brief Check existence by entry object.
         [[nodiscard]] bool contains(Entry const& config) const noexcept
         {
-            return entries.contains(config.config);
+            return entries.contains(config.m_config);
         }
 
         /// @brief Check existence by configuration key.

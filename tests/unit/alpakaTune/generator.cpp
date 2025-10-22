@@ -1,7 +1,7 @@
 //
 // Created by tim on 08.10.25.
 //
-#include "alpaka/tune/tuneable/Tunable.hpp"
+#include "alpaka/tune/tunable/Tunable.hpp"
 
 #include <alpaka/alpaka.hpp>
 

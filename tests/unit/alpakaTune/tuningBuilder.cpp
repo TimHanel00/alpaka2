@@ -3,7 +3,7 @@
 #include <alpaka/tune/core/tuningSession.hpp>
 #include <alpaka/tune/interfaces/MetricInterface.hpp>
 #include <alpaka/tune/interfaces/strategy.hpp>
-#include <alpaka/tune/tuneable/Tunable.hpp>
+#include <alpaka/tune/tunable/Tunable.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -69,13 +69,13 @@ TEST_CASE("builder default state is empty", "[TuningBuilder][defaults]")
 TEST_CASE("withOutputFile sets and persists file name", "[TuningBuilder][outputfile]")
 {
     TuningBuilder builder{};
-    builder.withOutputFile("results.json");
+    builder.withOutputFile("results.toml");
 
-    REQUIRE(builder.m_outputFile == "results.json");
+    REQUIRE(builder.m_outputFile == "results.toml");
 
     // Chained usage
-    auto chained = builder.withOutputFile("new.json");
-    REQUIRE(chained.m_outputFile == "new.json");
+    auto chained = builder.withOutputFile("new.toml");
+    REQUIRE(chained.m_outputFile == "new.toml");
 }
 
 TEST_CASE("builder can use custom strategy", "[TuningBuilder][strategy]")
@@ -141,11 +141,11 @@ TEST_CASE("output file and specifiers persist through transformations", "[Tuning
 
 TEST_CASE("buildSession preserves builder configuration", "[TuningBuilder][session]")
 {
-    auto builder = TuningBuilder{}.withOutputFile("session_out.json").withContextSpecifier("device0", "case42");
+    auto builder = TuningBuilder{}.withOutputFile("session_out.toml").withContextSpecifier("device0", "case42");
 
     auto session = builder.buildSession();
 
-    REQUIRE(builder.m_outputFile == "session_out.json");
+    REQUIRE(builder.m_outputFile == "session_out.toml");
     REQUIRE(builder.m_sessionSpecifiers.size() == 2);
 }
 
@@ -155,7 +155,7 @@ TEST_CASE("complex chained builder integration", "[TuningBuilder][integration]")
     DummyStrategy strategy{};
 
     auto builder = TuningBuilder{}
-                       .withOutputFile("integration.json")
+                       .withOutputFile("integration.toml")
                        .withStrategy(strategy)
                        .withMetricInterface(metric)
                        .withConstraint<alpaka::tune::frame::numThreads, alpaka::tune::frame::frameExtent>(
@@ -164,7 +164,7 @@ TEST_CASE("complex chained builder integration", "[TuningBuilder][integration]")
 
     auto session = builder.buildSession();
 
-    REQUIRE(builder.m_outputFile == "integration.json");
+    REQUIRE(builder.m_outputFile == "integration.toml");
     REQUIRE(builder.m_sessionSpecifiers.size() == 3);
 
     using BType = decltype(builder);

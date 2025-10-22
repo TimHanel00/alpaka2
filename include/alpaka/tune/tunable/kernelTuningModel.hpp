@@ -117,12 +117,14 @@ namespace alpaka::tune
         }
 
         /**
-         * @brief get the number of values for each dimension in the parameter space
+         * @brief get the number of values for each dimension in the parameter space as a
+         * integer based parameter configuration
+         *
          *
          * @return std::array<uint32_t,numDims>
          *
          */
-        auto getNumValues() const
+        auto const& getNumValuesView() const
         {
             return m_kernelTuningModel.m_numValues;
         }
@@ -178,6 +180,10 @@ namespace alpaka::tune
         }();
         std::array<uint32_t, numDims> m_numValues{};
         constexpr KernelTuningModel() = default;
+        KernelTuningModel(KernelTuningModel const&) = delete;
+        KernelTuningModel& operator=(KernelTuningModel const&) = delete;
+        KernelTuningModel& operator=(KernelTuningModel&&) = delete;
+        ~KernelTuningModel() = default;
 
         constexpr KernelTuningModel(T_FrameTuneables frameT, T_UserTuple userT, T_CompileTimeTuple compileT)
             : m_frameTuneables(std::move(frameT))
@@ -185,6 +191,16 @@ namespace alpaka::tune
             , m_compileTimeTuneables(std::move(compileT))
             , m_allTuneables(makeAllTuneables(m_frameTuneables, m_userTuneables, m_compileTimeTuneables))
             , m_numValues(getNumValues())
+        {
+        }
+
+        // this custom move constructor ensures we rebuild references stored in m_allTuneables after a move
+        KernelTuningModel(KernelTuningModel&& other) noexcept
+            : m_frameTuneables(std::move(other.m_frameTuneables))
+            , m_userTuneables(std::move(other.m_userTuneables))
+            , m_compileTimeTuneables(std::move(other.m_compileTimeTuneables))
+            , m_allTuneables(makeAllTuneables(m_frameTuneables, m_userTuneables, m_compileTimeTuneables))
+            , m_numValues(std::move(other.m_numValues))
         {
         }
 
@@ -278,20 +294,62 @@ namespace alpaka::tune
             return getValuesFromTuple<startingIdx, idx_type, NumTuneables, T_allTuneablesRef>(config, m_allTuneables);
         }
 
+#define Debug
+
         auto getNumValues() const
         {
-            std::array<uint32_t, numDims> numValues;
+            std::array<uint32_t, numDims> numValues{};
             uint32_t curIdx = 0;
+
+#ifdef Debug
+            std::cout << "[Debug:getNumValues] --- Begin ---\n";
+            std::cout << "  numDims: " << numDims << '\n';
+#endif
+
             alpaka::tune::utils::for_each(
                 m_allTuneables,
                 [&](auto const& elem)
                 {
-                    auto vec = elem.getNumValues(); // this is runtime
-                    for(auto dim = 0; dim < alpaka::getDim(vec) && curIdx < numDims; dim++, ++curIdx)
+#ifdef Debug
+                    using ElemT = std::decay_t<decltype(elem)>;
+                    std::cout << "  Processing tuneable of type: " << typeid(ElemT).name() << '\n';
+#endif
+
+                    auto vec = elem.getNumValues(); // runtime values per dimension
+
+#ifdef Debug
+                    std::cout << "    getNumValues() returned vector of dim = " << alpaka::getDim(vec) << " → {";
+                    for(uint32_t i = 0; i < alpaka::getDim(vec); ++i)
+                    {
+                        std::cout << vec[i];
+                        if(i + 1 < alpaka::getDim(vec))
+                            std::cout << ", ";
+                    }
+                    std::cout << "}\n";
+#endif
+
+                    for(uint32_t dim = 0; dim < alpaka::getDim(vec) && curIdx < numDims; ++dim, ++curIdx)
                     {
                         numValues[curIdx] = vec[dim];
+
+#ifdef Debug
+                        std::cout << "      -> numValues[" << curIdx << "] = " << vec[dim] << '\n';
+#endif
                     }
                 });
+
+#ifdef Debug
+            std::cout << "  Final numValues array: {";
+            for(std::size_t i = 0; i < numValues.size(); ++i)
+            {
+                std::cout << numValues[i];
+                if(i + 1 < numValues.size())
+                    std::cout << ", ";
+            }
+            std::cout << "}\n";
+            std::cout << "[Debug:getNumValues] --- End ---\n";
+#endif
+
             return numValues;
         }
 
@@ -326,25 +384,24 @@ namespace alpaka::tune
             return config::Config{ar};
         }
 
-        [[nodiscard]] std::size_t getMaxPossibleRuns() const
+        [[nodiscard]] uint32_t getMaxPossibleRuns() const
         {
-            auto vec = getNumValues();
-            std::size_t maxPossibleRuns = 1;
-            for(uint32_t i = 0; i < alpaka::getDim(vec); i++)
+            uint32_t maxPossibleRuns = 1;
+            for(uint32_t i = 0; i < m_numValues.size(); i++)
             {
-                auto val = static_cast<std::size_t>(vec[i]);
+                auto val = static_cast<uint32_t>(m_numValues[i]);
                 if(val == 0)
                 {
                     return 0;
                 }
-                auto tmp = maxPossibleRuns * vec[i];
+                auto tmp = maxPossibleRuns * m_numValues[i];
                 if(tmp < maxPossibleRuns)
                 {
                     std::cerr << " overflow during tuning space calculation, this error can be ignored if the tuning "
                                  "space is restricted by environment variables TunerMaxConfigEvaluations or "
                                  "TunerMaxCheckedConfigs! "
                               << std::endl;
-                    return std::numeric_limits<std::size_t>::max();
+                    return std::numeric_limits<uint32_t>::max();
                 }
                 maxPossibleRuns = tmp;
             }

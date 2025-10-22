@@ -18,7 +18,7 @@
 namespace alpaka::tune
 {
 
-    template<uint32_t ID, typename T, auto Dim, TunableKind kind, typename T_Storage>
+    template<auto ID, typename T, auto Dim, TunableKind kind, typename T_Storage>
     struct BaseTunable
     {
         using ValueType = T;
@@ -52,7 +52,7 @@ namespace alpaka::tune
      * >{};
      */
 
-    template<uint32_t ID = static_cast<uint32_t>(detail::SpecialTuneableID::DefaultCompileTune), typename... T>
+    template<auto ID = static_cast<uint32_t>(detail::SpecialTuneableID::DefaultCompileTune), typename... T>
     struct CTunable
         : public BaseTunable<
               ID,
@@ -147,7 +147,7 @@ namespace alpaka::tune
      * @tparam T Type of the values stored in the vector.
      */
     template<
-        uint32_t ID = static_cast<uint32_t>(detail::SpecialTuneableID::userDef),
+        auto ID = static_cast<uint32_t>(detail::SpecialTuneableID::userDef),
         typename T = alpaka::Vec<uint32_t, 1u>>
     struct Tunable : public BaseTunable<ID, T, 1u, TunableKind::Tunable, std::vector<T>>
     {
@@ -283,7 +283,7 @@ namespace alpaka::tune
      * @tparam T Type of the values stored in the vector.
      * */
     template<
-        uint32_t ID = static_cast<uint32_t>(detail::SpecialTuneableID::userDef),
+        auto ID = static_cast<uint32_t>(detail::SpecialTuneableID::userDef),
         alpaka::concepts::Vector T = alpaka::Vec<uint32_t, 2u>>
     struct TunableMD
         : public BaseTunable<
@@ -485,14 +485,55 @@ namespace alpaka::tune
      */
     namespace frame
     {
-        static constexpr uint32_t numBlocks(static_cast<uint32_t>(detail::SpecialTuneableID::numBlocks));
-        static constexpr uint32_t numThreads(static_cast<uint32_t>(detail::SpecialTuneableID::numThreads));
-        static constexpr uint32_t numFrames(static_cast<uint32_t>(detail::SpecialTuneableID::numFrames));
-        static constexpr uint32_t frameExtent(static_cast<uint32_t>(detail::SpecialTuneableID::frameExtent));
+        static constexpr std::size_t numBlocks(static_cast<std::size_t>(detail::SpecialTuneableID::numBlocks));
+        static constexpr std::size_t numThreads(static_cast<std::size_t>(detail::SpecialTuneableID::numThreads));
+        static constexpr std::size_t numFrames(static_cast<std::size_t>(detail::SpecialTuneableID::numFrames));
+        static constexpr std::size_t frameExtent(static_cast<std::size_t>(detail::SpecialTuneableID::frameExtent));
     } // namespace frame
 
-    // namespace alpaka::tune
+    /*
+     *  Tunable specialization for num Frames tune, acts as a shorthand for defining
+     * TunableMD<tune::frame::numFrames, T>, inherits all constructors
+     */
+    template<typename T>
+    struct NumFramesTune : public TunableMD<tune::frame::numFrames, T>
+    {
+        using Base = TunableMD<tune::frame::numFrames, T>;
+        using Base::Base; // inherit all Base constructors
+    };
 
+    /*
+     *  Tunable specialization for Frame Extent tune, acts as a shorthand for defining
+     * TunableMD<tune::frame::frameExtent, T>, inherits all constructors
+     */
+    template<typename T>
+    struct FrameExtentTune : public TunableMD<tune::frame::frameExtent, T>
+    {
+        using Base = TunableMD<tune::frame::frameExtent, T>;
+        using Base::Base; // inherit all Base constructors
+    };
+
+    /*
+     *  Tunable specialization for num Blocks tune, acts as a shorthand for defining
+     * TunableMD<tune::frame::numThreads, T>, inherits all constructors
+     */
+    template<typename T>
+    struct NumBlocksTune : public TunableMD<tune::frame::numBlocks, T>
+    {
+        using Base = TunableMD<tune::frame::numBlocks, T>;
+        using Base::Base; // inherit all Base constructors
+    };
+
+    /*
+     *  Tunable specialization for num Blocks tune, acts as a shorthand for defining
+     * TunableMD<tune::frame::numThreads, T>, inherits all constructors
+     */
+    template<typename T>
+    struct NumThreadsTune : public TunableMD<tune::frame::numThreads, T>
+    {
+        using Base = TunableMD<tune::frame::numThreads, T>;
+        using Base::Base; // inherit all Base constructors
+    };
 
 } // namespace alpaka::tune
 

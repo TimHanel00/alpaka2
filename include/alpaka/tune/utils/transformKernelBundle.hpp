@@ -37,7 +37,7 @@ namespace alpaka::tune::detail
         else
         {
             constexpr bool isPrev
-                = is_tuneable_v<std::remove_reference_t<decltype(std::get<I - 1>(std::declval<Tuple>()))>>;
+                = is_tuneable_v<std::remove_reference_t<decltype(alpaka::get<I - 1>(std::declval<Tuple>()))>>;
             return count_tuneables<I - 1, Tuple>() + (isPrev ? 1 : 0);
         }
     }

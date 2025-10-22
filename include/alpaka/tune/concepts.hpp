@@ -38,7 +38,7 @@ namespace alpaka::tune::config
 namespace alpaka::tune::concepts
 {
     template<typename T>
-    concept shallowTunable = std::is_same_v<detail::ShallowTunableDummy<T::tag>, T>;
+    concept shallowTunable = std::is_same_v<alpaka::tune::detail::ShallowTunableDummy<T::tag>, T>;
     template<typename T>
     concept runtimeTuneable =
         // must have a static member `tuneableType`
@@ -49,7 +49,7 @@ namespace alpaka::tune::concepts
         && (T::tuneableType == TunableKind::Tunable || T::tuneableType == TunableKind::TunableMD);
     // currently compile-time tunables are not permitted
     template<typename T>
-    concept TuneableLike = runtimeTuneable<T> || std::is_same_v<T, detail::ShallowTunableDummy<T::tag>>
+    concept TuneableLike = runtimeTuneable<T> || std::is_same_v<T, alpaka::tune::detail::ShallowTunableDummy<T::tag>>
                            || std::is_same_v<T, detail::NoTune>;
     template<typename T>
     concept MetricInterface = requires(T t) {
@@ -61,8 +61,31 @@ namespace alpaka::tune::concepts
 
 
     template<typename T>
-    concept Config = std::is_convertible_v<T, config::Config<typename T::value_type, T::size>>
-                     || std::is_convertible_v<T, config::NormalizedConfig<typename T::value_type, T::size>>;
+    concept ConfigLike = []<typename U = std::remove_cvref_t<T>>
+    {
+        if constexpr(requires {
+                         typename U::value_type;
+                         { U::size() } -> std::convertible_to<std::size_t>;
+                     })
+        {
+            using V = typename U::value_type;
+            constexpr auto N = U::size();
+
+            if constexpr(alpaka::tune::concepts::Floating<V>)
+            {
+                return std::is_same_v<U, alpaka::tune::config::NormalizedConfig<V, N>>;
+            }
+            else
+            {
+                // Only allow integer configs if V is integral
+                return std::is_same_v<U, alpaka::tune::config::Config<V, N>>;
+            }
+        }
+        else
+        {
+            return false;
+        }
+    }();
 
 
     template<typename T>

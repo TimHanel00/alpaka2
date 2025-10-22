@@ -30,15 +30,19 @@ namespace alpaka::tune
         return hasMaxRuns;
     }
 
+    using integerType = uint32_t;
+
     namespace internal
     {
-        static std::size_t getMaxCheckedConfigs_Env()
+
+
+        static integerType getMaxCheckedConfigs_Env()
         {
             if(char const* var = std::getenv("TunerMaxCheckedConfigs")) // all potentially generated
             {
                 try
                 {
-                    std::size_t value = static_cast<std::size_t>(std::stoul(var));
+                    integerType value = static_cast<integerType>(std::stoul(var));
                     return value;
                 }
                 catch(std::exception const& e)
@@ -47,16 +51,16 @@ namespace alpaka::tune
                 }
             }
 
-            return UINT64_MAX;
+            return std::numeric_limits<integerType>::max();
         }
 
-        static std::size_t getMaxRuns_Env()
+        static integerType getMaxRuns_Env()
         {
             if(char const* var = std::getenv("TunerMaxConfigEvaluations")) // valid configs evaluated
             {
                 try
                 {
-                    std::size_t value = static_cast<std::size_t>(std::stoul(var));
+                    integerType value = static_cast<integerType>(std::stoul(var));
                     alpaka::tune::hasMaxRuns_Env(true);
                     return value;
                 }
@@ -66,16 +70,16 @@ namespace alpaka::tune
                 }
             }
 
-            return UINT64_MAX;
+            return std::numeric_limits<integerType>::max();
         }
 
-        static std::size_t getRunsPerConfig_Env()
+        static integerType getRunsPerConfig_Env()
         {
-            if(char const* var = std::getenv("TunerRunsPerConfig")) //runs per Config
+            if(char const* var = std::getenv("TunerRunsPerConfig")) // runs per Config
             {
                 try
                 {
-                    std::size_t const value = static_cast<std::size_t>(std::stoul(var));
+                    integerType const value = static_cast<integerType>(std::stoul(var));
                     hasRunsPerConfig_Env(true);
                     return value;
                 }
@@ -87,13 +91,13 @@ namespace alpaka::tune
             return upperBoundForRunsPerConfig;
         }
 
-        static std::size_t getMaxConfigs_Env()
+        static integerType getMaxConfigs_Env()
         {
-            if(char const* var = std::getenv("TunerMaxConfigs")) //max tuning space
+            if(char const* var = std::getenv("TunerMaxConfigs")) // max tuning space
             {
                 try
                 {
-                    std::size_t const value = static_cast<std::size_t>(std::stoul(var));
+                    integerType const value = static_cast<integerType>(std::stoul(var));
                     return value;
                 }
                 catch(std::exception const& e)
@@ -101,34 +105,34 @@ namespace alpaka::tune
                     std::cerr << "Invalid value for TunerReRuns: " << e.what() << std::endl;
                 }
             }
-            return UINT64_MAX;
+            return std::numeric_limits<integerType>::max();
         }
     } // namespace internal
 
-    static std::size_t getMaxCheckConfigs()
+    static integerType getMaxCheckConfigs()
     {
-        static std::size_t maxConfigs = internal::getMaxCheckedConfigs_Env();
+        static integerType maxConfigs = internal::getMaxCheckedConfigs_Env();
 
         return maxConfigs;
     }
 
-    static std::size_t getMaxConfigs()
+    static integerType getMaxConfigs()
     {
-        static std::size_t maxConfigs = internal::getMaxConfigs_Env();
+        static integerType maxConfigs = internal::getMaxConfigs_Env();
 
         return maxConfigs;
     }
 
-    static std::size_t getMaxRuns()
+    static integerType getMaxRuns()
     {
-        static std::size_t maxRuns = internal::getMaxRuns_Env();
+        static integerType maxRuns = internal::getMaxRuns_Env();
 
         return maxRuns;
     }
 
-    static std::size_t getRunsPerConfig()
+    static integerType getRunsPerConfig()
     {
-        static std::size_t maxRuns = internal::getRunsPerConfig_Env();
+        static integerType maxRuns = internal::getRunsPerConfig_Env();
 
         return maxRuns;
     }

@@ -1,7 +1,9 @@
 //
 // Created by tim on 10.10.25.
 //
-#include "alpaka/tune/tuneable/Tunable.hpp"
+#include "alpaka/tune/tunable/Tunable.hpp"
+
+#include "alpaka/UniqueId.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -72,10 +74,10 @@ TEST_CASE("CTuneable supports user-defined types", "[CTuneable]")
         }
     };
 
-    using Tune = CTunable<20, Foo, Bar>;
+    using Tune = CTunable<alpaka::uniqueId(), Foo, Bar>;
     static_assert(std::is_same_v<typename Tune::Values, std::tuple<Foo, Bar>>);
 
-    CTunable<20, Foo, Bar> tune("CustomTune");
+    CTunable<alpaka::uniqueId(), Foo, Bar> tune("CustomTune");
     CHECK(tune.getName() == "CustomTune");
     auto numVals = tune.getNumValues();
     CHECK(numVals[0] == 2); // tuple size

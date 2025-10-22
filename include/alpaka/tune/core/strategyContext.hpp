@@ -89,6 +89,11 @@ namespace alpaka::tune
         /// Reference to the mutable environment state (progress, break conditions, best config).
         Environment const& env;
 
+        void markStrategyFinished()
+        {
+            desc.setStrategyFinished();
+        }
+
         // ---------------------------------------------------------------------
         // Comparison helpers
         // ---------------------------------------------------------------------

@@ -5,9 +5,49 @@
 #ifndef FRAMESPECTUNINGMODEL_H
 #define FRAMESPECTUNINGMODEL_H
 #include <alpaka/tune/concepts.hpp>
+#include <alpaka/tune/tunable/Tunable.hpp>
 
 namespace alpaka::tune
 {
+    namespace detail
+    {
+        // get the first argument from a parameter pack, where T is compliant with the tunable interface
+        template<typename First, typename...>
+        struct GetTFromArgs
+        {
+        private:
+            // Match std::vector<T>
+            template<typename T>
+            static auto deduce(std::vector<T> const&) -> T;
+
+            // Match std::initializer_list<T>
+            template<typename T>
+            static auto deduce(std::initializer_list<T>) -> T;
+
+            // Match IdxRange<T>
+            template<typename T>
+            static auto deduce(IdxRange<T> const&) -> T;
+
+            // Fallback triggers static_assert
+            static void deduce(...);
+
+        public:
+            using type = decltype(deduce(std::declval<First>()));
+
+            static_assert(
+                !std::is_void_v<type>,
+                "First argument to withNumFramesTune(...) must be "
+                "std::vector<T>, std::initializer_list<T>, or IdxRange<T>.");
+        };
+
+        template<typename... Args>
+        using GetTFromParameterPack = typename GetTFromArgs<Args...>::type;
+        template<typename... Args>
+        using constructTunableMD_FromParameterPack = TunableMD<alpaka::uniqueId(), GetTFromParameterPack<Args...>>;
+
+
+    } // namespace detail
+
     /**
      * @brief Builder-style wrapper that enables tuning of a FrameSpec's kernel-launch arguments.
      *
@@ -83,21 +123,19 @@ namespace alpaka::tune
         // ------------------------------------------------------------------------
 
         /**
-         * @brief Enable or replace the tuneable for the number of frames.
+         * @brief Enables or replaces the tuneable controlling the number of frames.
          *
-         * If called without an argument, a shallow dummy tuneable is injected so the tuner
-         * can decide the search space.
+         * Accepts an explicit tuneable or, if none is provided, injects a shallow dummy
+         * (`ShallowTunableDummy<tune::frame::numFrames>`) so the tuner can infer the search space.
+         * The supplied tuneable is validated against the current `T_FrameSpec` to ensure
+         * matching dimensionality, value type, and tag.
          *
-         * @tparam T_NumFramesTuneNeu New tuneable type (defaults to a shallow dummy tagged @c tune::frame::numFrames).
-         * @param numFramesTune       The tuneable instance to use (optional).
-         * @return A new @c FrameSpecTuningModel with @c numFramesTune set.
+         * @tparam T_NumFramesTuneNeu  Type of the new tuneable (defaults to a shallow dummy).
+         * @param  numFramesTune       Optional tuneable instance to apply.
+         * @return A new `FrameSpecTuningModel` with `numFramesTune` set.
          *
-         * @note When a runtime tuneable is provided, compile-time checks ensure:
-         *  - dimensionality matches @c T_FrameSpec::dim()
-         *  - value_type matches @c T_FrameSpec::type
-         *  - tag is @c tune::frame::numFrames
-         *
-         * @warning This is rvalue-qualified: call with std::move(model).withNumFramesTune(...).
+         * @note The model is consumed to preserve fluent builder semantics. Do not reuse
+         *       the original instance after this call.
          */
         template<concepts::TuneableLike T_NumFramesTuneNeu = detail::ShallowTunableDummy<tune::frame::numFrames>>
         constexpr auto withNumFramesTune(T_NumFramesTuneNeu numFramesTune = {}) &&
@@ -132,22 +170,42 @@ namespace alpaka::tune
         }
 
         /**
-         * @brief Enable or replace the tuneable for frame extent (elements per frame).
+         * @brief Shorthand overload that constructs a `NumFramesTune` via CTAD and forwards it.
          *
-         * If called without an argument, a shallow dummy tuneable is injected so the tuner
-         * can decide the search space.
+         * Forwards @p tunableArgs to `alpaka::tune::NumFramesTune`, a thin wrapper around
+         * `TunableMD<tune::frame::numFrames, T>`. The resulting tuneable is automatically
+         * type-deduced and passed to the typed `withNumFramesTune(T_NumFramesTuneNeu)` overload,
+         * which validates compatibility with the associated `FrameSpec`.
          *
-         * @tparam T_FrameExtentTuneNeu New tuneable type (defaults to shallow dummy tagged @c
-         * tune::frame::frameExtent).
-         * @param frameExtentTune       The tuneable instance to use (optional).
-         * @return A new @c FrameSpecTuningModel with @c frameExtentTune set.
+         * @tparam Args        Arguments forwarded to the `TunableMD` constructor.
+         * @param  tunableArgs Arguments used to construct the runtime tuneable.
+         * @return A new `FrameSpecTuningModel` with the updated `numFramesTune`.
          *
-         * @note When a runtime tuneable is provided, compile-time checks ensure:
-         *  - dimensionality matches @c T_FrameSpec::dim()
-         *  - value_type matches @c T_FrameSpec::type
-         *  - tag is @c tune::frame::frameExtent
+         * @note This function consumes the current model to enable fluent builder chaining.
+         *       Reusing the original model instance after this call results in undefined behavior.
+         */
+        template<typename... Args>
+        constexpr auto withNumFramesTune(Args... tunableArgs) &&
+        {
+            using T = detail::GetTFromParameterPack<Args...>;
+            auto tune = alpaka::tune::NumFramesTune<T>{std::forward<Args>(tunableArgs)...};
+            return std::move(*this).withNumFramesTune(std::move(tune));
+        }
+
+        /**
+         * @brief Enables or replaces the tuneable defining the frame extent (elements per frame).
          *
-         * @warning This is rvalue-qualified: call with std::move(model).withFrameExtentTune(...).
+         * Accepts an explicit tuneable or, if none is provided, injects a shallow dummy
+         * (`ShallowTunableDummy<tune::frame::frameExtent>`) so the tuner can infer the search space.
+         * The supplied tuneable is validated against the current `T_FrameSpec`  to ensure
+         * matching dimensionality, value type, and tag.
+         *
+         * @tparam T_FrameExtentTuneNeu  Type of the new tuneable (defaults to a shallow dummy).
+         * @param  frameExtentTune       Optional tuneable instance to apply.
+         * @return A new `FrameSpecTuningModel` with `frameExtentTune` set.
+         *
+         * @note The model is consumed to preserve fluent builder semantics. Do not reuse
+         *       the original instance after this call.
          */
         template<concepts::TuneableLike T_FrameExtentTuneNeu = detail::ShallowTunableDummy<tune::frame::frameExtent>>
         constexpr auto withFrameExtentTune(T_FrameExtentTuneNeu frameExtentTune = {}) &&
@@ -178,6 +236,29 @@ namespace alpaka::tune
                 std::move(frameExtentTune),
                 std::move(m_numBlocksTune),
                 std::move(m_numThreadsTune));
+        }
+
+        /**
+         * @brief Shorthand overload that constructs a `FrameExtentTune` via CTAD and forwards it.
+         *
+         * Forwards @p tunableArgs to `alpaka::tune::FrameExtentTune`, a thin wrapper around
+         * `TunableMD<tune::frame::frameExtent, T>`. The resulting tuneable is automatically
+         * type-deduced and passed to the typed `withFrameExtentTune(T_FrameExtentTuneNeu)` overload,
+         * which validates compatibility with the associated `FrameSpec`.
+         *
+         * @tparam Args        Arguments forwarded to the `TunableMD` constructor.
+         * @param  tunableArgs Arguments used to construct the runtime tuneable.
+         * @return A new `FrameSpecTuningModel` with the updated `frameExtentTune`.
+         *
+         * @note This function consumes the current FrameSpecTuningModel (must be an rvalue) to enable fluent builder
+         * chaining. Reusing the original model instance after this call results in undefined behavior.
+         */
+        template<typename... Args>
+        constexpr auto withFrameExtentTune(Args&&... tunableArgs) &&
+        {
+            using T = detail::GetTFromParameterPack<Args...>;
+            auto tune = alpaka::tune::FrameExtentTune<T>{std::forward<Args>(tunableArgs)...};
+            return std::move(*this).withFrameExtentTune(std::move(tune));
         }
 
         /**
@@ -229,6 +310,29 @@ namespace alpaka::tune
         }
 
         /**
+         * @brief Shorthand overload that constructs a `NumBlocksTune` via CTAD and forwards it.
+         *
+         * Forwards @p tunableArgs to `alpaka::tune::NumBlocksTune`, a thin wrapper around
+         * `TunableMD<tune::frame::numBlocks, T>`. The resulting tuneable is automatically
+         * type-deduced and passed to the typed `withNumBlocksTune(T_NumBlocksTuneNeu)` overload,
+         * which validates compatibility with the associated `FrameSpec`.
+         *
+         * @tparam Args        Arguments forwarded to the `TunableMD` constructor.
+         * @param  tunableArgs Arguments used to construct the runtime tuneable.
+         * @return A new `FrameSpecTuningModel` with the updated `numBlocksTune`.
+         *
+         * @note This function consumes the current model to enable fluent builder chaining.
+         *       Reusing the original model instance after this call results in undefined behavior.
+         */
+        template<typename... Args>
+        constexpr auto withNumBlocksTune(Args&&... tunableArgs) &&
+        {
+            using T = detail::GetTFromParameterPack<Args...>;
+            auto tune = alpaka::tune::NumBlocksTune<T>{std::forward<Args>(tunableArgs)...};
+            return std::move(*this).withNumBlocksTune(std::move(tune));
+        }
+
+        /**
          * @brief Enable or replace the tuneable for number of threads (thread specification).
          *
          * If called without an argument, a shallow dummy tuneable is injected so the tuner
@@ -274,6 +378,29 @@ namespace alpaka::tune
                 std::move(m_frameExtentTune),
                 std::move(m_numBlocksTune),
                 std::move(numThreadsTune));
+        }
+
+        /**
+         * @brief Shorthand overload that constructs a `NumThreadsTune` via CTAD and forwards it.
+         *
+         * Forwards @p tunableArgs to `alpaka::tune::NumThreadsTune`, a thin wrapper around
+         * `TunableMD<tune::frame::numThreads, T>`. The resulting tuneable is automatically
+         * type-deduced and passed to the typed `withNumThreadsTune(T_NumThreadsTuneNeu)` overload,
+         * which validates compatibility with the associated `FrameSpec`.
+         *
+         * @tparam Args        Arguments forwarded to the `TunableMD` constructor.
+         * @param  tunableArgs Arguments used to construct the runtime tuneable.
+         * @return A new `FrameSpecTuningModel` with the updated `numThreadsTune`.
+         *
+         * @note This function consumes the current model to enable fluent builder chaining.
+         *       Reusing the original model instance after this call results in undefined behavior.
+         */
+        template<typename... Args>
+        constexpr auto withNumThreadsTune(Args&&... tunableArgs) &&
+        {
+            using T = detail::GetTFromParameterPack<Args...>;
+            auto tune = alpaka::tune::NumThreadsTune<T>{std::forward<Args>(tunableArgs)...};
+            return std::move(*this).withNumThreadsTune(std::move(tune));
         }
 
         // ------------------------------------------------------------------------

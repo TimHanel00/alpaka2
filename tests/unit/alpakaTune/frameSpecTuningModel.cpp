@@ -2,8 +2,8 @@
 // Created by tim on 17.10.25.
 //
 #include <alpaka/alpaka.hpp>
-#include <alpaka/tune/tuneable/Tunable.hpp>
-#include <alpaka/tune/tuneable/frameSpecTuningModel.hpp>
+#include <alpaka/tune/tunable/Tunable.hpp>
+#include <alpaka/tune/tunable/frameSpecTuningModel.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 using namespace alpaka;
