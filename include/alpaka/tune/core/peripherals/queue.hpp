@@ -55,6 +55,13 @@ namespace alpaka::tune::core::peripherals
 
         void push_back(T_Configs& config)
         {
+            // if the strategy returns a already retired config we reset its state or otherwise it will never be
+            // used by the Queue, if multiple entries of the same config are in the queue the
+            // retirement of one will mean the implicit retirement of the rest
+            if(config.state == config::ConfigState::Retired)
+            {
+                config.state = config::ConfigState::Initialized;
+            }
             if(!freeSlots.empty())
             {
                 uint32_t idx = freeSlots.front();
@@ -81,8 +88,8 @@ namespace alpaka::tune::core::peripherals
             {
                 uint32_t idx = lastIndex.value();
                 auto& opt = configs[idx];
-
-                if(opt && !opt->get().fullFlag)
+                bool configRetired = (opt->get().state == config::ConfigState::Retired);
+                if(opt && !configRetired)
                 {
                     if(consecutiveRuns[idx] < maxConsecutiveRuns)
                     {
@@ -92,7 +99,7 @@ namespace alpaka::tune::core::peripherals
                     // reset counter after max consecutive runs
                     consecutiveRuns[idx] = 0u;
                 }
-                else if(opt && opt->get().fullFlag)
+                else if(opt && configRetired)
                 {
                     opt.reset();
                     freeSlots.push(idx);
@@ -115,7 +122,7 @@ namespace alpaka::tune::core::peripherals
 
                 T_Configs& cfg = opt->get();
 
-                if(cfg.fullFlag)
+                if(cfg.state == config::ConfigState::Retired)
                 {
                     opt.reset();
                     freeSlots.push(idx);

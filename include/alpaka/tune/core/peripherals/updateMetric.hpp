@@ -10,6 +10,58 @@
 
 namespace alpaka::tune::core::peripherals
 {
+    template<typename T_MetricInterface, typename T_Config>
+    void prematureConfigSkip(config::ConfigRecord<T_Config>& stored, EnvironmentState<T_Config>& state)
+    {
+        auto const& best = state.getBestConfig().value().get();
+        if(best == stored)
+            return;
+        if(stored.state != config::ConfigState::Initialized)
+            return;
+        auto res = best.compare(stored); // kruskal wallis comparison
+
+        switch(res)
+        {
+        case alpaka::tune::config::Comparison::Greater:
+            {
+                stored.state = config::ConfigState::Retired;
+                // best is higher then stored
+                auto& config = compareGetBest<T_MetricInterface>(best, stored);
+                // this returns the config that is best according to the metric interface
+                // two scenarios:
+                // 1. stored gets returned even though its less then best --> meaning lower is better -->
+                // stored stays
+                // 2. best gets returned confirming that it is better AND also significantly greater -->
+                // meaning higher is better -- stored gets dropped prematurely
+                if(best == config)
+                {
+                    stored.state = config::ConfigState::Retired;
+                }
+            }
+        case config::Comparison::Less:
+            {
+                // we know best is less then stored
+                auto& config = compareGetBest<T_MetricInterface>(best, stored);
+                // this returns the config that is best according to the metric interface
+                // two scenarios:
+                // 1. stored gets returned even though its greater then best --> meaning higher is better -->
+                // stored stays
+                // 2. best gets returned confirming that it is better AND also significantly less -->
+                // meaning lower is better -- stored gets dropped prematurely
+                if(best == config)
+                {
+                    stored.state = config::ConfigState::Retired;
+                }
+            }
+        case config::Comparison::Inconclusive:
+            {
+                break;
+            }
+        default:
+            break;
+        }
+    }
+
     template<typename T_MetricInterface, typename T_ConfigEntry>
     void assignBestIfBetter(T_ConfigEntry& best, T_ConfigEntry& stored)
     {
@@ -20,7 +72,7 @@ namespace alpaka::tune::core::peripherals
             best = stored;
             return;
         }
-        if(!stored.fullFlag)
+        if(!stored.state == config::ConfigState::Retired)
             return;
         best = compareGetBest<T_MetricInterface>(best, stored);
 #ifdef Debug
@@ -30,12 +82,11 @@ namespace alpaka::tune::core::peripherals
 #endif
     }
 
-    template<typename T_MetricInterface, typename T_Config, typename T_Descriptor>
+    template<bool kruskalWallisSkip, typename T_MetricInterface, typename T_Config>
     inline void updateMetrics(
         config::ConfigRecord<T_Config>& stored,
-        IO::KernelTuningMetadata<T_Config, T_Descriptor>& data,
-        auto& state,
-        double metric)
+        EnvironmentState<T_Config>& state,
+        double_t const& metric)
     {
 #ifdef Debug
         std::cout << "[updateMetrics] Called with metric: " << metric << "\n";
@@ -43,105 +94,36 @@ namespace alpaka::tune::core::peripherals
         std::cout << " entering with config: " << stored.toString() << std::endl;
 #endif
 
-        switch(stored.state)
-        {
-        case config::ConfigState::Uninitialized:
-            stored.stamp = data.highestStamp + state.stamp++;
-#ifdef Debug
-            std::cout << "  -> State is Uninitialized. Assigned stamp: " << stored.stamp << "\n";
-#endif
-            break;
 
-        case config::ConfigState::Invalid:
-#ifdef Debug
-            std::cout << "  -> State is Invalid. Skipping update.\n";
-#endif
-            return;
-        case config::ConfigState::Initialized:
-        case config::ConfigState::WarmUp:
-        default:
-#ifdef Debug
-            std::cout << "  -> State is Initialized or evaluated. Proceeding.\n";
-#endif
-            break;
-        }
+        bool retired = (stored.state == config::ConfigState::Retired);
 
-        bool flagPre = stored.fullFlag;
 
         stored.pushMetric(metric);
+        if(retired)
+            return;
+        /// update best config.
+        state.template updateBestConfig<T_MetricInterface>(stored);
 
-        bool flagPost = stored.fullFlag;
-
-#ifdef Debug
-        std::cout << "  Pushed metric. fullFlag before: " << flagPre << ", after: " << flagPost << "\n";
-        std::cout << "  nr_runs now: " << stored.nr_runs << "\n";
-#endif
-
-        bool CIcriteriaReached = (flagPre != flagPost);
-        bool customCriteriaReached = (stored.nr_runs >= alpaka::tune::getRunsPerConfig());
-
-#ifdef Debug
-        std::cout << "  CI criteria reached: " << CIcriteriaReached << "\n";
-        std::cout << "  Custom criteria reached: " << customCriteriaReached
-                  << ", nr runs needed: " << alpaka::tune::getRunsPerConfig() << "\n";
-        std::cout << "  hasRunsPerConfig_Env: " << alpaka::tune::hasRunsPerConfig_Env() << "\n";
-#endif
-
-        // update stopping criteria
-        if(!alpaka::tune::hasRunsPerConfig_Env())
+        bool hasCustomLocalBreakCriteria = alpaka::tune::hasRunsPerConfig_Env();
+        if(!hasCustomLocalBreakCriteria)
         {
-            if(CIcriteriaReached)
+            if(stored.state == config::ConfigState::CICriteriaReached)
             {
-                ++state.numberOfCheckedConfigs;
-                ++state.numValidConfigs;
-
-#ifdef Debug
-                std::cout << "  -> CI criteria met. Updated checked/valid config counts.\n";
-                std::cout << "  -> Trying to assign best config.\n";
-#endif
-                if(!state.bestConfig.has_value())
-                {
-                    state.bestConfig = std::ref(stored);
-                }
-                else
-                {
-                    alpaka::tune::core::peripherals::assignBestIfBetter<T_MetricInterface>(
-                        state.getBestConfig(),
-                        stored);
-                }
+                stored.state == config::ConfigState::Retired;
             }
+            return;
         }
-        else
+        bool const customCriteriaReached = (stored.nr_runs >= alpaka::tune::getRunsPerConfig());
+        if(customCriteriaReached)
         {
-            if(CIcriteriaReached)
-            {
-                stored.fullFlag = false;
-#ifdef Debug
-                std::cout << "  -> CI criteria met, but hasRunsPerConfig enabled. Reset fullFlag = false.\n";
-#endif
-            }
+            stored.state = config::ConfigState::Retired;
+            return;
+        }
 
-            if(customCriteriaReached)
-            {
-                ++state.numberOfCheckedConfigs;
-                ++state.numValidConfigs;
-                stored.fullFlag = true;
-#ifdef Debug
-                std::cout << "  -> Custom criteria met. Marking config as full.\n";
-                std::cout << "  -> Updated checked/valid config counts.\n";
-                std::cout << "  -> Trying to assign best config.\n";
-#endif
-                if(!state.bestConfig.has_value())
-                {
-                    state.bestConfig = std::ref(stored);
-                }
-                else
-                {
-                    alpaka::tune::core::peripherals::assignBestIfBetter<T_MetricInterface>(
-                        state.getBestConfig(),
-                        stored);
-                }
-            }
+        if constexpr(kruskalWallisSkip)
+        {
+            if(state.getBestConfig().has_value())
+                prematureConfigSkip<T_MetricInterface>(stored);
         }
     }
 } // namespace alpaka::tune::core::peripherals

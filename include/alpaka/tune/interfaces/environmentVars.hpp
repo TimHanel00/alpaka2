@@ -7,134 +7,211 @@
 
 namespace alpaka::tune
 {
-
+    // =====================================================================================
+    // Your existing flags stay exactly as-is (interface preserved)
+    // =====================================================================================
     inline bool hasRunsPerConfig_Env(std::optional<bool> const& hasRunsPerConfig = std::nullopt)
     {
         static bool hasRunsPerCfg = false;
         if(hasRunsPerConfig.has_value())
-        {
             hasRunsPerCfg = hasRunsPerConfig.value();
-        }
         return hasRunsPerCfg;
     }
 
-#define upperBoundForRunsPerConfig 50
+#ifndef upperBoundForRunsPerConfig
+#    define upperBoundForRunsPerConfig 50
+#endif
 
     inline bool hasMaxRuns_Env(std::optional<bool> const& hasRuns = std::nullopt)
     {
         static bool hasMaxRuns = false;
         if(hasRuns.has_value())
-        {
             hasMaxRuns = hasRuns.value();
-        }
         return hasMaxRuns;
     }
 
-    using integerType = uint32_t;
-
-    namespace internal
+    // =====================================================================================
+    // Setters live in alpaka::tune::Vars (new), with env precedence
+    // =====================================================================================
+    namespace Vars
     {
 
+        using integerType = std::uint32_t;
 
-        static integerType getMaxCheckedConfigs_Env()
+        namespace detail
         {
-            if(char const* var = std::getenv("TunerMaxCheckedConfigs")) // all potentially generated
+            struct State
             {
-                try
-                {
-                    integerType value = static_cast<integerType>(std::stoul(var));
-                    return value;
-                }
-                catch(std::exception const& e)
-                {
-                    std::cerr << "Invalid value for TunerMaxConfigEvaluations: " << e.what() << std::endl;
-                }
+                // values
+                integerType maxCheckedConfigs = std::numeric_limits<integerType>::max();
+                integerType maxConfigs = std::numeric_limits<integerType>::max();
+                integerType maxRuns = std::numeric_limits<integerType>::max();
+                integerType runsPerConfig = static_cast<integerType>(upperBoundForRunsPerConfig);
+
+                // whether env provided a value (locks the field against setters)
+                bool envMaxCheckedConfigs = false;
+                bool envMaxConfigs = false;
+                bool envMaxRuns = false;
+                bool envRunsPerConfig = false;
+
+                bool inited = false;
+            };
+
+            inline State& st()
+            {
+                static State s;
+                return s;
             }
 
-            return std::numeric_limits<integerType>::max();
-        }
-
-        static integerType getMaxRuns_Env()
-        {
-            if(char const* var = std::getenv("TunerMaxConfigEvaluations")) // valid configs evaluated
+            inline std::optional<integerType> parseEnvU32(char const* name)
             {
-                try
+                if(char const* var = std::getenv(name))
                 {
-                    integerType value = static_cast<integerType>(std::stoul(var));
+                    try
+                    {
+                        return static_cast<integerType>(std::stoul(var));
+                    }
+                    catch(std::exception const& e)
+                    {
+                        std::cerr << "Invalid value for " << name << ": " << e.what() << '\n';
+                    }
+                }
+                return std::nullopt;
+            }
+
+            inline void initFromEnvOnce()
+            {
+                auto& s = st();
+                if(s.inited)
+                    return;
+                s.inited = true;
+
+                if(auto v = parseEnvU32("TunerMaxCheckedConfigs"))
+                {
+                    s.maxCheckedConfigs = *v;
+                    s.envMaxCheckedConfigs = true;
+                }
+                if(auto v = parseEnvU32("TunerMaxConfigs"))
+                {
+                    s.maxConfigs = *v;
+                    s.envMaxConfigs = true;
+                }
+                if(auto v = parseEnvU32("TunerMaxConfigEvaluations"))
+                { // valid configs evaluated
+                    s.maxRuns = *v;
+                    s.envMaxRuns = true;
+                    // preserve original side-effect
                     alpaka::tune::hasMaxRuns_Env(true);
-                    return value;
                 }
-                catch(std::exception const& e)
-                {
-                    std::cerr << "Invalid value for TunerMaxConfigEvaluations: " << e.what() << std::endl;
+                if(auto v = parseEnvU32("TunerRunsPerConfig"))
+                { // runs per config
+                    s.runsPerConfig = *v;
+                    s.envRunsPerConfig = true;
+                    // preserve original side-effect
+                    alpaka::tune::hasRunsPerConfig_Env(true);
                 }
             }
+        } // namespace detail
 
-            return std::numeric_limits<integerType>::max();
-        }
-
-        static integerType getRunsPerConfig_Env()
+        // ---------------- Getters (Vars) ----------------
+        inline std::uint32_t getMaxCheckedConfigs()
         {
-            if(char const* var = std::getenv("TunerRunsPerConfig")) // runs per Config
-            {
-                try
-                {
-                    integerType const value = static_cast<integerType>(std::stoul(var));
-                    hasRunsPerConfig_Env(true);
-                    return value;
-                }
-                catch(std::exception const& e)
-                {
-                    std::cerr << "Invalid value for TunerReRuns: " << e.what() << std::endl;
-                }
-            }
-            return upperBoundForRunsPerConfig;
+            detail::initFromEnvOnce();
+            return detail::st().maxCheckedConfigs;
         }
 
-        static integerType getMaxConfigs_Env()
+        inline std::uint32_t getMaxConfigs()
         {
-            if(char const* var = std::getenv("TunerMaxConfigs")) // max tuning space
-            {
-                try
-                {
-                    integerType const value = static_cast<integerType>(std::stoul(var));
-                    return value;
-                }
-                catch(std::exception const& e)
-                {
-                    std::cerr << "Invalid value for TunerReRuns: " << e.what() << std::endl;
-                }
-            }
-            return std::numeric_limits<integerType>::max();
+            detail::initFromEnvOnce();
+            return detail::st().maxConfigs;
         }
-    } // namespace internal
+
+        inline std::uint32_t getMaxRuns()
+        {
+            detail::initFromEnvOnce();
+            return detail::st().maxRuns;
+        }
+
+        inline std::uint32_t getRunsPerConfig()
+        {
+            detail::initFromEnvOnce();
+            return detail::st().runsPerConfig;
+        }
+
+        // ---------------- Setters (Vars) ----------------
+        // Return true if the set took effect; false if an env var is present (env wins).
+
+        inline bool setMaxCheckedConfigs(std::uint32_t v)
+        {
+            detail::initFromEnvOnce();
+            auto& s = detail::st();
+            if(s.envMaxCheckedConfigs)
+                return false;
+            s.maxCheckedConfigs = v;
+            return true;
+        }
+
+        inline bool setMaxConfigs(std::uint32_t v)
+        {
+            detail::initFromEnvOnce();
+            auto& s = detail::st();
+            if(s.envMaxConfigs)
+                return false;
+            s.maxConfigs = v;
+            return true;
+        }
+
+        inline bool setMaxRuns(std::uint32_t v)
+        {
+            detail::initFromEnvOnce();
+            auto& s = detail::st();
+            if(s.envMaxRuns)
+                return false;
+            s.maxRuns = v;
+            // mirror original flag semantics
+            alpaka::tune::hasMaxRuns_Env(true);
+            return true;
+        }
+
+        inline bool setRunsPerConfig(std::uint32_t v)
+        {
+            detail::initFromEnvOnce();
+            auto& s = detail::st();
+            if(s.envRunsPerConfig)
+                return false;
+            s.runsPerConfig = v;
+            // mirror original flag semantics
+            alpaka::tune::hasRunsPerConfig_Env(true);
+            return true;
+        }
+
+    } // namespace Vars
+
+    // =====================================================================================
+    // Your original public getters remain in alpaka::tune (same names/signatures).
+    // They now forward to Vars getters (no static locals), so setters can take effect,
+    // while env variables still override via Vars::detail.
+    // =====================================================================================
+    using Vars::integerType; // keep your integerType visible if you relied on it
 
     static integerType getMaxCheckConfigs()
     {
-        static integerType maxConfigs = internal::getMaxCheckedConfigs_Env();
-
-        return maxConfigs;
+        return Vars::getMaxCheckedConfigs();
     }
 
     static integerType getMaxConfigs()
     {
-        static integerType maxConfigs = internal::getMaxConfigs_Env();
-
-        return maxConfigs;
+        return Vars::getMaxConfigs();
     }
 
     static integerType getMaxRuns()
     {
-        static integerType maxRuns = internal::getMaxRuns_Env();
-
-        return maxRuns;
+        return Vars::getMaxRuns();
     }
 
     static integerType getRunsPerConfig()
     {
-        static integerType maxRuns = internal::getRunsPerConfig_Env();
-
-        return maxRuns;
+        return Vars::getRunsPerConfig();
     }
 } // namespace alpaka::tune
 #endif // ENVIRONMENTVARS_H

@@ -6,6 +6,7 @@
 
 #define COMPILETIMETEMPLATES_H
 #include <alpaka/Vec.hpp>
+#include <alpaka/meta/CartesianProduct.hpp>
 #include <alpaka/tune/concepts.hpp>
 #include <alpaka/tune/traits/traits.hpp>
 
@@ -18,76 +19,16 @@ namespace alpaka::tune
 
         namespace allCombinations
         {
-            template<typename T, typename Tuple>
-            struct tuple_prepend;
+            template<typename TOuter>
+            struct ExpandTuple;
 
-            template<typename T, typename... Ts>
-            struct tuple_prepend<T, std::tuple<Ts...>>
+            // expand a tuple of tuples to a parameter pack inserted to alpaka::meta::CartesianProduct
+            template<template<typename...> class TList, typename... Inner>
+            struct ExpandTuple<TList<Inner...>>
             {
-                using type = std::tuple<T, Ts...>;
-            };
-            template<typename T, typename TupleOfTuples>
-            struct prepend_to_all;
-
-            template<typename T, typename... Tuples>
-            struct prepend_to_all<T, std::tuple<Tuples...>>
-            {
-                using type = std::tuple<typename tuple_prepend<T, Tuples>::type...>;
-            };
-            template<typename... Tuples>
-            struct tuple_cat_t;
-
-            template<>
-            struct tuple_cat_t<>
-            {
-                using type = std::tuple<>;
+                using type = meta::CartesianProduct<TList, Inner...>;
             };
 
-            template<typename... Ts>
-            struct tuple_cat_t<std::tuple<Ts...>>
-            {
-                using type = std::tuple<Ts...>;
-            };
-
-            template<typename... T1s, typename... T2s, typename... Rest>
-            struct tuple_cat_t<std::tuple<T1s...>, std::tuple<T2s...>, Rest...>
-            {
-                using type = typename tuple_cat_t<std::tuple<T1s..., T2s...>, Rest...>::type;
-            };
-
-            template<typename... Tuples>
-            struct CartesianProduct;
-
-            template<>
-            struct CartesianProduct<>
-            {
-                using type = std::tuple<std::tuple<>>;
-            };
-
-            // Recursive case
-            template<typename FirstTuple, typename... RestTuples>
-            struct CartesianProduct<FirstTuple, RestTuples...>
-            {
-            private:
-                using RestProduct = typename CartesianProduct<RestTuples...>::type;
-
-                template<typename T>
-                using PrependAll = typename prepend_to_all<T, RestProduct>::type;
-
-                template<typename... Ts>
-                static auto expand(std::tuple<Ts...>) -> typename tuple_cat_t<PrependAll<Ts>...>::type;
-
-            public:
-                using type = decltype(expand(std::declval<FirstTuple>()));
-            };
-            template<typename TupleOfTuples>
-            struct CartesianFromTuple;
-
-            template<typename... Tuples>
-            struct CartesianFromTuple<std::tuple<Tuples...>>
-            {
-                using type = typename CartesianProduct<Tuples...>::type;
-            };
         } // namespace allCombinations
 
         namespace createNewKernel
@@ -353,8 +294,9 @@ namespace alpaka::tune
                 typename alpaka::tune::CompileTimeHelpers::unwrapCTunablesToTuples<TuneDefsTuple>::type;
             using Sizes = CompileTimeHelpers::TupleSizeSequence_t<unwrappedCTuneableTuples>;
             //  GEk<Flattened> expanded;
-            using AllCombinations = typename alpaka::tune::CompileTimeHelpers::allCombinations::CartesianFromTuple<
+            using AllCombinations = typename alpaka::tune::CompileTimeHelpers::allCombinations::ExpandTuple<
                 unwrappedCTuneableTuples>::type;
+            // CartesianFromTuple<unwrappedCTuneableTuples>::type;
 
             using KernelTuple =
                 typename alpaka::tune::CompileTimeHelpers::createNewKernel::ExtractTemplateArgsFromGenericKernel<
@@ -376,11 +318,12 @@ namespace alpaka::tune
     namespace CompileTimeHelpers
     {
         template<typename KernelFn>
-        constexpr auto getCTunables()
+        auto getCTunables()
         {
             if constexpr(trait::hasUserDefinedCTuneable<KernelFn>::value)
             {
-                return trait::RegisteredCTuneables<KernelFn>::unwrappedCTuneableTuples;
+                using FromTrait = alpaka::tune::trait::CompileTimeTuneableTrait<std::decay_t<KernelFn>>;
+                return FromTrait::tuneAbleDefinitions();
             }
             else
             {
@@ -398,17 +341,19 @@ namespace alpaka::tune
         }
 
         template<typename KernelFn, alpaka::tune::concepts::Integral IntType, auto Dim>
-        inline IntType calculateRowMajorIndex(std::array<IntType, Dim> const& indicies)
+        inline IntType calculateColumnMajorIndex(std::array<IntType, Dim> const& indices)
         {
             using sizes_T = typename trait::RegisteredCTuneables<KernelFn>::Sizes;
             constexpr auto sizes = to_array(sizes_T{});
-            IntType idx = 0;
+
             static_assert(
                 Dim == sizes_T::size(),
                 "Input Index for Kernel Variant Access does not match expected sizes!");
-            for(auto i = 0u; i < Dim; ++i)
+
+            IntType idx = 0;
+            for(auto i = Dim; i-- > 0;)
             {
-                idx = idx * sizes[i] + indicies[i];
+                idx = idx * static_cast<IntType>(sizes[i]) + indices[i];
             }
             return idx;
         }
@@ -420,9 +365,9 @@ namespace alpaka::tune
                 typename trait::RegisteredCTuneables<std::decay_t<KernelFn>>::T_KernelVariants{};
             static constexpr auto numVars
                 = std::tuple_size_v<typename trait::RegisteredCTuneables<std::decay_t<KernelFn>>::T_KernelVariants>;
-            uint32_t rowMajorIndex = CompileTimeHelpers::calculateRowMajorIndex<KernelFn>(indicies);
+            uint32_t columnMajorIndex = CompileTimeHelpers::calculateColumnMajorIndex<KernelFn>(indicies);
             CompileTimeHelpers::runtime_tuple_dispatch_impl(
-                rowMajorIndex,
+                columnMajorIndex,
                 variants,
                 std::forward<Fn>(fn),
                 std::make_index_sequence<numVars>{});

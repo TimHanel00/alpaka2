@@ -69,54 +69,149 @@ namespace alpaka::tune::strategy
         std::vector<uint32_t> initialVals;
         std::vector<uint32_t> numValues;
         std::size_t maxPossible = 1;
-        std::size_t currentIndex = 0;
-        std::size_t startingIndex = 0;
-        std::size_t currentCount = 0;
         bool init = true;
         bool firstStepDone = false;
 
-        // mixed-radix counter
-        bool increment(auto const& numValues)
+#ifdef Debug
+        static void printVec(char const* name, std::vector<uint32_t> const& v)
         {
+            std::cout << name << " [";
+            for(std::size_t i = 0; i < v.size(); ++i)
+            {
+                std::cout << v[i];
+                if(i + 1 < v.size())
+                    std::cout << ", ";
+            }
+            std::cout << "]\n";
+        }
+
+        template<class ConfigLike>
+        static void printConfig(ConfigLike const& config)
+        {
+            std::cout << "config: [";
+            bool first = true;
+            for(auto const& x : config)
+            {
+                if(!first)
+                    std::cout << ", ";
+                std::cout << x;
+                first = false;
+            }
+            std::cout << "]\n";
+        }
+#endif
+
+        // mixed-radix counter using the *member* numValues
+        bool increment()
+        {
+#ifdef Debug
+            printVec("increment() before currentVals", currentVals);
+            printVec("increment() limits numValues", numValues);
+#endif
+            if(currentVals.size() != numValues.size())
+            {
+#ifdef Debug
+                std::cout << "Size mismatch: currentVals.size()=" << currentVals.size()
+                          << " numValues.size()=" << numValues.size() << '\n';
+#endif
+                return false; // defensive: can't increment safely
+            }
+
             for(std::size_t i = currentVals.size(); i-- > 0;)
             {
-                currentVals[i]++;
+                ++currentVals[i];
                 if(currentVals[i] < numValues[i])
+                {
+#ifdef Debug
+                    printVec("increment() after currentVals", currentVals);
+#endif
                     return true;
+                }
                 currentVals[i] = 0;
             }
-            return false;
+#ifdef Debug
+            std::cout << "increment() overflow (wrapped past last combination)\n";
+#endif
+            return false; // overflowed all positions
         }
 
         template<concepts::KernelTuningModel T_KernelModel, concepts::MetricInterface T_Metric>
         auto operator()(StrategyContext<T_KernelModel, T_Metric> const& ctx) noexcept
         {
             auto config = ctx.desc.getEmptyConfig();
+
+            // One-time initialization
             if(init)
             {
-                vectorFromConfig(initialVals, ctx.history.getOrderedHistory().front().get().config);
+                // Populate numValues from descriptor (once)
+                auto const& limitsView = ctx.desc.getNumValuesView();
+#ifdef Debug
+                std::cout << "[Init1]\n";
+                printConfig(limitsView);
+#endif
+                numValues.assign(limitsView.begin(), limitsView.end());
+
+                // If history is empty, start from zeros; otherwise use first record
+                if(!ctx.history.getOrderedHistory().empty())
+                {
+                    vectorFromConfig(initialVals, ctx.history.getOrderedHistory().front().get().m_config);
+                }
+                else
+                {
+                    initialVals.assign(numValues.size(), 0u);
+                }
 
                 currentVals = initialVals;
                 init = false;
                 firstStepDone = false;
+
+#ifdef Debug
+                std::cout << "[Init]\n";
+                printVec("numValues", numValues);
+                printVec("initialVals", initialVals);
+                printVec("currentVals", currentVals);
+#endif
+
                 vectorToConfig(config, currentVals);
+#ifdef Debug
+                std::cout << "[Init] returning initial config: ";
+                printConfig(config);
+#endif
                 return config;
             }
-            // increment
-            increment(ctx.desc.getNumValuesView());
 
-            // check if we’ve wrapped back to initial after at last step
+            // Advance the mixed-radix counter
+            bool ok = increment(); // uses member numValues
+
+            // If we've wrapped back to the initial vector after at least one step, finish
             if(firstStepDone && currentVals == initialVals)
             {
+#ifdef Debug
+                std::cout << "[Wrap detected] currentVals == initialVals; finishing strategy\n";
+#endif
                 ctx.env.strategyFinished = true;
                 vectorToConfig(config, currentVals);
+#ifdef Debug
+                printConfig(config);
+#endif
                 return config;
             }
 
             firstStepDone = true;
+
+            // Build config for the current vector
             vectorToConfig(config, currentVals);
+
+
+#ifdef Debug
+            std::cout << "[Step]\n";
+            printVec("currentVals", currentVals);
+            std::cout << "Returning config: ";
+            printConfig(config);
+#endif
+
             return config;
-        };
+        }
     };
 
     struct iterativeRefinement
@@ -138,7 +233,7 @@ namespace alpaka::tune::strategy
         template<typename T_KernelModel, typename T_Metric>
         void initialize(StrategyContext<T_KernelModel, T_Metric> const& ctx)
         {
-            auto norm = ctx.desc.createNormalizedFromConfig(ctx.history.getOrderedHistory().front().get().config);
+            auto norm = ctx.desc.createNormalizedFromConfig(ctx.history.getOrderedHistory().front().get().m_config);
 
             numDims = norm.size();
             initialVals = norm;
@@ -198,7 +293,7 @@ namespace alpaka::tune::strategy
                 // Snap to best performing index in this dimension if best config is available
                 if(ctx.env.bestConfig.has_value())
                 {
-                    auto& best = ctx.desc.createNormalizedFromConfig(ctx.env.bestConfig.value().get().config);
+                    auto& best = ctx.desc.createNormalizedFromConfig(ctx.env.bestConfig.value().get().m_config);
                     currentVals[currentDim] = best[currentDim];
                 }
                 else

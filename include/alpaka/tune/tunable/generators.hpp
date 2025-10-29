@@ -211,17 +211,23 @@ namespace alpaka::tune::generate
      * @brief Compile-time linear space generator.
      *
      * Produces a tuple of one-dimensional
-     * compile-time Vector, one for each value in the sequence.
+     * compile-time values each wrapped in a std::integral_constant<T, Cur>
      * @code Example:
      * using namespace alpaka::tune::generate;
-     * using sequence_T=generate::c_LinSpace<type, 5, 100, 5>::values;
+     * using sequence_T=generate::c_LinSpace<5, 100, 5, T>::values;
      * auto cTune=CTunable<static_cast<std::size_t>(0), sequence_T>;
-     * @tparam T Type of the values
+     *
+
      * @tparam Start Starting value
      * @tparam End Ending value
      * @tparam Step Step size (default 1)
+     * @tparam T Type of the values
      */
-    template<alpaka::tune::concepts::ArithmeticComparable T, T Start, T End, T Step = static_cast<T>(1)>
+    template<
+        auto Start,
+        decltype(Start) End,
+        decltype(Start) Step = static_cast<decltype(Start)>(1),
+        alpaka::tune::concepts::ArithmeticComparableOrVec T = decltype(Start)>
     struct c_LinSpace
     {
         /**
@@ -237,7 +243,7 @@ namespace alpaka::tune::generate
             if constexpr(Cur > End)
                 return std::tuple<CVecs...>{};
             else
-                return generate_impl<Cur + Step, CVecs..., Vec<T, Cur>>();
+                return generate_impl<Cur + Step, CVecs..., std::integral_constant<T, Cur>>();
         }
 
         /// template values that can be parsed directly to a tuneable
@@ -247,19 +253,23 @@ namespace alpaka::tune::generate
     /**
      * @brief Compile-time logarithmic space generator.
      *
-     * Produces a tuple of one-dimensional one-dimensional
-     * compile-time Vector, one for each value in the sequence.
+     * Produces a tuple of one-dimensional
+     * compile-time values each wrapped in a std::integral_constant<T, Cur>
      * @code Example:
      * using namespace alpaka::tune::generate;
-     * using sequence_T=generate::c_LogSpace<type, 1, 64, 2>::values;
+     * using sequence_T=generate::c_LogSpace<1, 64, 2>::values;
      * auto cTune=CTunable<static_cast<std::size_t>(0), sequence_T>;
      *
      * @tparam T Type of the values
      * @tparam Start Starting value
      * @tparam End Ending value
-     * @tparam Step Multiplicative factor (default 1)
+     * @tparam T Type of the values
      */
-    template<alpaka::tune::concepts::ArithmeticComparable T, T Start, T End, T Step = static_cast<T>(1)>
+    template<
+        auto Start,
+        decltype(Start) End,
+        decltype(Start) Step = static_cast<decltype(Start)>(2),
+        alpaka::tune::concepts::ArithmeticComparableOrVec T = decltype(Start)>
     struct c_LogSpace
     {
         /**
@@ -275,7 +285,7 @@ namespace alpaka::tune::generate
             if constexpr(Cur > End)
                 return std::tuple<CVecs...>{};
             else
-                return generate_impl<Cur * Step, CVecs..., Vec<T, Cur>>();
+                return generate_impl<Cur * Step, CVecs..., std::integral_constant<T, Cur>>();
         }
 
         /// template values that can be parsed directly to a tuneable

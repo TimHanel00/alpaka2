@@ -65,7 +65,7 @@ TEST_CASE("KernelTuningModel - hasTuneableTag utilities", "[KTM][introspection]"
         std::tuple{Tunable<5001>{{10u, 20u}, 10u, "u"}},
         C{}};
 
-    STATIC_REQUIRE(decltype(m)::hasUserTuneable<5001>());
+    STATIC_REQUIRE(decltype(m)::template hasUserTuneable<5001>());
     STATIC_REQUIRE(decltype(m)::hasFrameTuneable<tune::frame::numBlocks>());
     STATIC_REQUIRE(decltype(m)::hasTuneable<5001>());
     STATIC_REQUIRE_FALSE(decltype(m)::hasFrameExtentTune());
@@ -78,7 +78,7 @@ TEST_CASE("KernelTuningModel - minimal valueRetrieval", "[KTM][accessors]")
     auto f = std::tuple{Tunable<tune::frame::numBlocks, uint32_t>{{{1u}, {2u}, {4u}}, std::nullopt, "Blocks"}};
     KernelTuningModel m{f, std::tuple{}, std::tuple{}};
     constexpr std::size_t dims = decltype(m)::numDims;
-    Config<uint32_t, dims> cfg{{
+    config::Config<uint32_t, dims> cfg{{
         1u, // numBlocks -> value index 1 -> {2}
     }};
     REQUIRE(dims == 1 /*numBlocks uint32_t*/);

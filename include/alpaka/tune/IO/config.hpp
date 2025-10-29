@@ -34,13 +34,13 @@ namespace alpaka::tune::config
         // make working with strategies easier this way
         value_type& operator[](std::size_t i)
         {
-            assert(i < size);
+            assert(i < m_size);
             return m_values[i];
         }
 
         value_type const& operator[](std::size_t i) const
         {
-            assert(i < size);
+            assert(i < m_size);
             return m_values[i];
         }
 

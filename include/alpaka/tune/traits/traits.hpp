@@ -98,7 +98,7 @@ namespace alpaka::tune::trait
         static constexpr auto tuned_indices = CVec<std::size_t, static_cast<std::size_t>(0)>{};
 
         //-> assert the tuned_indicies is of
-        static constexpr auto tuneAbleDefinitions()
+        static auto tuneAbleDefinitions()
         {
             return std::tuple{}; // empty tuple, no tunables
         }

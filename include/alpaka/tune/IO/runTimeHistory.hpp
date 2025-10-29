@@ -16,9 +16,12 @@ namespace alpaka::tune::config
     /// \brief Lifecycle of a configuration during measurement.
     enum class ConfigState
     {
-        Uninitialized, ///< No samples taken yet.
-        WarmUp, ///< Collecting warm-up samples (not used in stats).
+        Uninitialized, ///< New config which has not been seen yet
+        Empty, ///< Seen config with no samples taken yet.
+        WarmUp, ///< Collecting warm-up samples (not used in stats or write out).
         Initialized, ///< Collecting steady-state samples.
+        CICriteriaReached, ///< CI reached
+        Retired, ///< fully evaluated configs
         Invalid ///< -due to constraints; metrics cleared.
     };
 
@@ -54,7 +57,7 @@ namespace alpaka::tune::config
          * @brief Construct a record for a specific configuration key.
          * @param cfg Configuration to associate with this record.
          */
-        explicit ConfigRecord(TConfig const& cfg) : config(cfg)
+        explicit ConfigRecord(TConfig const& cfg) : m_config(cfg)
         {
         }
 
@@ -82,22 +85,40 @@ namespace alpaka::tune::config
             switch(state)
             {
             case ConfigState::Uninitialized:
+                throw std::runtime_error("pushing metrics on a new Config is not allowed!");
+                break;
+            case ConfigState::Empty:
+                metrics.push<10>(val, false);
                 state = ConfigState::WarmUp;
                 ++warm_up_runs;
                 nr_runs = 0;
                 break;
             case ConfigState::WarmUp:
+
                 if(++warm_up_runs >= warmUpThreshold)
                 {
-                    if(metrics.push<10>(val, fullFlag))
-                        fullFlag = true;
+                    metrics.clear();
+                    metrics.push<10>(val, false);
                     state = ConfigState::Initialized;
                     nr_runs++;
                 }
+                else
+                {
+                    metrics.push<10>(val, false);
+                }
                 break;
             case ConfigState::Initialized:
-                if(metrics.push<10>(val, fullFlag))
-                    fullFlag = true;
+                if(metrics.push<10>(val, true))
+                    state = ConfigState::CICriteriaReached;
+                ++nr_runs;
+                break;
+            case ConfigState::CICriteriaReached:
+                metrics.push<10>(val, false);
+                ++nr_runs;
+                break;
+
+            case ConfigState::Retired:
+                this->metrics.history.push_back(val);
                 ++nr_runs;
                 break;
             case ConfigState::Invalid:
@@ -116,7 +137,7 @@ namespace alpaka::tune::config
          */
         bool operator==(ConfigRecord const& other) const
         {
-            return this->toHash() == other.toHash() && this->config == other.config;
+            return this->toHash() == other.toHash() && this->m_config == other.m_config;
         }
 
         /**
@@ -135,7 +156,7 @@ namespace alpaka::tune::config
          */
         auto toHash() const
         {
-            return std::hash<ConfigType>{}(config);
+            return std::hash<ConfigType>{}(m_config);
         }
 
         /**
@@ -144,7 +165,7 @@ namespace alpaka::tune::config
          */
         TConfig const& getConfig() const
         {
-            return config;
+            return m_config;
         }
 
         /**
@@ -200,13 +221,14 @@ namespace alpaka::tune::config
         }
 
         // Data
-        TConfig config; ///< Fixed configuration key.
-        MetricContainer metrics; ///< contains statistics for this record.
-        long long int stamp{0}; ///< Monotonic marker; -1 indicates constraint violation.
+        TConfig m_config; ///< Fixed configuration key.
+        std::int64_t stamp{0}; ///< Monotonic marker; -1 indicates constraint violation.
         std::size_t nr_runs = 0; ///< Count of steady-state runs.
         std::size_t warm_up_runs = 0; ///< Count of warm-up runs.
-        bool fullFlag = false; ///< True when container reports “full” according to 95% CI
         static constexpr std::size_t warmUpThreshold = 1; ///< Warm-up samples before steady-state.
+
+    private:
+        MetricContainer metrics; ///< contains statistics for this record.
     };
 
     /**
@@ -322,15 +344,17 @@ namespace alpaka::tune::IO
         {
             auto [it, inserted] = entries.try_emplace(config, std::move(config));
             if(inserted)
+            {
+                it->second.stamp = orderedHistory.size();
                 orderedHistory.emplace_back(std::ref(it->second));
+            }
             return it->second;
         }
 
         /// \brief Lookup an entry by configuration (mutable access).
         /// \param config Configuration key to lookup.
         /// \return Optional reference to the stored entry, or std::nullopt if not found.
-        [[nodiscard]] std::optional<std::reference_wrapper<Entry const>> getRecord(
-            TConfig const& config) const noexcept
+        [[nodiscard]] std::optional<std::reference_wrapper<Entry>> getRecord(TConfig const& config) noexcept
         {
             if(auto it = entries.find(config); it != entries.end())
                 return std::ref(it->second);
@@ -409,11 +433,19 @@ namespace alpaka::tune::IO
     {
         using TConfig_type = TConfig;
 
-        /// Storage of tried/known configurations with their metrics.
-        ActiveHistory<TConfig> configEntries;
-
         /// Descriptor for parameters/tunables (types, names, value extraction).
         T_ParameterAccessor descriptor;
+
+        /// Construct from a parameter accessor (and an existing Metadata)
+        explicit KernelTuningMetadata(T_ParameterAccessor const& accessor, KernelTuningMetadata&& other)
+            : descriptor(accessor)
+            , device(std::move(other.device))
+            , executor(std::move(other.executor))
+            , kernel(std::move(other.kernel))
+            , targetMetric(std::move(other.targetMetric))
+            , specifiers(std::move(other.specifiers))
+        {
+        }
 
         /// Construct from a parameter accessor (no ownership transfer of other state).
         explicit KernelTuningMetadata(T_ParameterAccessor const& accessor) : descriptor(accessor)
@@ -428,11 +460,7 @@ namespace alpaka::tune::IO
         std::vector<std::string> specifiers; ///< Session/context specifiers/tags.
 
         /// Bookkeeping flags/counters (managed by the tuning flow).
-        bool exhausted = false; ///< true if search space is fully explored.
         bool histEvaluated = false; ///< true if historical data was applied/evaluated.
-        std::size_t nrOfConfigs{0}; ///< number of discovered/enqueued configs.
-        long long int highestStamp{0}; ///< monotonic marker for newest entry.
-        std::size_t maxRuns{0}; ///< limit for total evaluations (if any).
     };
 
     /**
@@ -474,10 +502,5 @@ namespace alpaka::tune::IO
         return data;
     }
 } // namespace alpaka::tune::IO
-
-/*
- * small predefined storageContainer to represent a certain state m_strategy State of a activeKernelRun
- * (since static variables inside strategies) might violate the constraints implied by the sessionSpecifieres
- */
 
 #endif // STORAGETYPES_H

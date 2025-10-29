@@ -78,7 +78,7 @@ class MetricContainer
 {
 public:
     template<std::size_t stepsUntilCICheck = 10>
-    bool push(double_t val, bool fullFlag = false)
+    bool push(double_t val, bool checkCI = true)
     {
         history.push_back(val); // to track the order of incoming metrics
 
@@ -105,7 +105,7 @@ public:
             lower.push(upper.top());
             upper.pop();
         }
-        if(!fullFlag && history.size() % stepsUntilCICheck == 0)
+        if(history.size() % stepsUntilCICheck == 0)
         {
             // perform CI (confidence Intervall) check
             return ciWithinTolerance();
@@ -212,6 +212,8 @@ public:
         return (ciWidth / median) <= tolerance;
     }
 
+    std::vector<double_t> history;
+
 private:
     std::priority_queue<double_t> lower; // max-heap to allow O(1) median acces
     std::priority_queue<double_t, std::vector<double_t>, std::greater<>> upper; // min-heap
@@ -220,8 +222,6 @@ private:
     size_t count = 0;
     double_t minVal = std::numeric_limits<double_t>::max();
     double_t maxVal = std::numeric_limits<double_t>::lowest();
-
-    std::vector<double_t> history;
 
     void rebuildFromHistory()
     {

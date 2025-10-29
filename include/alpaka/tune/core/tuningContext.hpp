@@ -127,33 +127,34 @@ use model as parameter void shrinkTuningSpace(...)
     class TuningContext
     {
     public:
+        using TConfig = T_Config;
         using T_FrameSpecType = T_FrameSpec;
         using T_MetricInterfaceType = T_MetricInterface;
         T_Strategy env_strategy;
         T_MetricInterface env_metricInterface;
         T_Constraints env_constraints;
-        T_KernelTuningModel env_kernelTuning;
-        IO::KernelTuningMetadata<T_Config, T_ConfigDescriptor> env_kernelData;
+        T_KernelTuningModel env_tuningModel;
+        IO::ActiveHistory<T_Config> env_activeHistory;
+        IO::KernelTuningMetadata<T_Config, T_ConfigDescriptor> env_metaData;
         peripherals::EnvironmentState<T_Config> env_environmentState;
         peripherals::ConfigQueue<config::ConfigRecord<T_Config>> env_config_queue;
         TuningContext(TuningContext const&) = delete;
         TuningContext& operator=(TuningContext const&) = delete;
         TuningContext(TuningContext&&) = delete;
         TuningContext& operator=(TuningContext&&) = delete;
-        PersistentHistory& env_history;
+        IO::PersistentHistory& env_persistentHistory;
 
-        auto& getConfigStorage()
+        auto& getHistory()
         {
-            return env_kernelData.configEntries;
+            return env_activeHistory;
         }
 
-        bool violatesConstraint(auto const& config)
+        bool violatesConstraint(config::ConfigRecord<T_Config>& configRecord)
         {
-            auto& stored = this->getConfigStorage().getOrCreate(config);
-            if(stored.state == config::ConfigState::Invalid)
+            if(configRecord.state == config::ConfigState::Invalid)
             {
 #ifdef Debug
-                std::cout << "[violatesConstraint] Already invalid: " << printConfigRecord(stored) << "\n";
+                std::cout << "[violatesConstraint] Already invalid: " << printConfigRecord(configRecord) << "\n";
 #endif
                 return true;
             }
@@ -162,21 +163,19 @@ use model as parameter void shrinkTuningSpace(...)
                 this->env_constraints,
                 [&](auto& constraint)
                 {
-                    if(!constraint.template operator()<T_KernelTuningModel>(this->env_kernelTuning))
+                    if(!constraint.template operator()<T_KernelTuningModel>(this->env_tuningModel))
                         valid = false;
                 });
 
             if(!valid)
             {
-                stored.clearMeasurements(); // clear metric container
-                stored.stamp = -1;
-                stored.state = config::ConfigState::Invalid;
-                stored.fullFlag = true;
-                stored.nr_runs = std::numeric_limits<decltype(stored.nr_runs)>::max();
+                configRecord.clearMeasurements(); // clear metric container
+                configRecord.stamp = -1;
+                configRecord.state = config::ConfigState::Invalid;
+                configRecord.nr_runs = std::numeric_limits<decltype(configRecord.nr_runs)>::max();
 #ifdef Debug
-                std::cout << "[violatesConstraint] Marked invalid: " << printConfigRecord(stored) << "\n";
+                std::cout << "[violatesConstraint] Marked invalid: " << printConfigRecord(configRecord) << "\n";
 #endif
-                ++this->env_environmentState.numberOfCheckedConfigs;
                 return true;
             }
 
@@ -191,32 +190,45 @@ use model as parameter void shrinkTuningSpace(...)
             T_Constraints constraints_,
             T_KernelTuningModel&& kernel_tuning_model_,
             std::string const& filename)
-            : env_kernelData(std::forward<IO::KernelTuningMetadata<T_Config, T_ConfigDescriptor>>(env_kernelData_))
-            , env_strategy(std::move(strategy_))
+            : env_strategy(std::move(strategy_))
             , env_metricInterface(std::move(metric_interface_))
             , env_constraints(std::move(constraints_))
-            , env_kernelTuning(std::forward<T_KernelTuningModel>(kernel_tuning_model_))
-            , env_history(PersistentHistory::get(filename))
+            , env_tuningModel(std::forward<T_KernelTuningModel>(kernel_tuning_model_))
+            , env_persistentHistory(IO::PersistentHistory::get(filename))
+            , env_metaData(
+                  IO::KernelTuningMetadata<T_Config, T_ConfigDescriptor>(
+                      env_tuningModel.getValuesFromConfig(T_Config{}),
+                      std::move(env_kernelData_)))
 
         {
-            //@TODO env_history.loadConfig<T_MetricInterface>(env_kernelData, environmentState);
-
-            // Ensure all environment variable–related getters are called (for has... checks)
+            env_persistentHistory.read<T_MetricInterface>(
+                this->env_tuningModel,
+                this->env_activeHistory,
+                this->env_metaData,
+                this->env_environmentState);
 
             getRunsPerConfig();
 
             getMaxRuns();
             getMaxConfigs();
-
-            auto initConfigTmp = env_kernelTuning.getInitConfig();
-
-            config::ConfigRecord<T_Config>& configEntry = getConfigStorage().getOrCreate(initConfigTmp);
-            env_config_queue.push_back(configEntry);
-
-            // Derive maximum counts based on tuning space and environment limits
             env_environmentState.maxConfigsTotal
-                = std::min(getMaxCheckConfigs(), env_kernelTuning.getMaxPossibleRuns());
+                = std::min(getMaxCheckConfigs(), env_tuningModel.getMaxPossibleRuns());
             env_environmentState.maxValidEvaluations = std::min(env_environmentState.maxConfigsTotal, getMaxRuns());
+
+
+            auto initConfigTmp = env_tuningModel.getInitConfig();
+
+            config::ConfigRecord<T_Config>& configEntry = getHistory().getOrCreate(initConfigTmp);
+            if(configEntry.state == config::ConfigState::Uninitialized)
+            {
+                ++this->env_environmentState.numberOfCheckedConfigs;
+                configEntry.state = config::ConfigState::Empty;
+                if(!violatesConstraint(configEntry))
+                {
+                    ++this->env_environmentState.numValidConfigs;
+                    env_config_queue.push_back(configEntry);
+                }
+            }
         }
 
         // Prevent copy/move

@@ -4,6 +4,7 @@
 
 #ifndef ENVIRONMENTSTATE_H
 #define ENVIRONMENTSTATE_H
+
 #include <alpaka/tune/IO/runTimeHistory.hpp>
 
 #include <cstdint>
@@ -59,7 +60,7 @@ namespace alpaka::tune::core::peripherals
         void updateBestConfig(config::ConfigRecord<T_Config> const& config_entry)
         {
             // Precondition: we expect to have collected some metrics already.
-            assert(!stored.getMetrics().empty());
+            assert(!config_entry.getMeasurements().empty());
 
             // If a best configuration already exists...
             if(bestConfig.has_value())
@@ -74,8 +75,8 @@ namespace alpaka::tune::core::peripherals
                     return;
                 }
 
-                // B) New candidate isn't complete -> ignore it.
-                if(!config_entry.fullFlag)
+                // B) New candidate isn't complete or is invalid -> ignore it.
+                if(config_entry.state != config::ConfigState::Retired)
                     return;
 
                 // C) Both comparable -> keep the better one according to the metric interface.
@@ -90,7 +91,7 @@ namespace alpaka::tune::core::peripherals
 
         auto const& getBestConfig()
         {
-            return bestConfig.value().get();
+            return bestConfig;
         }
 
         [[nodiscard]] uint32_t getMaxEvals() const
@@ -100,12 +101,11 @@ namespace alpaka::tune::core::peripherals
 
         bool globalBreakCriteriaFinished()
         {
+            std::cout << "[criteria] numValidConfigs=" << numValidConfigs
+                      << " maxValidEvaluations=" << maxValidEvaluations
+                      << " \nnumberOfCheckedConfigs=" << numberOfCheckedConfigs
+                      << " maxConfigsTotal=" << maxConfigsTotal << std::endl;
             return numValidConfigs >= maxValidEvaluations || numberOfCheckedConfigs >= maxConfigsTotal;
-        }
-
-        bool localBreakCriteriaFinished(auto const& config)
-        {
-            return config.fullFlag;
         }
     };
 } // namespace alpaka::tune::core::peripherals

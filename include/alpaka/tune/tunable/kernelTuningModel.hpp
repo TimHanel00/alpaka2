@@ -37,7 +37,7 @@ namespace alpaka::tune
     } // namespace detail
 
     /**
-     * @brief A ParameterAccessor provides a view on the concrete value of a tunable parameter.
+     * @brief A ParameterAccessor to provide the concrete value of a tunable parameter.
      * It also contains information about the name, ID, and kind of the corresponding tunable object.
      *
      * @tparam T_Value     The underlying value type of the parameter.
@@ -49,20 +49,19 @@ namespace alpaka::tune
      * Each ParameterAccessor instance acts as a lightweight view on an existing tunable configuration value.
      * It does not own the value, but holds a constant reference to it together with a reference to its name.
      */
-    template<typename T_Value, uint32_t TuneableId, alpaka::tune::TunableKind TuneableKind>
+    template<typename T_Value, std::size_t TuneableId, alpaka::tune::TunableKind TuneableKind>
     struct ParameterAccessor
     {
-        static constexpr uint32_t ID = TuneableId;
+        static constexpr auto ID = TuneableId;
         static constexpr alpaka::tune::TunableKind kind = TuneableKind;
         T_Value m_value;
-        std::string const& m_name;
+        std::string m_name; // owning the name
     };
 
     template<typename T_KernelTuningModel>
     struct ConfigDescriptor
     {
-        explicit ConfigDescriptor(T_KernelTuningModel const& tuningModel)
-            : m_kernelTuningModel(m_kernelTuningModel) {};
+        explicit ConfigDescriptor(T_KernelTuningModel const& tuningModel) : m_kernelTuningModel(tuningModel) {};
 
         /**
          * @brief Construct a tuple of ParameterAccessors from a parameter configuration (Config).
@@ -200,7 +199,7 @@ namespace alpaka::tune
             , m_userTuneables(std::move(other.m_userTuneables))
             , m_compileTimeTuneables(std::move(other.m_compileTimeTuneables))
             , m_allTuneables(makeAllTuneables(m_frameTuneables, m_userTuneables, m_compileTimeTuneables))
-            , m_numValues(std::move(other.m_numValues))
+            , m_numValues(getNumValues())
         {
         }
 
@@ -294,30 +293,23 @@ namespace alpaka::tune
             return getValuesFromTuple<startingIdx, idx_type, NumTuneables, T_allTuneablesRef>(config, m_allTuneables);
         }
 
-#define Debug
-
         auto getNumValues() const
         {
             std::array<uint32_t, numDims> numValues{};
             uint32_t curIdx = 0;
 
-#ifdef Debug
-            std::cout << "[Debug:getNumValues] --- Begin ---\n";
-            std::cout << "  numDims: " << numDims << '\n';
-#endif
-
             alpaka::tune::utils::for_each(
                 m_allTuneables,
                 [&](auto const& elem)
                 {
-#ifdef Debug
+                    // #ifdef Debug
                     using ElemT = std::decay_t<decltype(elem)>;
                     std::cout << "  Processing tuneable of type: " << typeid(ElemT).name() << '\n';
-#endif
+                    // #endif
 
                     auto vec = elem.getNumValues(); // runtime values per dimension
 
-#ifdef Debug
+                    // #ifdef Debug
                     std::cout << "    getNumValues() returned vector of dim = " << alpaka::getDim(vec) << " → {";
                     for(uint32_t i = 0; i < alpaka::getDim(vec); ++i)
                     {
@@ -326,7 +318,7 @@ namespace alpaka::tune
                             std::cout << ", ";
                     }
                     std::cout << "}\n";
-#endif
+                    // #endif
 
                     for(uint32_t dim = 0; dim < alpaka::getDim(vec) && curIdx < numDims; ++dim, ++curIdx)
                     {
@@ -379,7 +371,10 @@ namespace alpaka::tune
                             return;
                         }
                     }
-                    ar[idx++] = 0;
+                    for(uint32_t i = 0; i < elem.dim; i++)
+                    {
+                        ar[idx++] = 0;
+                    }
                 });
             return config::Config{ar};
         }
@@ -467,6 +462,7 @@ namespace alpaka::tune
             config::Config<idx_type, NumTuneables> const& config) const
         {
             constexpr std::size_t startingIdx = 0;
+
             return getValuesFromTuple<startingIdx, idx_type, NumTuneables, T_FrameTuneables>(config, m_frameTuneables);
         }
 
@@ -494,19 +490,19 @@ namespace alpaka::tune
                     {
                         if constexpr(T0::ID == alpaka::tune::frame::numBlocks)
                         {
-                            frame_spec.m_threadSpec.m_numBlocks = std::get<I>(frameTunes).m_value;
+                            frame_spec.m_threadSpec.m_numBlocks = tuneable.m_value;
                         }
                         else if constexpr(T0::ID == alpaka::tune::frame::frameExtent)
                         {
-                            frame_spec.m_frameExtent = std::get<I>(frameTunes).m_value;
+                            frame_spec.m_frameExtent = tuneable.m_value;
                         }
                         else if constexpr(T0::ID == alpaka::tune::frame::numFrames)
                         {
-                            frame_spec.m_numFrames = std::get<I>(frameTunes).m_value;
+                            frame_spec.m_numFrames = tuneable.m_value;
                         }
                         else if constexpr(T0::ID == alpaka::tune::frame::numThreads)
                         {
-                            frame_spec.m_threadSpec.m_numThreads = std::get<I>(frameTunes).m_value;
+                            frame_spec.m_threadSpec.m_numThreads = tuneable.m_value;
                         }
                     });
             }

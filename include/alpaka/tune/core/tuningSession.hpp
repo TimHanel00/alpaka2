@@ -30,7 +30,7 @@ namespace alpaka::tune::detail::internal
     {
         static auto* kernelptr
             = alpaka::tune::core::getTuningEnvironment(queue, exec, frameSpecTune, kernelBundle, session).get();
-        auto& data = kernelptr->env_kernelData;
+        auto& data = kernelptr->env_metaData;
         // always use the same context unless session specifier change.
         if(session.m_sessionSpecifier != data.specifiers)
         {
@@ -75,7 +75,6 @@ namespace alpaka::tune
         std::string m_outputFile;
         std::vector<std::string> m_sessionSpecifier;
         TuningSession() = default;
-        uint32_t finishedEnvironment = 0;
 
         explicit TuningSession(
             T_Strategy const& strategy,
@@ -149,20 +148,14 @@ namespace alpaka::tune
             T_FrameSpec&& spec,
             alpaka::concepts::KernelBundle auto const& kernelBundle)
         {
-            using bar_frame = std::remove_cvref_t<T_FrameSpec>;
             auto* environmentPtr = tune::detail::internal::setup_enqueue(
                 queue,
                 exec,
                 std::forward<T_FrameSpec>(spec),
                 kernelBundle,
                 *this);
-            bool bef = environmentPtr->readyForTerminate;
 
             environmentPtr->launch(queue, exec, std::forward<T_FrameSpec>(spec), kernelBundle);
-            if(bef != environmentPtr->readyForTerminate)
-            {
-                finishedEnvironment++;
-            }
         }
     };
 

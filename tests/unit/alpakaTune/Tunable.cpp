@@ -42,10 +42,11 @@ TEST_CASE("CTuneable basic compile-time tuple", "[CTuneable]")
 TEST_CASE("CTuneable runtime interface", "[CTuneable]")
 {
     using t = double_t;
-    CTunable<140, alpaka::CVec<t, 0.1>, alpaka::CVec<t, 1.1>, alpaka::CVec<t, 2.4>> tuneDefault;
-    std::cout << tuneDefault.getName() << std::endl;
-    CHECK(tuneDefault.getName() == "C_Tunable 0"); // default name
-    auto numVals = tuneDefault.getNumValues();
+    constexpr auto id = alpaka::uniqueId();
+    CTunable<id, alpaka::CVec<t, 0.1>, alpaka::CVec<t, 1.1>, alpaka::CVec<t, 2.4>> tuneDefault;
+    CHECK(tuneDefault.getName() == "C_Tunable " + std::to_string(id)); // default name
+    using defType = decltype(tuneDefault);
+    auto numVals = defType::getNumValues();
     CHECK(numVals[0] == 3); // tuple size
 
     CTunable<12, alpaka::CVec<t, 0.1>, alpaka::CVec<t, 1.1>, alpaka::CVec<t, 2.4>> tuneNamed("MyTune");
@@ -147,7 +148,7 @@ TEST_CASE("TunableMD - construction from IdxRange", "[TunableMD]")
 TEST_CASE("TunableMD - findStartingIndex valid value", "[TunableMD]")
 {
     Vec2u start{2u, 20u};
-    TunableMD<1000, Vec2u> tmd{{{1u, 10u}, {2u, 20u}, {3u, 30u}}, start, ""};
+    TunableMD<alpaka::uniqueId(), Vec2u> tmd{{{1u, 10u}, {2u, 20u}, {3u, 30u}}, start, ""};
 
     CHECK(tmd.startingIndex.has_value());
     auto idx = tmd.startingIndex.value();
@@ -158,7 +159,7 @@ TEST_CASE("TunableMD - findStartingIndex valid value", "[TunableMD]")
 TEST_CASE("TunableMD - findStartingIndex invalid value", "[TunableMD]")
 {
     Vec2u start{999u, 999u};
-    TunableMD<100, Vec2u> tmd{{{1u, 10u}, {2u, 20u}, {3u, 30u}}, start};
+    TunableMD<alpaka::uniqueId(), Vec2u> tmd{{{1u, 10u}, {2u, 20u}, {3u, 30u}}, start};
 
     CHECK(!tmd.startingIndex.has_value());
 }
@@ -167,7 +168,7 @@ TEST_CASE("TunableMD - 3D consistency check", "[TunableMD]")
 {
     std::vector<Vec3u> space = {{1u, 10u, 100u}, {2u, 20u, 200u}, {3u, 30u, 300u}};
 
-    TunableMD<90, Vec3u> tmd(space, std::nullopt, "3DTest");
+    TunableMD<alpaka::uniqueId(), Vec3u> tmd(space, std::nullopt, "3DTest");
 
     CHECK(tmd.getNumValues()[0] == 3u);
     CHECK(tmd.getNumValues()[1] == 3u);
@@ -188,7 +189,7 @@ TEST_CASE("TunableMD - 3D consistency check", "[TunableMD]")
 ///
 TEST_CASE("Tunable basic construction from initializer list", "[Tunable]")
 {
-    auto t = Tunable<1001u, int>{{1, 2, 3, 4, 5}};
+    auto t = Tunable<alpaka::uniqueId(), int>{{1, 2, 3, 4, 5}};
     CHECK(t.getNumValues()[0] == 5);
     CHECK(t.getValueByIndex({0u}) == 1);
     CHECK(t.getValueByIndex({4u}) == 5);
@@ -197,7 +198,7 @@ TEST_CASE("Tunable basic construction from initializer list", "[Tunable]")
 
 TEST_CASE("Tunable with explicit name and starting value", "[Tunable]")
 {
-    Tunable<2001, int> t({10, 20, 30, 40}, 30, "MyIntTuneable");
+    Tunable<alpaka::uniqueId(), int> t({10, 20, 30, 40}, 30, "MyIntTuneable");
     CHECK(t.getName() == "MyIntTuneable");
     CHECK(t.getNumValues()[0] == 4);
     CHECK(t.startingIndex.has_value());
@@ -207,7 +208,7 @@ TEST_CASE("Tunable with explicit name and starting value", "[Tunable]")
 TEST_CASE("Tunable constructed from vector", "[Tunable]")
 {
     std::vector<int> vals = {3, 6, 9};
-    Tunable<3001, int> t(vals, 6, "VectorTuneable");
+    Tunable<alpaka::uniqueId(), int> t(vals, 6, "VectorTuneable");
     CHECK(t.getName() == "VectorTuneable");
     CHECK(t.getNumValues()[0] == 3);
     CHECK(t.startingIndex == std::optional<uint32_t>{1u});
@@ -219,7 +220,7 @@ TEST_CASE("Tunable constructed from IdxRange", "[Tunable]")
     using alpaka::IdxRange;
     using Vec1 = alpaka::Vec<uint32_t, 1>;
     auto range = IdxRange{Vec1{1u}, Vec1{5u}, Vec1{1u}}; // generates [1,2,3,4,5]
-    auto tune = Tunable<80, Vec1>(range, Vec1{3u}, "RangeTuneable");
+    auto tune = Tunable<alpaka::uniqueId(), Vec1>(range, Vec1{3u}, "RangeTuneable");
     CHECK(tune.getName() == "RangeTuneable");
     CHECK(tune.getNumValues()[0] == 5);
     CHECK(tune.startingIndex == std::optional<uint32_t>{2u});
@@ -228,7 +229,7 @@ TEST_CASE("Tunable constructed from IdxRange", "[Tunable]")
 
 TEST_CASE("Tunable handles missing starting value gracefully", "[Tunable]")
 {
-    Tunable<5001, int> t({1, 2, 3}, 999, "InvalidStart");
+    Tunable<alpaka::uniqueId(), int> t({1, 2, 3}, 999, "InvalidStart");
     CHECK_FALSE(t.startingIndex.has_value());
 }
 
@@ -236,7 +237,7 @@ TEST_CASE("Tunable with Vec type", "[Tunable][Vec]")
 {
     using Vec2 = alpaka::Vec<unsigned int, 2>;
     std::vector<Vec2> values = {Vec2{1u, 2u}, Vec2{3u, 4u}, Vec2{5u, 6u}};
-    Tunable<6001, Vec2> t(values, Vec2{3u, 4u}, "VecTuneable");
+    Tunable<alpaka::uniqueId(), Vec2> t(values, Vec2{3u, 4u}, "VecTuneable");
 
     CHECK(t.getName() == "VecTuneable");
     CHECK(t.getNumValues()[0] == 3);
@@ -244,3 +245,57 @@ TEST_CASE("Tunable with Vec type", "[Tunable][Vec]")
     CHECK(t.getValueByIndex({1u})[0u] == 3u);
     CHECK(t.getValueByIndex({1u})[1u] == 4u);
 }
+
+TEST_CASE("valuesToHash across tunables: stability and separation", "[valuesToHash]")
+{
+    SECTION("CTunable (compile-time) — same types/values => same hash; different => different")
+    {
+        using T = uint32_t;
+
+        using C1 = CTunable<alpaka::uniqueId(), alpaka::CVec<T, 1>, alpaka::CVec<T, 2>, alpaka::CVec<T, 3>>;
+        using C2
+            = CTunable<alpaka::uniqueId(), alpaka::CVec<T, 1>, alpaka::CVec<T, 2>, alpaka::CVec<T, 3>>; // different
+                                                                                                        // tag, same
+                                                                                                        // payload
+        using C3
+            = CTunable<alpaka::uniqueId(), alpaka::CVec<T, 1>, alpaka::CVec<T, 2>, alpaka::CVec<T, 4>>; // one value
+                                                                                                        // different
+
+        // currently this is not constexpr (mainly because of the type name which is part of the hash)
+        std::size_t h1 = C1::valuesToHash();
+        std::size_t h2 = C2::valuesToHash();
+        std::size_t h3 = C3::valuesToHash();
+
+        REQUIRE(h1 == h2); // same types and compile-time values -> same hash (tag is not included)
+        REQUIRE(h1 != h3); // changed one CVec value/type -> different hash
+    }
+
+    SECTION("Tunable (runtime 1D) — same values => same hash; different => different")
+    {
+        Tunable t1({1, 2, 3});
+        Tunable t2({1, 2, 3});
+        Tunable t3({1, 2, 4}); // one element different
+
+        auto const h1 = t1.valuesToHash();
+        auto const h2 = t2.valuesToHash();
+        auto const h3 = t3.valuesToHash();
+
+        CHECK(h1 == h2);
+        CHECK(h1 != h3);
+    }
+
+    SECTION("TunableMD (runtime multi-dim) — same spaces => same hash; different => different")
+    {
+        TunableMD md1({{1u, 10u}, {2u, 20u}, {3u, 30u}});
+        TunableMD md2({{1u, 10u}, {2u, 20u}, {3u, 30u}});
+        TunableMD md3({{1u, 10u}, {2u, 22u}, {3u, 30u}}); // one coord differs
+
+        auto const h1 = md1.valuesToHash();
+        auto const h2 = md2.valuesToHash();
+        auto const h3 = md3.valuesToHash();
+
+        CHECK(h1 == h2);
+        CHECK(h1 != h3);
+    }
+}
+

@@ -8,7 +8,7 @@
 #include "alpaka/tune/utils/tupleHelper.hpp"
 
 #include <alpaka/concepts.hpp>
-#include <alpaka/tune/tunable/tuneableHelper.hpp>
+#include <alpaka/tune/tunable/tunableHelper.hpp>
 #include <alpaka/tune/utils/VecUtils.hpp>
 
 #include <algorithm>
@@ -38,14 +38,13 @@ namespace alpaka::tune
      * Each `CTunable` defines a fixed, immutable configuration space, internally represented as a `std::tuple`
      * IMPORTANT: Only excepts templates (default constructible), use alpaka::CVec
      * to wrap constexpr numerical types as a template.
-     * Currently only usable in combination with a trait definition of your KernelBundle @see alpaka::tune::traits
+     * Currently only usable in combination with a trait definition of your Kernel @see alpaka::tune::traits
      *
      *  Example usage:
      * @code
      * using namespace alpaka::tune;
-     * #define tileSizeID=10
      * constexpr auto tileSize = CTunable<
-     *     tileSizeID, // Identifier
+     *     alpaka::uniqueID(), // Identifier
      *     CVec<uint32_t, 20>,
      *     CVec<uint32_t, 40>,
      *     CVec<uint32_t, 80>,
@@ -54,27 +53,18 @@ namespace alpaka::tune
 
     template<auto ID = static_cast<uint32_t>(detail::SpecialTuneableID::DefaultCompileTune), typename... T>
     struct CTunable
-        : public BaseTunable<
-              ID,
-              std::tuple_element_t<0, std::tuple<T...>>,
-              1u,
-              TunableKind::CTunable,
-              std::array<std::tuple<T...>, 1u>>
     {
-        using Base = BaseTunable<
-            ID,
-            std::tuple_element_t<0, std::tuple<T...>>,
-            1u,
-            TunableKind::CTunable,
-            std::array<std::tuple<T...>, 1u>>;
         static constexpr auto tag = ID;
         static constexpr auto tuneableType = TunableKind::CTunable;
         static constexpr auto dim = 1u;
         // All CVecs must be compatible
+        static_assert((std::is_trivially_copyable_v<T>, ...), " tunable types must be trivially copyable!");
         static_assert(sizeof...(T) > 0, "CTunable requires at least one Parameter");
         using Tuple = std::tuple<T...>;
         using Values = Tuple; // this is the constexpr compile-time payload
         using value_type = std::tuple_element_t<0, std::tuple<T...>>;
+        std::string m_name = detail::getNameFromTag_comp<ID>();
+        std::optional<uint32_t> startingIndex = std::nullopt;
 
         template<std::size_t I>
         static constexpr auto getValueByIndex()
@@ -83,9 +73,17 @@ namespace alpaka::tune
             return std::get<I>(Values{});
         }
 
+        // we hash need to hash the types in addition to the values
+        static std::size_t valuesToHash()
+        {
+            std::size_t seed = 0;
+            (detail::hashType<T>(seed), ...); // hash types
+            std::apply([&](auto... v) { (detail::hash_combine(seed, v), ...); }, Values{}); // hash values
+            return seed;
+        }
+
         // Runtime storage (for BaseTunable interface)
         std::array<Tuple, 1u> values;
-        std::string m_name = detail::getNameFromTag_comp<ID>();
 
         constexpr explicit CTunable(std::string const& name = "")
         {
@@ -93,14 +91,16 @@ namespace alpaka::tune
                 m_name = name;
         }
 
+        constexpr ~CTunable() = default;
+
         // --- BaseTunable Interface Implementations ---
 
-        std::string getName() const override
+        [[nodiscard]] std::string getName() const
         {
             return m_name;
         }
 
-        [[nodiscard]] constexpr Vec<uint32_t, 1u> getNumValues() const override
+        [[nodiscard]] static constexpr Vec<uint32_t, 1u> getNumValues()
         {
             return Vec<uint32_t, 1u>{sizeof...(T)};
         }
@@ -110,7 +110,7 @@ namespace alpaka::tune
      * @brief Used to define a Runtime tuneable.
      *specialization of CTuneable to expand a tuple of values into a parameter pack -> to ease generator syntax**/
 
-    template<uint32_t ID, typename... T>
+    template<auto ID, typename... T>
     struct CTunable<ID, std::tuple<T...>> : CTunable<ID, T...>
     {
     };
@@ -151,6 +151,7 @@ namespace alpaka::tune
         typename T = alpaka::Vec<uint32_t, 1u>>
     struct Tunable : public BaseTunable<ID, T, 1u, TunableKind::Tunable, std::vector<T>>
     {
+        static_assert(std::is_trivially_copyable_v<T>, " tunable types must be trivially copyable!");
         using Base = BaseTunable<ID, T, 1u, TunableKind::Tunable, std::vector<T>>;
         using T_Storage = typename Base::StorageType;
         T_Storage values;
@@ -160,7 +161,7 @@ namespace alpaka::tune
         std::string m_name = detail::getNameFromTag<ID>();
         static constexpr auto dim = 1u;
 
-        std::string getName() const override
+        [[nodiscard]] std::string getName() const override
         {
             return m_name;
         }
@@ -175,6 +176,14 @@ namespace alpaka::tune
             assert(idx[0u] < values.size());
             return values[idx[0u]];
         };
+
+        // we dont need to hash the type as its included in the type of the kernelbundle
+        std::size_t valuesToHash()
+        {
+            std::size_t seed = 0;
+            detail::hash_combine(seed, values);
+            return seed;
+        }
 
         /**
          * @brief Construct from an initializer list of values.
@@ -293,6 +302,7 @@ namespace alpaka::tune
               TunableKind::TunableMD,
               std::array<std::vector<typename T::type>, alpaka::getDim(T{})>>
     {
+        static_assert(std::is_trivially_copyable_v<T>, " tunable types must be trivially copyable!");
         static constexpr auto dim = alpaka::getDim(T{});
         using Base = BaseTunable<
             ID,
@@ -314,7 +324,7 @@ namespace alpaka::tune
             T ret{};
             for(idxType i = 0; i < dim; ++i)
             {
-                assert(vec[i] < values[i.size()]);
+                assert(vec[i] < values[i].size());
                 ret[i] = values[i][vec[i]];
             }
             return ret;
@@ -325,6 +335,17 @@ namespace alpaka::tune
         std::string getName() const override
         {
             return m_name;
+        }
+
+        // we dont need to hash the type as its included in the type of the kernelbundle.
+        std::size_t valuesToHash()
+        {
+            std::size_t seed = 0;
+            for(idxType i = 0; i < dim; ++i)
+            {
+                detail::hash_combine(seed, values[i]);
+            }
+            return seed;
         }
 
         /// Return the number of values in the tuning space
