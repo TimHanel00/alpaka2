@@ -262,9 +262,9 @@ TEST_CASE("valuesToHash across tunables: stability and separation", "[valuesToHa
                                                                                                         // different
 
         // currently this is not constexpr (mainly because of the type name which is part of the hash)
-        std::size_t h1 = C1::valuesToHash();
-        std::size_t h2 = C2::valuesToHash();
-        std::size_t h3 = C3::valuesToHash();
+        std::size_t h1 = C1{}.valuesToHash();
+        std::size_t h2 = C2{}.valuesToHash();
+        std::size_t h3 = C3{}.valuesToHash();
 
         REQUIRE(h1 == h2); // same types and compile-time values -> same hash (tag is not included)
         REQUIRE(h1 != h3); // changed one CVec value/type -> different hash

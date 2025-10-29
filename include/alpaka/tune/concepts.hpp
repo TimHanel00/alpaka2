@@ -9,6 +9,13 @@
 #include <alpaka/tune/interfaces/MetricInterface.hpp>
 #include <alpaka/tune/tunable/Tunable.hpp>
 
+namespace alpaka::tune::trait
+{
+    // forward declare
+    template<typename T, typename = void>
+    struct Serialize;
+} // namespace alpaka::tune::trait
+
 namespace alpaka::tune::concepts
 {
     template<typename T>
@@ -59,7 +66,33 @@ namespace alpaka::tune::concepts
         //{ t.end(std::declval<R&>(), std::declval<S&>()) } -> std::same_as<void>;
     }; // namespace concepts
 
+    namespace serialize
+    {
+        template<typename T>
+        concept HasTraitSerializer = requires(T const& v) {
+            { ::alpaka::tune::trait::Serialize<T>{}(v) } -> std::convertible_to<std::string>;
+        };
 
+        template<typename T>
+        concept HasToStringMethod = requires(T const& v) {
+            { v.toString() } -> std::convertible_to<std::string>;
+        };
+
+        template<typename T>
+        concept HasStreamOperator = requires(std::ostream& os, T const& v) {
+            { os << v } -> std::same_as<std::ostream&>;
+        };
+
+        template<typename T>
+        concept HasStdToString = requires(T v) {
+            { std::to_string(v) } -> std::convertible_to<std::string>;
+        };
+    } // namespace serialize
+
+    template<typename T>
+    concept Serializable
+        = std::is_convertible_v<T, std::string> || std::is_arithmetic_v<T> || serialize::HasTraitSerializer<T>
+          || serialize::HasToStringMethod<T> || serialize::HasStreamOperator<T>;
     template<typename T>
     concept ConfigLike = []<typename U = std::remove_cvref_t<T>>
     {
@@ -71,14 +104,14 @@ namespace alpaka::tune::concepts
             using V = typename U::value_type;
             constexpr auto N = U::size();
 
-            if constexpr(alpaka::tune::concepts::Floating<V>)
+            if constexpr(Floating<V>)
             {
-                return std::is_same_v<U, alpaka::tune::config::NormalizedConfig<V, N>>;
+                return std::is_same_v<U, config::NormalizedConfig<V, N>>;
             }
             else
             {
                 // Only allow integer configs if V is integral
-                return std::is_same_v<U, alpaka::tune::config::Config<V, N>>;
+                return std::is_same_v<U, config::Config<V, N>>;
             }
         }
         else
@@ -98,8 +131,8 @@ namespace alpaka::tune::concepts
 
         // functions
         // Note: we don’t constrain argument types precisely here, since they’re templated
-        { t.getValuesFromConfig(std::declval<alpaka::tune::config::Config<uint32_t, T::numDims>>()) };
-        { t.createConfigFromNormalized(std::declval<alpaka::tune::config::NormalizedConfig<double, T::numDims>>()) };
+        { t.getValuesFromConfig(std::declval<config::Config<uint32_t, T::numDims>>()) };
+        { t.createConfigFromNormalized(std::declval<config::NormalizedConfig<double, T::numDims>>()) };
     };
 
     template<class Tuple, class = void>
@@ -112,7 +145,6 @@ namespace alpaka::tune::concepts
         std::void_t<decltype(
             []<typename... Ts>(std::tuple<Ts...>*)
             {
-                using namespace alpaka::tune::concepts;
 
                 // 1️⃣  Reject compile-time tuneables
                 static_assert(((Ts::tuneableType != TunableKind::CTunable) && ...),

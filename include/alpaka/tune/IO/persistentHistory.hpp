@@ -6,7 +6,21 @@
 #define TUNINGHISTORY_H
 
 #pragma once
-#include <nlohmann/json.hpp>
+#if !defined(ALPAKA_TUNE_DISABLE_JSON)
+
+#    if __has_include(<nlohmann/json.hpp>)
+#        include <nlohmann/json.hpp>
+#        define ALPAKA_TUNE_HAS_JSON 1
+#    else
+#        define ALPAKA_TUNE_HAS_JSON 0
+#    endif
+
+#else
+#    define ALPAKA_TUNE_HAS_JSON 0
+#endif
+#include <alpaka/tune/IO/runTimeHistory.hpp>
+#include <alpaka/tune/core/peripherals/environmentState.hpp>
+#include <alpaka/tune/core/peripherals/updateMetric.hpp>
 
 #include <algorithm>
 #include <array>
@@ -18,13 +32,38 @@
 #include <ios>
 #include <mutex>
 #include <string>
-#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace alpaka::tune::IO::detail
 {
+#if ALPAKA_TUNE_HAS_JSON
+    template<typename T_Config, typename T_Descriptor>
+    inline nlohmann::json make_mainContext_json(KernelTuningMetadata<T_Config, T_Descriptor> const& md)
+    {
+        nlohmann::json meta
+            = {{"device", md.device},
+               {"executor", md.executor},
+               {"kernel", md.kernel},
+               {"targetMetric", md.targetMetric}};
+        return meta;
+    }
+
+    // ContextID := hash(device, executor, kernel, targetMetric)
+    inline std::string compute_context_id(nlohmann::json const& meta)
+    {
+        auto vec = std::vector{
+            meta.value("device", std::string{}),
+            meta.value("executor", std::string{}),
+            meta.value("kernel", std::string{}),
+            meta.value("targetMetric", std::string{})};
+        std::size_t seed = 0;
+        tune::detail::hash_combine(seed, vec);
+        return std::to_string(seed);
+    }
+
+    // SOFT descriptor: numValues, parameters(name/id/kind/valueHash), kernelArgs, specifiers
     template<typename T_Descriptor, typename T_Config, typename... ModelArgs>
     inline nlohmann::json make_descriptor_json(
         KernelTuningMetadata<T_Config, T_Descriptor> const& metaData,
@@ -32,43 +71,72 @@ namespace alpaka::tune::IO::detail
     {
         nlohmann::json params = nlohmann::json::array();
 
-        // Iterate over the descriptor tuple
+        // Per-tunable entries including valueHash
         alpaka::tune::utils::for_each(
-            metaData.descriptor,
+            model.m_allTunables,
             [&](auto const& elem)
             {
                 params.push_back(
                     {{"name", elem.m_name},
-                     {"id", static_cast<std::size_t>(elem.ID)},
-                     {"kind", static_cast<std::size_t>(elem.kind)}});
+                     {"id", static_cast<std::size_t>(elem.tag)},
+                     {"kind", static_cast<std::size_t>(elem.tuneableType)},
+                     {"valueHash", static_cast<std::size_t>(elem.valuesToHash())}});
             });
 
-        nlohmann::json j;
-        j["parameters"] = std::move(params);
-
-        j["model"] = {{"numDims", model.numDims}, {"numValues", nlohmann::json::array()}};
-
+        // numValues only
+        nlohmann::json desc;
+        desc["numValues"] = nlohmann::json::array();
         for(std::size_t i = 0; i < model.numDims; ++i)
-        {
-            auto val = static_cast<std::uint64_t>(model.m_numValues[i]);
-            j["model"]["numValues"].push_back(val);
-            std::cout << val;
-            if(i + 1 < model.numDims)
-                std::cout << ", ";
-        }
-        return j;
+            desc["numValues"].push_back(static_cast<std::uint64_t>(model.m_numValues[i]));
+
+        desc["parameters"] = std::move(params);
+
+        // soft constraints
+        desc["kernelArgs"] = metaData.kernelArgs; // for now equals metadata.kernel
+        desc["specifiers"] = metaData.specifiers; // moved to soft
+
+        return desc;
     }
 
-    // prepare Metadata for JSON top level key
+    // descriptorID := hash( specifiers[], kernelArgs, parameters(name,id,kind,valueHash), numValues[] )
     template<typename T_Config, typename T_Descriptor>
-    inline nlohmann::json make_metadata_json(KernelTuningMetadata<T_Config, T_Descriptor> const& md)
+    inline std::string compute_descriptor_id(
+        nlohmann::json const& descriptor,
+        KernelTuningMetadata<T_Config, T_Descriptor> const& md)
     {
-        return nlohmann::json{
-            {"device", md.device},
-            {"executor", md.executor},
-            {"kernel", md.kernel},
-            {"targetMetric", md.targetMetric},
-            {"specifiers", md.specifiers}};
+        std::size_t seed = 0;
+
+        // specifiers (order-sensitive; if you need set-equality, sort first)
+        if(descriptor.contains("specifiers") && descriptor["specifiers"].is_array())
+            for(auto const& s : descriptor["specifiers"])
+                tune::detail::hash_combine(seed, s.get<std::string>());
+
+        // kernelArgs
+        tune::detail::hash_combine(seed, descriptor.value("kernelArgs", std::string{}));
+
+        // parameters
+        auto const& params = descriptor["parameters"];
+        for(auto const& p : params)
+        {
+            tune::detail::hash_combine(seed, p.value("name", std::string{}));
+            tune::detail::hash_combine(seed, static_cast<std::size_t>(p.value("id", 0ULL)));
+            tune::detail::hash_combine(seed, static_cast<std::size_t>(p.value("kind", 0ULL)));
+            tune::detail::hash_combine(seed, static_cast<std::size_t>(p.value("valueHash", 0ULL)));
+        }
+
+        // numValues
+        for(auto const& nv : descriptor["numValues"])
+            tune::detail::hash_combine(seed, static_cast<std::uint64_t>(nv.get<std::uint64_t>()));
+
+        return std::to_string(seed);
+    }
+
+    inline bool same_hard_metadata(nlohmann::json const& nodeMeta, nlohmann::json const& mdWanted)
+    {
+        return nodeMeta.value("device", "") == mdWanted.value("device", "")
+               && nodeMeta.value("executor", "") == mdWanted.value("executor", "")
+               && nodeMeta.value("kernel", "") == mdWanted.value("kernel", "")
+               && nodeMeta.value("targetMetric", "") == mdWanted.value("targetMetric", "");
     }
 
     inline bool equal_strings(std::string const& a, std::string const& b)
@@ -118,11 +186,11 @@ namespace alpaka::tune::IO::detail
     }
 
     template<typename T_Config>
-    inline nlohmann::json config_to_json(config::ConfigRecord<T_Config> const& cfg)
+    inline nlohmann::json config_to_json(config::ConfigRecord<T_Config> const& cfg, auto index)
     {
         nlohmann::json j;
         j["stamp"] = (cfg.state == config::ConfigState::Invalid) ? static_cast<std::int64_t>(-1)
-                                                                 : static_cast<std::int64_t>(cfg.stamp);
+                                                                 : static_cast<std::int64_t>(index);
         j["indices"] = nlohmann::json::array();
         for(auto v : cfg.m_config)
             j["indices"].push_back(static_cast<typename T_Config::value_type>(v));
@@ -194,6 +262,8 @@ namespace alpaka::tune::IO::detail
         auto concat = build_context_concat_string(metadata, descriptorFull);
         return std::to_string(std::hash<std::string>{}(concat));
     }
+#endif
+
 } // namespace alpaka::tune::IO::detail
 
 namespace alpaka::tune::IO
@@ -218,61 +288,6 @@ namespace alpaka::tune::IO
         {
         }
 
-        // match: strict metadata, descriptor order & triples, model.numDims strict, specifiers set-equal
-        template<typename... T_TunableTuple, typename T_Config, typename T_Descriptor>
-        bool match(
-            KernelTuningModel<T_TunableTuple...> const& model,
-            KernelTuningMetadata<T_Config, T_Descriptor> const& metadata,
-            nlohmann::json const& ctxJson) const noexcept
-        {
-            using namespace detail;
-            if(!json_has_required_context_shape(ctxJson))
-                return false;
-
-            auto const& jm = ctxJson["metadata"];
-            auto const& jd = ctxJson["descriptor"];
-            if(!equal_strings(jm.value("device", ""), metadata.device))
-                return false;
-            if(!equal_strings(jm.value("executor", ""), metadata.executor))
-                return false;
-            if(!equal_strings(jm.value("kernel", ""), metadata.kernel))
-                return false;
-            if(!equal_strings(jm.value("targetMetric", ""), metadata.targetMetric))
-                return false;
-
-            auto specJ = jm.value("specifiers", std::vector<std::string>{});
-            if(specJ != metadata.specifiers)
-                return false;
-
-            // descriptor parameters strict order: (name,id,kind-int)
-            auto const& jparams = jd["parameters"];
-            if(!jparams.is_array())
-                return false;
-
-            // Build a temp JSON from runtime descriptor to compare structurally
-            nlohmann::json jd_rt = make_descriptor_json(metadata, model);
-            auto const& jparams_rt = jd_rt["parameters"];
-            if(jparams.size() != jparams_rt.size())
-                return false;
-
-            for(std::size_t i = 0; i < jparams.size(); ++i)
-            {
-                auto const& a = jparams[i];
-                auto const& b = jparams_rt[i];
-                if(a.value("name", "") != b.value("name", ""))
-                    return false;
-                if(a.value("id", -1) != b.value("id", -1))
-                    return false;
-                if(a.value("kind", -1) != b.value("kind", -1))
-                    return false;
-            }
-            auto const nd_file = static_cast<std::size_t>(jd["model"].value("numDims", 0));
-            if(nd_file != model.numDims)
-                return false;
-
-            return true;
-        }
-
         // READ: returns number of configs loaded (after filtering)
         template<typename T_MetricInterface, typename... ModelArgs, typename T_Config, typename T_ConfigDescriptor>
         std::size_t read(
@@ -281,145 +296,88 @@ namespace alpaka::tune::IO
             KernelTuningMetadata<T_Config, T_ConfigDescriptor> const& metadata,
             core::peripherals::EnvironmentState<T_Config>& state) noexcept
         {
+            if(m_filename.empty())
+                return 0;
+#if ALPAKA_TUNE_HAS_JSON
+
             using namespace detail;
-            static constexpr auto numDimsV = KernelTuningModel<ModelArgs...>::numDims;
             using value_type = typename T_Config::value_type;
+            static constexpr auto numDimsV = KernelTuningModel<ModelArgs...>::numDims;
+
             std::scoped_lock lk(m_mx);
-
-
             auto root = read_json_file(m_filename);
             if(!root.is_object())
-            {
-                return 0;
-            }
-
-            auto md = make_metadata_json(metadata);
-
-            auto descFull = make_descriptor_json(metadata, model);
-
-            auto myId = compute_context_id(md, descFull);
-
-
-            std::vector<std::string> candidateKeys;
-
-            // Fast path: top-level key present and its contextId matches ours
-            if(root.contains(myId))
-            {
-                auto const& ctx = root.at(myId);
-                if(ctx.is_object() && ctx.value("contextId", std::string{}) == myId
-                   && json_has_required_context_shape(ctx) && match(model, metadata, ctx))
-                {
-                    candidateKeys.push_back(myId);
-                }
-            }
-
-            // Fallback: scan all keys (support older writers or collisions)
-            if(candidateKeys.empty())
-            {
-                for(auto it = root.begin(); it != root.end(); ++it)
-                {
-                    if(!it.value().is_object())
-                        continue;
-                    auto const& ctx = it.value();
-                    if(!json_has_required_context_shape(ctx))
-                        continue;
-
-                    if(ctx.value("contextId", std::string{}) == myId && match(model, metadata, ctx))
-                    {
-                        candidateKeys.push_back(it.key());
-                    }
-                }
-            }
-
-            if(candidateKeys.empty())
                 return 0;
 
-            auto const& ctx = root.at(candidateKeys.front());
-            auto const& jd = ctx["descriptor"];
-            auto const& jmv = jd["model"]["numValues"];
+            // Identify nodes
+            auto mdHard = make_mainContext_json(metadata);
+            auto ctxID = compute_context_id(mdHard);
+            if(!root.contains(ctxID))
+                return 0;
 
-            std::array<value_type, numDimsV> bounds{};
-            std::ranges::transform(
-                jmv,
-                bounds.begin(),
-                [](auto const& v) { return static_cast<value_type>(v.template get<value_type>()); });
+            auto const& hardNode = root.at(ctxID);
+            if(!hardNode.is_object())
+                return 0;
 
-            for(size_t i = 0; i < numDimsV; ++i)
-            {
-                std::cout << bounds[i];
-                if(i + 1 < numDimsV)
-                    std::cout << ", ";
-            }
+            auto desc = make_descriptor_json(metadata, model);
+            auto descID = compute_descriptor_id(desc, metadata);
+            if(!hardNode.contains(descID))
+                return 0;
 
+            auto const& soft = hardNode.at(descID);
+
+            // Load configs
             std::size_t loaded = 0;
-
-            for(auto const& jcfg : ctx["configs"])
+            if(soft.contains("configs") && soft["configs"].is_array())
             {
-                ++state.numberOfCheckedConfigs;
-                if(!jcfg.is_object())
+                for(auto const& jcfg : soft["configs"])
                 {
-                    continue;
-                }
-                if(!jcfg.contains("indices") || !jcfg["indices"].is_array())
-                {
-                    continue;
-                }
-                if(jcfg["indices"].size() != numDimsV)
-                {
-                    continue;
-                }
+                    ++state.numberOfCheckedConfigs;
+                    if(!jcfg.is_object())
+                        continue;
+                    if(!jcfg.contains("indices") || !jcfg["indices"].is_array())
+                        continue;
+                    if(jcfg["indices"].size() != numDimsV)
+                        continue;
 
-                std::array<value_type, numDimsV> arr{};
-                bool inRange = true;
-                for(std::size_t i = 0; i < numDimsV; ++i)
-                {
-                    auto const v = jcfg["indices"][i].get<long long>();
-                    if(static_cast<value_type>(v) >= bounds[i])
+                    std::array<value_type, numDimsV> arr{};
+                    for(std::size_t i = 0; i < numDimsV; ++i)
                     {
-                        inRange = false;
-                        break;
+                        auto const v = jcfg["indices"][i].template get<std::int64_t>();
+                        arr[i] = static_cast<value_type>(v);
                     }
-                    arr[i] = static_cast<value_type>(v);
-                }
 
-                if(!inRange)
-                {
-                    continue;
-                }
+                    T_Config cfg(arr);
+                    auto& entry = history.getOrCreate(cfg);
+                    ++loaded;
+                    int64_t stampTmp = jcfg.value("stamp", 0LL);
+                    if(stampTmp == -1)
+                    {
+                        entry.state = config::ConfigState::Invalid;
+                        entry.stamp = -1;
 
-                T_Config cfg(arr);
-                auto& entry = history.getOrCreate(cfg);
+                        continue;
+                    }
 
-                uint64_t stampTmp = jcfg["stamp"].get<std::int64_t>();
-                if(stampTmp == -1)
-                {
-                    entry.state = config::ConfigState::Invalid;
-                    entry.stamp = -1;
-                    continue;
-                }
-
-                entry.state = config::ConfigState::Empty;
-                entry.stamp = state.numValidConfigs++;
-                for(size_t i = 0; i < numDimsV; ++i)
-                {
-                    std::cout << arr[i];
-                    if(i + 1 < numDimsV)
-                        std::cout << ",";
-                }
-                std::cout << "]" << std::endl;
-
-                if(jcfg.contains("measurements") && jcfg["measurements"].is_array())
-                {
+                    entry.state = config::ConfigState::Empty;
+                    entry.stamp = state.numValidConfigs++;
+                    if(jcfg.contains("measurements") && jcfg["measurements"].is_array()
+                       && jcfg["measurements"].size() > 0)
+                        entry.state = config::ConfigState::Initialized;
                     for(auto const& m : jcfg["measurements"])
-                    {
-                        auto val = m.get<double_t>();
-                        core::peripherals::updateMetrics<false, T_MetricInterface>(entry, state, val);
-                    }
+                        core::peripherals::updateMetrics<false, T_MetricInterface>(
+                            entry,
+                            state,
+                            m.template get<double_t>());
                 }
-
-                ++loaded;
             }
             return loaded;
+#else
+            std::cerr << "[Persistent History] Could not read from history-file due to json/nlohmann dependency "
+                         "missing or cmake options!"
+                      << std::endl;
+            return 0;
+#endif
         }
 
         // WRITE: returns number of configs written
@@ -428,64 +386,73 @@ namespace alpaka::tune::IO
             KernelTuningModel<ModelArgs...> const& model,
             ActiveHistory<T_Config> const& history,
             KernelTuningMetadata<T_Config, T_ConfigDescriptor> const& metadata) noexcept
+
         {
+            if(m_filename.empty())
+                return 0;
+#if ALPAKA_TUNE_HAS_JSON
             using namespace detail;
             std::scoped_lock lk(m_mx);
 
             auto root = read_json_file(m_filename);
             if(!root.is_object())
-            {
                 root = nlohmann::json::object();
-            }
 
-            // Compute our id from the active runtime (not derived from file)
-            auto md = make_metadata_json(metadata);
+            // Build hard & soft ids
+            auto mdHard = make_mainContext_json(metadata);
+            auto ctxID = compute_context_id(mdHard);
 
-            auto descFull = make_descriptor_json(metadata, model);
+            auto desc = make_descriptor_json(metadata, model);
+            auto descID = compute_descriptor_id(desc, metadata);
 
-            auto contextId = compute_context_id(md, descFull);
+            // Ensure hard node exists
+            auto& ctxNode = root[ctxID];
+            if(!ctxNode.is_object())
+                ctxNode = nlohmann::json::object();
+            ctxNode["ContextID"] = ctxID;
+            ctxNode["metadata"] = mdHard;
 
+            // Create/replace soft node
+            nlohmann::json soft;
+            soft["descriptorID"] = descID;
+            soft["numValues"] = desc["numValues"];
+            soft["parameters"] = desc["parameters"];
+            soft["kernelArgs"] = desc["kernelArgs"];
+            soft["specifiers"] = desc["specifiers"];
+            soft["configs"] = nlohmann::json::array();
 
-            nlohmann::json ctx;
-            ctx["contextId"] = contextId; // store inside for cross-checks
-            ctx["metadata"] = md;
-            ctx["descriptor"] = descFull;
-            ctx["version"] = 1;
-            ctx["configs"] = nlohmann::json::array();
-
-            std::cout << "[PersistentHistory] Writing retired configs..." << std::endl;
             std::size_t written = 0;
             for(auto const& ref : history.getOrderedHistory())
             {
                 auto const& rec = ref.get();
-                using StateT = decltype(rec.state);
                 if(rec.state == config::ConfigState::Empty || rec.state == config::ConfigState::Uninitialized
                    || rec.state == config::ConfigState::WarmUp)
                     continue;
-                // invalid,ci reached,initialized, retired
-                ctx["configs"].push_back(detail::config_to_json(rec));
+
+                soft["configs"].push_back(detail::config_to_json(rec, written));
                 ++written;
             }
 
+            // Place soft node directly under the hard node keyed by descriptorID
+            ctxNode[descID] = std::move(soft);
 
-            // Merge/replace our top-level key with our computed id
-            root[contextId] = std::move(ctx);
-
-            bool const ok = atomically_write(m_filename, root);
-
-            if(!ok)
+            if(!atomically_write(m_filename, root))
             {
-                std::cerr << "[PersistentHistory] ERROR: Failed to atomically write JSON file: " << m_filename
-                          << std::endl;
+                std::cerr << "[PersistentHistory] ERROR: Failed to atomically write JSON file: " << m_filename << "\n";
                 return 0;
             }
-
             return written;
+#else
+            std::cerr << "[Persistent History] Could not create history due to json/nlohmann dependency missing or "
+                         "cmake options!"
+                      << std::endl;
+            return 0;
+#endif
         }
 
+        std::string m_filename;
 
     private:
-        std::string m_filename;
         mutable std::mutex m_mx;
         std::atomic<uint64_t> nr_StakeHolders{0};
     };

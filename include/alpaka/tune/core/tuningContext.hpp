@@ -201,11 +201,12 @@ use model as parameter void shrinkTuningSpace(...)
                       std::move(env_kernelData_)))
 
         {
-            env_persistentHistory.read<T_MetricInterface>(
-                this->env_tuningModel,
-                this->env_activeHistory,
-                this->env_metaData,
-                this->env_environmentState);
+            if(!env_persistentHistory.m_filename.empty())
+                env_persistentHistory.read<T_MetricInterface>(
+                    this->env_tuningModel,
+                    this->env_activeHistory,
+                    this->env_metaData,
+                    this->env_environmentState);
 
             getRunsPerConfig();
 
@@ -269,8 +270,8 @@ use model as parameter void shrinkTuningSpace(...)
             completeTuningModel,
             alpaka::onHost::demangledName(device),
             alpaka::onHost::demangledName(exec),
-            alpaka::onHost::demangledName<T_KernelBundle>(),
-            session.m_sessionSpecifier);
+            bundle,
+            session.m_sessionSpecifiers);
         using tuningEnvironmentType = alpaka::tune::core::TuningContext<
             typename decltype(env_kernelData)::TConfig_type,
             decltype(env_kernelData.descriptor),
@@ -314,7 +315,7 @@ use model as parameter void shrinkTuningSpace(...)
         static std::unordered_map<std::string, EnvPtr> singletonMap;
 
 
-        std::string const key = flattenSessionSpecifier(session.m_sessionSpecifier);
+        std::string const key = flattenSessionSpecifier(session.m_sessionSpecifiers);
         auto [it, inserted] = singletonMap.try_emplace(
             key,
             createTuningEnvironment(queue.getDevice(), exec, frameSpecTune, bundle, session));

@@ -54,7 +54,6 @@ namespace alpaka::tune
         template<typename T>
         struct Hasher
         {
-            static_assert(std::is_trivially_copyable_v<T>, "T must be trivially copyable!");
             constexpr Hasher() = default;
 
             std::size_t operator()(T const& val) const
@@ -65,6 +64,7 @@ namespace alpaka::tune
                 }
                 else
                 {
+                    static_assert(std::is_trivially_copyable_v<T>, "T must be trivially copyable!");
                     return hashBytes(val);
                 }
             }

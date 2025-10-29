@@ -115,7 +115,6 @@ TEMPLATE_LIST_TEST_CASE(
     // Tuning session
     auto session = alpaka::tune::TuningBuilder{}
                        .withStrategy(strategy::exhaustiveSearch{})
-                       .withOutputFile("h.json")
                        .withContextSpecifier("sess-shallow-user")
                        .buildSession();
 
@@ -161,68 +160,66 @@ TEMPLATE_LIST_TEST_CASE(
     // device
 }
 
-//
-// TEMPLATE_LIST_TEST_CASE("enqueue with CTunable", "[CTune][enqueue][full run]", TestApis)
-// {
-//     using namespace alpaka;
-//     using namespace alpaka::tune;
-//
-//     auto cfg = TestType::makeDict();
-//     auto deviceSpec = cfg[object::deviceSpec];
-//     auto devSelector = onHost::makeDeviceSelector(deviceSpec);
-//     onHost::Device device = devSelector.makeDevice(0);
-//     Queue queue = device.makeQueue();
-//     auto exec = cfg[object::exec];
-//     // set a fixed requirement on the number of runs per config
-//     alpaka::tune::Vars::setRunsPerConfig(10);
-//     // INIT TUNING
-//     // Tuning session
-//     auto session = alpaka::tune::TuningBuilder{}
-//                        .withStrategy(strategy::exhaustiveSearch{})
-//                        .withContextSpecifier("sess-CTune")
-//                        .withOutputFile("out.json")
-//                        .buildSession();
-//
-//     // Frame spec + SHALLOW placeholders for frame space (tuner decides)
-//     auto spec = onHost::FrameSpec{V2u{1, 1}, V2u{1, 1}};
-//     std::vector<V2u> vec=alpaka::tune::generate::linSpace( //4 elem tuning space
-//                                   V2u{0, 0},
-//                                   spec.m_numFrames,
-//                                   V2u{1, 1});
-//     auto frameModel = FrameSpecTuningModel{spec}
-//                           .withNumFramesTune(
-//                              vec) // shallow placeholder -> let Tuner decide
-//                           .withFrameExtentTune(
-//                               alpaka::tune::generate::linSpace( //4 elem tuning space
-//                                   V2u{0, 0},
-//                                   spec.m_frameExtent,
-//                                   V2u{1, 1})); // shallow placeholder -> let Tuner decide
-//
-//
-//     // awiod
-//     auto bufferExtent = alpaka::Vec{4 * 4 * 4}; //
-//     auto uBufHost = alpaka::onHost::allocHost<bool>(bufferExtent);
-//     onHost::fill(queue, uBufHost, false);
-//     // Accelerator buffer
-//     auto uCurrBufAcc = alpaka::onHost::allocLike(queue.getDevice(), uBufHost);
-//     alpaka::onHost::memcpy(queue, uCurrBufAcc, uBufHost);
-//     alpaka::onHost::wait(queue);
-//
-//     ///
-//     // Kernel bundle includes the user tunable as an argument
-//     auto kernelBundle = KernelBundle{
-//         ExampleKernelWithCTune<std::integral_constant<decltype(2), 2>>{},
-//         uCurrBufAcc.getMdSpan(),
-//         V2u{2, 2},
-//         V2u{2, 2},
-//         4};
-//     for(auto i = 0; i < 64 * (10 + 1);
-//         i++) // this is exactly the number of tunings necessary 10 runs + 1 warm up for each config
-//     {
-//         // queue.enqueue(exec, spec, kernelBundle);
-//         session.enqueue(queue, exec, frameModel, kernelBundle);
-//     }
-//     alpaka::onHost::memcpy(queue, uBufHost, uCurrBufAcc);
-//     alpaka::onHost::wait(queue);
-//     REQUIRE(validateBuffer(uBufHost)); // validate wether we actually supplied all of the tuning space on the device
-// }
+TEMPLATE_LIST_TEST_CASE("enqueue with CTunable", "[CTune][enqueue][full run]", TestApis)
+{
+    using namespace alpaka;
+    using namespace alpaka::tune;
+
+    auto cfg = TestType::makeDict();
+    auto deviceSpec = cfg[object::deviceSpec];
+    auto devSelector = onHost::makeDeviceSelector(deviceSpec);
+    onHost::Device device = devSelector.makeDevice(0);
+    Queue queue = device.makeQueue();
+    auto exec = cfg[object::exec];
+    // set a fixed requirement on the number of runs per config
+    alpaka::tune::Vars::setRunsPerConfig(10);
+    // INIT TUNING
+    // Tuning session
+    auto session = alpaka::tune::TuningBuilder{}
+                       .withStrategy(strategy::exhaustiveSearch{})
+                       .withContextSpecifier("sess-CTune")
+                       .buildSession();
+
+    // Frame spec + SHALLOW placeholders for frame space (tuner decides)
+    auto spec = onHost::FrameSpec{V2u{1, 1}, V2u{1, 1}};
+    std::vector<V2u> vec=alpaka::tune::generate::linSpace( //4 elem tuning space
+                                  V2u{0, 0},
+                                  spec.m_numFrames,
+                                  V2u{1, 1});
+    auto frameModel = FrameSpecTuningModel{spec}
+                          .withNumFramesTune(
+                             vec) // shallow placeholder -> let Tuner decide
+                          .withFrameExtentTune(
+                              alpaka::tune::generate::linSpace( //4 elem tuning space
+                                  V2u{0, 0},
+                                  spec.m_frameExtent,
+                                  V2u{1, 1})); // shallow placeholder -> let Tuner decide
+
+
+    // awiod
+    auto bufferExtent = alpaka::Vec{4 * 4 * 4}; //
+    auto uBufHost = alpaka::onHost::allocHost<bool>(bufferExtent);
+    onHost::fill(queue, uBufHost, false);
+    // Accelerator buffer
+    auto uCurrBufAcc = alpaka::onHost::allocLike(queue.getDevice(), uBufHost);
+    alpaka::onHost::memcpy(queue, uCurrBufAcc, uBufHost);
+    alpaka::onHost::wait(queue);
+
+    ///
+    // Kernel bundle includes the user tunable as an argument
+    auto kernelBundle = KernelBundle{
+        ExampleKernelWithCTune<std::integral_constant<decltype(2), 2>>{},
+        uCurrBufAcc.getMdSpan(),
+        V2u{2, 2},
+        V2u{2, 2},
+        4};
+    for(auto i = 0; i < 64 * (10 + 1) + 2;
+        i++) // this is exactly the number of tunings necessary 10 runs + 1 warm up for each config
+    {
+        // queue.enqueue(exec, spec, kernelBundle);
+        session.enqueue(queue, exec, frameModel, kernelBundle);
+    }
+    alpaka::onHost::memcpy(queue, uBufHost, uCurrBufAcc);
+    alpaka::onHost::wait(queue);
+    REQUIRE(validateBuffer(uBufHost)); // validate wether we actually supplied all of the tuning space on the device
+}

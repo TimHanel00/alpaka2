@@ -36,14 +36,16 @@ namespace alpaka::tune
      * @brief Used to define a compile-time tuneable.
      * All tuning values are encoded as template arguments and accessible during compilation.
      * Each `CTunable` defines a fixed, immutable configuration space, internally represented as a `std::tuple`
-     * IMPORTANT: Only excepts templates (default constructible), use alpaka::CVec
-     * to wrap constexpr numerical types as a template.
-     * Currently only usable in combination with a trait definition of your Kernel @see alpaka::tune::traits
+     * IMPORTANT: supply template types, such as std::integral_constant or alpaka::CVec to wrap arithmetic types and
+     * use them in your kernel (all these types T... need to define trivially copyable objects)
+     * CTunable is NOT constexpr because it uses a string name identifier -- to adhere to a common tunable interface.
+     *
+     * combination with a trait definition of your Kernel @see alpaka::tune::traits
      *
      *  Example usage:
      * @code
      * using namespace alpaka::tune;
-     * constexpr auto tileSize = CTunable<
+     * auto tileSize = CTunable<
      *     alpaka::uniqueID(), // Identifier
      *     CVec<uint32_t, 20>,
      *     CVec<uint32_t, 40>,
@@ -73,8 +75,10 @@ namespace alpaka::tune
             return std::get<I>(Values{});
         }
 
-        // we hash need to hash the types in addition to the values
-        static std::size_t valuesToHash()
+        // we hash need to hash the types in addition to the values -- not static in order to have a common interface
+        // for all tunables
+
+        [[nodiscard]] std::size_t valuesToHash() const
         {
             std::size_t seed = 0;
             (detail::hashType<T>(seed), ...); // hash types
@@ -178,7 +182,7 @@ namespace alpaka::tune
         };
 
         // we dont need to hash the type as its included in the type of the kernelbundle
-        std::size_t valuesToHash()
+        std::size_t valuesToHash() const
         {
             std::size_t seed = 0;
             detail::hash_combine(seed, values);
@@ -338,7 +342,7 @@ namespace alpaka::tune
         }
 
         // we dont need to hash the type as its included in the type of the kernelbundle.
-        std::size_t valuesToHash()
+        std::size_t valuesToHash() const
         {
             std::size_t seed = 0;
             for(idxType i = 0; i < dim; ++i)

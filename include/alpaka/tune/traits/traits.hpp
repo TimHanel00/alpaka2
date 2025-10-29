@@ -104,6 +104,12 @@ namespace alpaka::tune::trait
         }
     };
 
+    template<typename T, typename>
+    struct Serialize
+    {
+        std::string operator()(T const&) const = delete;
+    };
+
     // Primary template
     template<typename Kernel, typename = void>
     struct hasUserDefinedCTuneable : std::false_type

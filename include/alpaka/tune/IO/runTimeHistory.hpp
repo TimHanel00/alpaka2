@@ -88,10 +88,18 @@ namespace alpaka::tune::config
                 throw std::runtime_error("pushing metrics on a new Config is not allowed!");
                 break;
             case ConfigState::Empty:
-                metrics.push<10>(val, false);
-                state = ConfigState::WarmUp;
-                ++warm_up_runs;
-                nr_runs = 0;
+                if(++warm_up_runs >= warmUpThreshold)
+                {
+                    metrics.clear();
+                    metrics.push<10>(val, false);
+
+                    state = ConfigState::Initialized;
+                }
+                else
+                {
+                    state = ConfigState::WarmUp;
+                    metrics.push<10>(val, false);
+                }
                 break;
             case ConfigState::WarmUp:
 
@@ -119,6 +127,7 @@ namespace alpaka::tune::config
 
             case ConfigState::Retired:
                 this->metrics.history.push_back(val);
+                // only append values to history median does not change anymore
                 ++nr_runs;
                 break;
             case ConfigState::Invalid:
@@ -345,8 +354,8 @@ namespace alpaka::tune::IO
             auto [it, inserted] = entries.try_emplace(config, std::move(config));
             if(inserted)
             {
-                it->second.stamp = orderedHistory.size();
                 orderedHistory.emplace_back(std::ref(it->second));
+                orderedHistory.back().get().stamp = orderedHistory.size() - 1;
             }
             return it->second;
         }
@@ -435,6 +444,13 @@ namespace alpaka::tune::IO
 
         /// Descriptor for parameters/tunables (types, names, value extraction).
         T_ParameterAccessor descriptor;
+        /// Human-readable identifiers for this context.
+        std::string device; ///< e.g. "CPU", "NVIDIA V100", etc.
+        std::string executor; ///< e.g. mapping/policy name.
+        std::string kernel; ///< kernel identifier.
+        std::string targetMetric; ///< primary optimization target, e.g. "time".
+        std::string kernelArgs; ///< arguments of the kernelBundle
+        std::vector<std::string> specifiers; ///< Session/context specifiers/tags.
 
         /// Construct from a parameter accessor (and an existing Metadata)
         explicit KernelTuningMetadata(T_ParameterAccessor const& accessor, KernelTuningMetadata&& other)
@@ -443,6 +459,7 @@ namespace alpaka::tune::IO
             , executor(std::move(other.executor))
             , kernel(std::move(other.kernel))
             , targetMetric(std::move(other.targetMetric))
+            , kernelArgs(std::move(other.kernelArgs))
             , specifiers(std::move(other.specifiers))
         {
         }
@@ -451,13 +468,6 @@ namespace alpaka::tune::IO
         explicit KernelTuningMetadata(T_ParameterAccessor const& accessor) : descriptor(accessor)
         {
         }
-
-        /// Human-readable identifiers for this context.
-        std::string device; ///< e.g. "CPU", "NVIDIA V100", etc.
-        std::string executor; ///< e.g. mapping/policy name.
-        std::string kernel; ///< kernel (bundle) identifier.
-        std::string targetMetric; ///< primary optimization target, e.g. "time".
-        std::vector<std::string> specifiers; ///< Session/context specifiers/tags.
 
         /// Bookkeeping flags/counters (managed by the tuning flow).
         bool histEvaluated = false; ///< true if historical data was applied/evaluated.
@@ -479,12 +489,12 @@ namespace alpaka::tune::IO
      * @param  targetMetric       Primary optimization target (default: "time").
      * @return KernelTuningMetadata<Config, ParameterAccessor> initialized with descriptors and labels.
      */
-    template<typename KernelTuningModel>
+    template<typename KernelTuningModel, template<class...> class Bundle, typename T_Kernel, typename... T_Args>
     auto createKernelDataFromModel(
         KernelTuningModel& model,
         std::string const& device,
         std::string const& exec,
-        std::string const& bundle,
+        Bundle<T_Kernel, T_Args...> const& bundle,
         std::vector<std::string> const& sessionSpecs,
         std::string const& targetMetric = "time")
     {
@@ -494,13 +504,17 @@ namespace alpaka::tune::IO
         auto parameterAccessor = model.getValuesFromConfig(TConfig{});
 
         auto data = KernelTuningMetadata<TConfig, std::remove_cvref_t<decltype(parameterAccessor)>>{parameterAccessor};
-        data.kernel = bundle;
+        data.kernel = alpaka::onHost::demangledName<T_Kernel>();
+        std::string argTuple = alpaka::onHost::demangledName<typename KernelBundle<T_Kernel, T_Args...>::ArgTuple>();
+        argTuple.replace(0, 14, "");
+        argTuple.pop_back();
+        data.kernelArgs = argTuple;
         data.device = device;
         data.executor = exec;
         data.targetMetric = targetMetric;
         data.specifiers = sessionSpecs;
         return data;
-    }
+    };
 } // namespace alpaka::tune::IO
 
 #endif // STORAGETYPES_H

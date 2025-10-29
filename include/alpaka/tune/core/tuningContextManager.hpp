@@ -192,8 +192,6 @@ namespace alpaka::tune
         void emptyTheQueue(T_Args&&... launchArgs)
         {
             auto configWrapper = this->env_config_queue.get();
-            std::cout << " bef Segf" << std::endl;
-            std::cout << " name: " << std::get<0>(this->env_metaData.descriptor).m_name << std::endl;
             if(configWrapper.has_value())
             {
                 auto& config = configWrapper.value().get();
@@ -206,7 +204,12 @@ namespace alpaka::tune
             }
             if(!writtenPersistent && !this->env_environmentState.sessionFinished)
             {
-                this->env_persistentHistory.write(this->env_tuningModel, this->env_activeHistory, this->env_metaData);
+                if(!this->env_persistentHistory.m_filename.empty())
+                    this->env_persistentHistory.write(
+                        this->env_tuningModel,
+                        this->env_activeHistory,
+                        this->env_metaData);
+
                 writtenPersistent = true;
                 this->env_environmentState.sessionFinished = true;
             }

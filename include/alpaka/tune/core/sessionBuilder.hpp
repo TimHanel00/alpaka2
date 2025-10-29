@@ -190,7 +190,7 @@ namespace alpaka::tune
          * @param config File path or name for the output JSON/CSV file.
          * @return Reference to the current builder.
          */
-        TuningBuilder& withOutputFile(std::string config)
+        TuningBuilder& withPersistentHistory(std::string config)
         {
             m_outputFile = std::move(config);
             return *this;

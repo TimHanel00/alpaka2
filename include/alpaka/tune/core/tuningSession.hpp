@@ -32,7 +32,7 @@ namespace alpaka::tune::detail::internal
             = alpaka::tune::core::getTuningEnvironment(queue, exec, frameSpecTune, kernelBundle, session).get();
         auto& data = kernelptr->env_metaData;
         // always use the same context unless session specifier change.
-        if(session.m_sessionSpecifier != data.specifiers)
+        if(session.m_sessionSpecifiers != data.specifiers)
         {
             kernelptr
                 = alpaka::tune::core::getTuningEnvironment(queue, exec, frameSpecTune, kernelBundle, session).get();
@@ -73,7 +73,7 @@ namespace alpaka::tune
         T_MetricInterface m_metricInterface;
         T_Constraints m_constraintTuple;
         std::string m_outputFile;
-        std::vector<std::string> m_sessionSpecifier;
+        std::vector<std::string> m_sessionSpecifiers;
         TuningSession() = default;
 
         explicit TuningSession(
@@ -86,7 +86,7 @@ namespace alpaka::tune
             , m_metricInterface(interface)
             , m_constraintTuple(constraints)
             , m_outputFile(std::move(config))
-            , m_sessionSpecifier(sessionSpecifiers)
+            , m_sessionSpecifiers(sessionSpecifiers)
         {
         }
 

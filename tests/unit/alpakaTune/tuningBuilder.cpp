@@ -54,8 +54,8 @@ struct DummyStrategy
 TEST_CASE("construct simple session from builder", "[TuningBuilder][create]")
 {
     auto build = TuningBuilder{};
-    auto builder = TuningBuilder{}.withOutputFile("session.txt");
-    auto session = TuningBuilder{}.withOutputFile("session.txt").buildSession();
+    auto builder = TuningBuilder{}.withPersistentHistory("session.txt");
+    auto session = TuningBuilder{}.withPersistentHistory("session.txt").buildSession();
     REQUIRE(true); // compiles and runs
 }
 
@@ -69,12 +69,12 @@ TEST_CASE("builder default state is empty", "[TuningBuilder][defaults]")
 TEST_CASE("withOutputFile sets and persists file name", "[TuningBuilder][outputfile]")
 {
     TuningBuilder builder{};
-    builder.withOutputFile("results.toml");
+    builder.withPersistentHistory("results.toml");
 
     REQUIRE(builder.m_outputFile == "results.toml");
 
     // Chained usage
-    auto chained = builder.withOutputFile("new.toml");
+    auto chained = builder.withPersistentHistory("new.toml");
     REQUIRE(chained.m_outputFile == "new.toml");
 }
 
@@ -132,7 +132,7 @@ TEST_CASE("output file and specifiers persist through transformations", "[Tuning
 {
     auto builder = TuningBuilder{}
                        .withContextSpecifier("spec1")
-                       .withOutputFile("persist.txt")
+                       .withPersistentHistory("persist.txt")
                        .withMetricInterface(DummyMetricInterface{});
 
     REQUIRE(builder.m_outputFile == "persist.txt");
@@ -141,7 +141,7 @@ TEST_CASE("output file and specifiers persist through transformations", "[Tuning
 
 TEST_CASE("buildSession preserves builder configuration", "[TuningBuilder][session]")
 {
-    auto builder = TuningBuilder{}.withOutputFile("session_out.toml").withContextSpecifier("device0", "case42");
+    auto builder = TuningBuilder{}.withPersistentHistory("session_out.toml").withContextSpecifier("device0", "case42");
 
     auto session = builder.buildSession();
 
@@ -155,7 +155,7 @@ TEST_CASE("complex chained builder integration", "[TuningBuilder][integration]")
     DummyStrategy strategy{};
 
     auto builder = TuningBuilder{}
-                       .withOutputFile("integration.toml")
+                       .withPersistentHistory("integration.toml")
                        .withStrategy(strategy)
                        .withMetricInterface(metric)
                        .withConstraint<alpaka::tune::frame::numThreads, alpaka::tune::frame::frameExtent>(
@@ -169,4 +169,13 @@ TEST_CASE("complex chained builder integration", "[TuningBuilder][integration]")
 
     using BType = decltype(builder);
     STATIC_REQUIRE(std::tuple_size_v<typename BType::T_ConstraintTuple_Type> == 1);
+
+    auto session1
+        = alpaka::tune::TuningBuilder{}.withStrategy(strategy::exhaustiveSearch{}).withContextSpecifier("sess-CTune");
+    std::cout << "size: " << session1.m_sessionSpecifiers.size() << std::endl;
+    auto session2 = session1.withPersistentHistory("out.json");
+    std::cout << "size: " << session2.m_sessionSpecifiers.size() << std::endl;
+
+    auto actualSession = session2.buildSession();
+    std::cout << "size: " << actualSession.m_sessionSpecifiers.size() << std::endl;
 }

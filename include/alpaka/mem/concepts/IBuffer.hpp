@@ -12,7 +12,7 @@
 
 namespace alpaka::concepts
 {
-    /** Dummy function for concepts.
+    /** Invalid function for concepts.
      *
      * Represent a callable without arguments and return value void. Required because nvcc could not handle empty
      * lambdas in concepts.

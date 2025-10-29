@@ -145,10 +145,6 @@ namespace alpaka::tune::strategy
             {
                 // Populate numValues from descriptor (once)
                 auto const& limitsView = ctx.desc.getNumValuesView();
-#ifdef Debug
-                std::cout << "[Init1]\n";
-                printConfig(limitsView);
-#endif
                 numValues.assign(limitsView.begin(), limitsView.end());
 
                 // If history is empty, start from zeros; otherwise use first record
