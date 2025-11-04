@@ -6,8 +6,21 @@
 #define CONCEPTS_H
 
 // #include <alpaka/tune/IO/runTimeHistory.hpp>
+#include <alpaka/concepts.hpp>
 #include <alpaka/tune/interfaces/MetricInterface.hpp>
-#include <alpaka/tune/tunable/Tunable.hpp>
+#include <alpaka/tune/tunable/tunableHelper.hpp>
+
+namespace alpaka::tune
+{
+    template<auto ID, typename... T>
+    struct CTunable;
+
+    template<auto ID, typename T>
+    struct Tunable;
+
+    template<auto ID, alpaka::concepts::Vector T>
+    struct TunableMD;
+} // namespace alpaka::tune
 
 namespace alpaka::tune::trait
 {
@@ -15,6 +28,11 @@ namespace alpaka::tune::trait
     template<typename T, typename = void>
     struct Serialize;
 } // namespace alpaka::tune::trait
+
+template<typename T>
+concept Hashable = requires(T const& t) {
+    { std::hash<T>{}(t) } -> std::convertible_to<std::size_t>;
+};
 
 namespace alpaka::tune::concepts
 {
@@ -50,10 +68,10 @@ namespace alpaka::tune::concepts
     concept runtimeTuneable =
         // must have a static member `tuneableType`
         requires {
-            { T::tuneableType } -> std::convertible_to<TunableKind>;
+            { T::tuneableType } -> std::convertible_to<detail::TunableKind>;
         }
         // must be a runtime tuneable, i.e., kind == Tuneable or TunableMD
-        && (T::tuneableType == TunableKind::Tunable || T::tuneableType == TunableKind::TunableMD);
+        && (T::tuneableType == detail::TunableKind::Tunable || T::tuneableType == detail::TunableKind::TunableMD);
     // currently compile-time tunables are not permitted
     template<typename T>
     concept TuneableLike = runtimeTuneable<T> || std::is_same_v<T, alpaka::tune::detail::ShallowTunableDummy<T::tag>>
@@ -89,36 +107,83 @@ namespace alpaka::tune::concepts
         };
     } // namespace serialize
 
+    /**
+     * @brief Concept defining types that can be serialized to a string.
+     *
+     * The `Serializable` concept restricts `T` to types that can be converted
+     * into a textual (string) representation, which is required for use with
+     * serialization utilities.
+     *
+     * A type `T` satisfies `Serializable` if **any** of the following hold:
+     *  - It is implicitly convertible to `std::string`.
+     *  - It is an arithmetic type (integral or floating-point).
+     *  - It provides a trait-based serializer via `serialize::HasTraitSerializer<T>`.
+     *  - It defines a `toString()` method returning a `std::string`.
+     *  - It supports the stream insertion operator (`operator<<`) for output to `std::ostream`.
+     *
+     * Users can enable serialization for custom types in one of three ways:
+     *  1. Implement `std::string toString() const;`
+     *  2. Provide `operator<<(std::ostream&, const T&)`
+     *  3. Specialize a serializer under `serialize::trait` or `alpaka::tune::trait`
+     *     (e.g., `template<> struct Serialize<MyType> { std::string operator()(MyType const&) const; };`)
+     *
+     * Example:
+     * @code
+     * struct MyData {
+     *     int x;
+     *     std::string toString() const { return std::to_string(x); }
+     * };
+     * static_assert(Serializable<MyData>);
+     * @endcode
+     */
     template<typename T>
     concept Serializable
         = std::is_convertible_v<T, std::string> || std::is_arithmetic_v<T> || serialize::HasTraitSerializer<T>
           || serialize::HasToStringMethod<T> || serialize::HasStreamOperator<T>;
-    template<typename T>
-    concept ConfigLike = []<typename U = std::remove_cvref_t<T>>
-    {
-        if constexpr(requires {
-                         typename U::value_type;
-                         { U::size() } -> std::convertible_to<std::size_t>;
-                     })
-        {
-            using V = typename U::value_type;
-            constexpr auto N = U::size();
 
-            if constexpr(Floating<V>)
-            {
-                return std::is_same_v<U, config::NormalizedConfig<V, N>>;
-            }
-            else
-            {
-                // Only allow integer configs if V is integral
-                return std::is_same_v<U, config::Config<V, N>>;
-            }
-        }
-        else
+    namespace detail
+    {
+        template<typename T>
+        struct ConfigLikeHelper
         {
-            return false;
-        }
-    }();
+            using U = std::remove_cvref_t<T>;
+
+            template<typename X>
+            static constexpr bool test(int)
+            {
+                if constexpr(requires {
+                                 typename X::value_type;
+                                 { X::size() } -> std::convertible_to<std::size_t>;
+                             })
+                {
+                    using V = typename X::value_type;
+                    constexpr auto N = X::size();
+                    if constexpr(Floating<V>)
+                    {
+                        return std::is_same_v<X, config::NormalizedConfig<V, N>>;
+                    }
+                    else
+                    {
+                        return std::is_same_v<X, config::Config<V, N>>;
+                    }
+                }
+                else
+                {
+                    return false;
+                }
+            }
+
+            static constexpr bool test(...)
+            {
+                return false;
+            }
+
+            static constexpr bool value = test<U>(0);
+        };
+    } // namespace detail
+
+    template<typename T>
+    concept ConfigLike = detail::ConfigLikeHelper<T>::value;
 
 
     template<typename T>
@@ -135,42 +200,57 @@ namespace alpaka::tune::concepts
         { t.createConfigFromNormalized(std::declval<config::NormalizedConfig<double, T::numDims>>()) };
     };
 
+    namespace detail
+    {
+        template<typename... Ts>
+        consteval void checkFrameTupleTypes()
+        {
+            // 1️⃣ Reject compile-time tuneables
+            static_assert(
+                ((Ts::tuneableType != alpaka::tune::detail::TunableKind::CTunable) && ...),
+                "no compile time tuneables are currently allowed as frame tuneables!");
+
+            // 2️⃣ Pairwise checks among all runtime tuneables
+            (
+                []<typename A>()
+                {
+                    (
+                        []<typename B>()
+                        {
+                            if constexpr(runtimeTuneable<A> && runtimeTuneable<B>)
+                            {
+                                static_assert(A::dim == B::dim, "All frame tuneables must have identical ::dim");
+
+                                static_assert(
+                                    std::is_convertible_v<typename A::value_type, typename B::value_type>
+                                        || std::is_convertible_v<typename B::value_type, typename A::value_type>,
+                                    "All frame tuneables must have mutually convertible ::value_type");
+                            }
+                        }.template operator()<Ts>(),
+                        ...);
+                }.template operator()<Ts>(),
+                ...);
+        }
+
+        template<typename Tuple>
+        struct isValidFrameTupleImpl : std::false_type
+        {
+        };
+
+        template<typename... Ts>
+        struct isValidFrameTupleImpl<std::tuple<Ts...>>
+        {
+            static constexpr bool value = (checkFrameTupleTypes<Ts...>(), true);
+        };
+    } // namespace detail
+
     template<class Tuple, class = void>
     struct isValidFrameTuple : std::false_type
     {
     };
 
     template<class Tuple>
-    struct isValidFrameTuple<Tuple,
-        std::void_t<decltype(
-            []<typename... Ts>(std::tuple<Ts...>*)
-            {
-
-                // 1️⃣  Reject compile-time tuneables
-                static_assert(((Ts::tuneableType != TunableKind::CTunable) && ...),
-                    "no compile time tuneables are currently allowed as frame tuneables!");
-
-                // 2️⃣  Pairwise checks among all runtime tuneables
-                ([]<typename A, typename... Rest>()
-                {
-                    // For each A in Ts...
-                    ([]<typename B>()
-                    {
-                        if constexpr (runtimeTuneable<A> && runtimeTuneable<B>)
-                        {
-                            static_assert(A::dim == B::dim,
-                                "All frame tuneables must have identical ::dim");
-
-                            static_assert(
-                                std::is_convertible_v<typename A::value_type, typename B::value_type> ||
-                                std::is_convertible_v<typename B::value_type, typename A::value_type>,
-                                "All frame tuneables must have mutually convertible ::value_type");
-                        }
-                    }.template operator()<Rest>(), ...);
-                }.template operator()<Ts, Ts...>(), ...);
-            }((Tuple*)nullptr)
-        )>>
-        : std::true_type
+    struct isValidFrameTuple<Tuple, std::void_t<>> : std::bool_constant<detail::isValidFrameTupleImpl<Tuple>::value>
     {
     };
 
@@ -179,4 +259,5 @@ namespace alpaka::tune::concepts
 
 
 } // namespace alpaka::tune::concepts
+
 #endif // CONCEPTS_H

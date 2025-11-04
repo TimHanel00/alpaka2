@@ -55,7 +55,7 @@ namespace alpaka::tune::core::peripherals
 
         void push_back(T_Configs& config)
         {
-            // if the strategy returns a already retired config we reset its state or otherwise it will never be
+            // if the strategy returns an already retired config we reset its state or otherwise it will never be
             // used by the Queue, if multiple entries of the same config are in the queue the
             // retirement of one will mean the implicit retirement of the rest
             if(config.state == config::ConfigState::Retired)

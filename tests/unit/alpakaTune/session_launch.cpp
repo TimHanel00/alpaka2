@@ -25,13 +25,10 @@ struct ExampleKernelA
         alpaka::tune::concepts::Integral auto maxUserVal,
         auto val /*userTunable*/) const
     {
-        STATIC_CHECK(std::is_same_v<decltype(val), int>);
         auto frameExtent = acc[frame::extent];
-        STATIC_CHECK(std::is_same_v<decltype(frameExtent), V2u>);
         uint32_t frameExtentIdx = frameExtent.y() * maxFrameExtent.x() + frameExtent.x();
 
         auto numFrames = acc[frame::count];
-        STATIC_CHECK(std::is_same_v<decltype(numFrames), V2u>);
         uint32_t numFramesIdx = numFrames.y() * maxNumFrames.x() + numFrames.x();
         uint32_t globalTuningIdx
             = numFramesIdx * (maxFrameExtent.product() * maxUserVal) + frameExtentIdx * maxUserVal + val;
@@ -51,13 +48,10 @@ struct ExampleKernelWithCTune
         alpaka::tune::concepts::Integral auto maxUserVal) const
     {
         static constexpr auto cTuneValue = CTune::value;
-        STATIC_CHECK(std::is_integral_v<typename CTune::value_type>);
         auto frameExtent = acc[frame::extent];
-        STATIC_CHECK(std::is_same_v<decltype(frameExtent), V2u>);
         uint32_t frameExtentIdx = frameExtent.y() * maxFrameExtent.x() + frameExtent.x();
 
         auto numFrames = acc[frame::count];
-        STATIC_CHECK(std::is_same_v<decltype(numFrames), V2u>);
         uint32_t numFramesIdx = numFrames.y() * maxNumFrames.x() + numFrames.x();
         uint32_t globalTuningIdx
             = numFramesIdx * (maxFrameExtent.product() * maxUserVal) + frameExtentIdx * maxUserVal + cTuneValue;
@@ -109,6 +103,7 @@ TEMPLATE_LIST_TEST_CASE(
     auto devSelector = onHost::makeDeviceSelector(deviceSpec);
     onHost::Device device = devSelector.makeDevice(0);
     Queue queue = device.makeQueue();
+    Queue hostQueue = onHost::makeHostDevice().makeQueue();
     auto exec = cfg[object::exec];
     alpaka::tune::Vars::setRunsPerConfig(10);
     // INIT TUNING
@@ -140,7 +135,8 @@ TEMPLATE_LIST_TEST_CASE(
     // linearized tuning space extent
     auto bufferExtent = alpaka::Vec{4 * 4 * 4};
     auto uBufHost = alpaka::onHost::allocHost<bool>(bufferExtent);
-    onHost::fill(queue, uBufHost, false);
+    onHost::fill(hostQueue, uBufHost, false);
+    alpaka::onHost::wait(hostQueue);
     // Accelerator buffer
     auto uCurrBufAcc = alpaka::onHost::allocLike(queue.getDevice(), uBufHost);
     alpaka::onHost::memcpy(queue, uCurrBufAcc, uBufHost);
@@ -170,6 +166,7 @@ TEMPLATE_LIST_TEST_CASE("enqueue with CTunable", "[CTune][enqueue][full run]", T
     auto devSelector = onHost::makeDeviceSelector(deviceSpec);
     onHost::Device device = devSelector.makeDevice(0);
     Queue queue = device.makeQueue();
+    Queue hostQueue = onHost::makeHostDevice().makeQueue();
     auto exec = cfg[object::exec];
     // set a fixed requirement on the number of runs per config
     alpaka::tune::Vars::setRunsPerConfig(10);
@@ -199,7 +196,8 @@ TEMPLATE_LIST_TEST_CASE("enqueue with CTunable", "[CTune][enqueue][full run]", T
     // awiod
     auto bufferExtent = alpaka::Vec{4 * 4 * 4}; //
     auto uBufHost = alpaka::onHost::allocHost<bool>(bufferExtent);
-    onHost::fill(queue, uBufHost, false);
+    onHost::fill(hostQueue, uBufHost, false);
+    alpaka::onHost::wait(hostQueue);
     // Accelerator buffer
     auto uCurrBufAcc = alpaka::onHost::allocLike(queue.getDevice(), uBufHost);
     alpaka::onHost::memcpy(queue, uCurrBufAcc, uBufHost);

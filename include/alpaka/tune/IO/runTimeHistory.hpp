@@ -88,22 +88,13 @@ namespace alpaka::tune::config
                 throw std::runtime_error("pushing metrics on a new Config is not allowed!");
                 break;
             case ConfigState::Empty:
-                if(++warm_up_runs >= warmUpThreshold)
-                {
-                    metrics.clear();
-                    metrics.push<10>(val, false);
-
-                    state = ConfigState::Initialized;
-                }
-                else
-                {
-                    state = ConfigState::WarmUp;
-                    metrics.push<10>(val, false);
-                }
+                state = ConfigState::WarmUp;
+                metrics.push<10>(val, false);
+                warm_up_runs++;
                 break;
             case ConfigState::WarmUp:
 
-                if(++warm_up_runs >= warmUpThreshold)
+                if(warm_up_runs++ >= warmUpThreshold)
                 {
                     metrics.clear();
                     metrics.push<10>(val, false);
@@ -431,46 +422,18 @@ namespace alpaka::tune::IO
      * @brief Metadata snapshot for a specific kernel tuning context.
      *
      * Holds immutable(ish) descriptive information (device/executor/kernel/metric/specifiers)
-     * and bookkeeping for the explored configuration space. It aggregates metadata and a configuration descriptor for
-     * the active context.
+     * and bookkeeping for the explored configuration space.
      *
-     * @tparam TConfig             Concrete configuration type (flat, indexable).
-     * @tparam T_ParameterAccessor Accessor/descriptor that maps configs <-> tunable values.
      */
-    template<typename TConfig, typename T_ParameterAccessor>
     struct KernelTuningMetadata
     {
-        using TConfig_type = TConfig;
-
-        /// Descriptor for parameters/tunables (types, names, value extraction).
-        T_ParameterAccessor descriptor;
         /// Human-readable identifiers for this context.
-        std::string device; ///< e.g. "CPU", "NVIDIA V100", etc.
-        std::string executor; ///< e.g. mapping/policy name.
-        std::string kernel; ///< kernel identifier.
+        std::string device; ///< "The alpaka device as a string (demangled name)", etc.
+        std::string executor; ///< "The alpaka executor as a string (demangled name)".
+        std::string kernel; ///< "demangled kernel name".
         std::string targetMetric; ///< primary optimization target, e.g. "time".
-        std::string kernelArgs; ///< arguments of the kernelBundle
+        std::string kernelArgs; ///< argument Types of the kernelBundle (demangled)
         std::vector<std::string> specifiers; ///< Session/context specifiers/tags.
-
-        /// Construct from a parameter accessor (and an existing Metadata)
-        explicit KernelTuningMetadata(T_ParameterAccessor const& accessor, KernelTuningMetadata&& other)
-            : descriptor(accessor)
-            , device(std::move(other.device))
-            , executor(std::move(other.executor))
-            , kernel(std::move(other.kernel))
-            , targetMetric(std::move(other.targetMetric))
-            , kernelArgs(std::move(other.kernelArgs))
-            , specifiers(std::move(other.specifiers))
-        {
-        }
-
-        /// Construct from a parameter accessor (no ownership transfer of other state).
-        explicit KernelTuningMetadata(T_ParameterAccessor const& accessor) : descriptor(accessor)
-        {
-        }
-
-        /// Bookkeeping flags/counters (managed by the tuning flow).
-        bool histEvaluated = false; ///< true if historical data was applied/evaluated.
     };
 
     /**
@@ -480,8 +443,6 @@ namespace alpaka::tune::IO
      * assembles a @ref KernelTuningMetadata with the given identifiers and tags.
      * Wraps a descriptive information for the active context.
      *
-     * @tparam KernelTuningModel  Model exposing ConfigDescriptor and getValuesFromConfig().
-     * @param  model              Kernel tuning model instance.
      * @param  device             Human-readable device identifier.
      * @param  exec               Executor/mapping identifier.
      * @param  bundle             Kernel/bundle name.
@@ -489,31 +450,21 @@ namespace alpaka::tune::IO
      * @param  targetMetric       Primary optimization target (default: "time").
      * @return KernelTuningMetadata<Config, ParameterAccessor> initialized with descriptors and labels.
      */
-    template<typename KernelTuningModel, template<class...> class Bundle, typename T_Kernel, typename... T_Args>
-    auto createKernelDataFromModel(
-        KernelTuningModel& model,
+    template<template<class...> class Bundle, typename T_Kernel, typename... T_Args>
+    auto createTuningMetaData(
         std::string const& device,
         std::string const& exec,
         Bundle<T_Kernel, T_Args...> const& bundle,
         std::vector<std::string> const& sessionSpecs,
         std::string const& targetMetric = "time")
     {
-        using TConfig
-            = decltype(alpaka::tune::ConfigDescriptor<std::remove_cvref_t<KernelTuningModel>>::getEmptyConfig());
-
-        auto parameterAccessor = model.getValuesFromConfig(TConfig{});
-
-        auto data = KernelTuningMetadata<TConfig, std::remove_cvref_t<decltype(parameterAccessor)>>{parameterAccessor};
-        data.kernel = alpaka::onHost::demangledName<T_Kernel>();
         std::string argTuple = alpaka::onHost::demangledName<typename KernelBundle<T_Kernel, T_Args...>::ArgTuple>();
-        argTuple.replace(0, 14, "");
-        argTuple.pop_back();
-        data.kernelArgs = argTuple;
-        data.device = device;
-        data.executor = exec;
-        data.targetMetric = targetMetric;
-        data.specifiers = sessionSpecs;
-        return data;
+
+        argTuple.replace(0, std::min<std::size_t>(argTuple.size() - 1, 14), "");
+        if(argTuple.size() > 0)
+            argTuple.pop_back();
+        std::string kernelName = alpaka::onHost::demangledName<T_Kernel>();
+        return KernelTuningMetadata{device, exec, kernelName, targetMetric, argTuple, sessionSpecs};
     };
 } // namespace alpaka::tune::IO
 

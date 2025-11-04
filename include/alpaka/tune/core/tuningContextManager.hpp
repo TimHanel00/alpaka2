@@ -114,12 +114,6 @@ namespace alpaka::tune
             if(this->env_environmentState.sessionFinished)
             {
                 executeBestConfig(std::forward<T_Args>(launchArgs)...);
-                //                 template<typename... ModelArgs, typename T_Config, typename T_ConfigDescriptor>
-                // std::size_t write(
-                //     KernelTuningModel<ModelArgs...> const& model,
-                //     ActiveHistory<T_Config> const& history,
-                //     KernelTuningMetadata<T_Config, T_ConfigDescriptor> const& metadata) noexcept
-                //                 // {
 
 #ifdef Debug
                 std::cout << "[launch] Session has finished. bestCoutner:" << bestCounter << "\n";
@@ -314,7 +308,6 @@ namespace alpaka::tune
             using T_Normalized = decltype(T_View::getEmptyNormalizedConfig());
 
             T_Config currentConfig = T_View::getEmptyConfig();
-            int i = 0;
             auto ctx
                 = alpaka::tune::StrategyContext<decltype(this->env_tuningModel), decltype(this->env_metricInterface)>{
                     view,

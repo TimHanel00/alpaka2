@@ -66,8 +66,8 @@ TEST_CASE("KernelTuningModel - hasTuneableTag utilities", "[KTM][introspection]"
         C{}};
 
     STATIC_REQUIRE(decltype(m)::template hasUserTuneable<5001>());
-    STATIC_REQUIRE(decltype(m)::hasFrameTuneable<tune::frame::numBlocks>());
-    STATIC_REQUIRE(decltype(m)::hasTuneable<5001>());
+    STATIC_REQUIRE(decltype(m)::template hasFrameTuneable<tune::frame::numBlocks>());
+    STATIC_REQUIRE(decltype(m)::template hasTuneable<5001>());
     STATIC_REQUIRE_FALSE(decltype(m)::hasFrameExtentTune());
 }
 template<typename T>
@@ -85,7 +85,7 @@ TEST_CASE("KernelTuningModel - minimal valueRetrieval", "[KTM][accessors]")
     auto accessors = m.getValuesFromConfig(cfg);
     auto& a0 = std::get<0>(accessors); // numBlocks
     CHECK(a0.ID == tune::frame::numBlocks);
-    CHECK(a0.kind == TunableKind::Tunable);
+    CHECK(a0.kind == tune::detail::TunableKind::Tunable);
     CHECK(a0.m_name == "Blocks");
     static_assert(std::is_same_v<std::remove_cvref_t<decltype(a0.m_value)>, uint32_t>);
     CHECK(a0.m_value == 2u);
@@ -155,12 +155,12 @@ TEST_CASE(
     // Check IDs & kinds
     auto& a0 = std::get<0>(accessors); // numBlocks
     CHECK(a0.ID == tune::frame::numBlocks);
-    CHECK(a0.kind == TunableKind::Tunable);
+    CHECK(a0.kind == tune::detail::TunableKind::Tunable);
     CHECK(a0.m_name == "Blocks");
     static_assert(std::is_same_v<std::remove_cvref_t<decltype(a0.m_value)>, uint32_t>);
     CHECK(a0.m_value == 4u);
     auto& a1 = std::get<1>(accessors); // threadBlock
-    CHECK(a1.kind == TunableKind::TunableMD);
+    CHECK(a1.kind == tune::detail::TunableKind::TunableMD);
     CHECK(a1.m_name == std::string{"Threads"});
     static_assert(std::is_same_v<std::remove_cvref_t<decltype(a1.m_value)>, Vec<uint32_t, 2u>>);
     CHECK(a1.m_value[0] == 16u);
@@ -168,14 +168,14 @@ TEST_CASE(
 
     auto& a2 = std::get<2>(accessors); // user
     CHECK(a2.ID == 6001u);
-    CHECK(a2.kind == TunableKind::Tunable);
+    CHECK(a2.kind == tune::detail::TunableKind::Tunable);
     CHECK(a2.m_name == std::string{"factor"});
     static_assert(std::is_same_v<std::remove_cvref_t<decltype(a2.m_value)>, uint32_t>);
     CHECK(a2.m_value == 6u);
 
     auto& a3 = std::get<3>(accessors); // CTunable
     CHECK(a3.ID == 6003u);
-    CHECK(a3.kind == TunableKind::CTunable);
+    CHECK(a3.kind == tune::detail::TunableKind::CTunable);
     // this is how we access compile time tuneable types -- this is more for debugging
     std::visit([](auto&& v) { CHECK(v[0u] == 1.0); }, a3.m_value);
 }

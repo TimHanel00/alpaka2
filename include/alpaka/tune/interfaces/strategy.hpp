@@ -177,7 +177,7 @@ namespace alpaka::tune::strategy
             }
 
             // Advance the mixed-radix counter
-            bool ok = increment(); // uses member numValues
+            increment(); // uses member numValues
 
             // If we've wrapped back to the initial vector after at least one step, finish
             if(firstStepDone && currentVals == initialVals)

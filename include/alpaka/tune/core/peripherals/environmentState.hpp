@@ -101,10 +101,12 @@ namespace alpaka::tune::core::peripherals
 
         bool globalBreakCriteriaFinished()
         {
+#ifdef Debug
             std::cout << "[criteria] numValidConfigs=" << numValidConfigs
                       << " maxValidEvaluations=" << maxValidEvaluations
                       << " \nnumberOfCheckedConfigs=" << numberOfCheckedConfigs
                       << " maxConfigsTotal=" << maxConfigsTotal << std::endl;
+#endif
             return numValidConfigs >= maxValidEvaluations || numberOfCheckedConfigs >= maxConfigsTotal;
         }
     };

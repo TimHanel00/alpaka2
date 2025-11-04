@@ -31,20 +31,10 @@ namespace alpaka::tune::detail::internal
         static auto* kernelptr
             = alpaka::tune::core::getTuningEnvironment(queue, exec, frameSpecTune, kernelBundle, session).get();
         auto& data = kernelptr->env_metaData;
-        // always use the same context unless session specifier change.
         if(session.m_sessionSpecifiers != data.specifiers)
         {
             kernelptr
                 = alpaka::tune::core::getTuningEnvironment(queue, exec, frameSpecTune, kernelBundle, session).get();
-        }
-        if(!data.histEvaluated)
-        {
-            data.histEvaluated = true;
-            auto& environment_state = kernelptr->env_environmentState;
-            if(environment_state.globalBreakCriteriaFinished())
-            {
-                environment_state.sessionFinished = true;
-            }
         }
         return kernelptr;
     }
@@ -69,6 +59,7 @@ namespace alpaka::tune
         typename T_Constraints = std::tuple<>>
     struct TuningSession
     {
+        using MetricType = T_MetricInterface;
         T_Strategy m_strategy;
         T_MetricInterface m_metricInterface;
         T_Constraints m_constraintTuple;

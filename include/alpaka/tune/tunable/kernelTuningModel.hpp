@@ -49,11 +49,11 @@ namespace alpaka::tune
      * Each ParameterAccessor instance acts as a lightweight view on an existing tunable configuration value.
      * It does not own the value, but holds a constant reference to it together with a reference to its name.
      */
-    template<typename T_Value, std::size_t TuneableId, alpaka::tune::TunableKind TuneableKind>
+    template<typename T_Value, std::size_t TuneableId, alpaka::tune::detail::TunableKind TuneableKind>
     struct ParameterAccessor
     {
         static constexpr auto ID = TuneableId;
-        static constexpr alpaka::tune::TunableKind kind = TuneableKind;
+        static constexpr alpaka::tune::detail::TunableKind kind = TuneableKind;
         T_Value m_value;
         std::string m_name; // owning the name
     };
@@ -210,20 +210,19 @@ namespace alpaka::tune
         {
             static_assert(
                 NumTuneables == numDims,
-                " Normalized Config does not have the correct number of parameters! ");
-            std::array<std::uint32_t, NumTuneables> return_config_ar;
-            for(auto val = 0; val < NumTuneables; val++)
+                "Normalized Config does not have the correct number of parameters!");
+
+            std::array<std::uint32_t, NumTuneables> return_config_ar{};
+
+            for(std::size_t val = 0; val < NumTuneables; ++val)
             {
-                // floor the result of the operation
-                return_config_ar[val] = static_cast<std::uint32_t>(return_config_ar[val] * m_numValues[val]);
-                if(return_config_ar[val] == m_numValues[val])
-                {
-                    // prevent exceeding max number of config arguments in subsequent calls
-                    auto tmp = return_config_ar[val] - 1;
-                    // check underflow
-                    return_config_ar[val] = tmp < return_config_ar[val] ? tmp : return_config_ar[val];
-                }
+                auto const scaled = std::floor(config[val] * static_cast<double>(m_numValues[val]));
+                return_config_ar[val] = static_cast<std::uint32_t>(scaled);
+
+                if(return_config_ar[val] >= m_numValues[val])
+                    return_config_ar[val] = m_numValues[val] - 1;
             }
+
             return config::Config{return_config_ar};
         }
 
@@ -265,7 +264,7 @@ namespace alpaka::tune
             constexpr std::size_t startingIdx = std::tuple_size_v<T_UserTuple> + std::tuple_size_v<T_FrameTunables>;
             constexpr auto offsets = detail::makeOffsets<T_allTunablesBare>();
             std::array<idx_type, std::tuple_size_v<T_CompileTimeTuple>> ret;
-            for(std::size_t i = offsets[startingIdx], a = 0; i < NumTuneables, a < ret.size(); ++i, a++)
+            for(std::size_t i = offsets[startingIdx], a = 0; i < NumTuneables && a < ret.size(); ++i, a++)
             {
                 ret[a] = config[i];
             }
@@ -299,25 +298,11 @@ namespace alpaka::tune
 
             alpaka::tune::utils::for_each(
                 m_allTunables,
-                [&](auto const& elem)
+                [&]<typename T0>(T0 const& elem)
                 {
-                    // #ifdef Debug
-                    using ElemT = std::decay_t<decltype(elem)>;
-                    std::cout << "  Processing tuneable of type: " << typeid(ElemT).name() << '\n';
-                    // #endif
+                    using ElemT = std::decay_t<T0>;
 
                     auto vec = elem.getNumValues(); // runtime values per dimension
-
-                    // #ifdef Debug
-                    std::cout << "    getNumValues() returned vector of dim = " << alpaka::getDim(vec) << " → {";
-                    for(uint32_t i = 0; i < alpaka::getDim(vec); ++i)
-                    {
-                        std::cout << vec[i];
-                        if(i + 1 < alpaka::getDim(vec))
-                            std::cout << ", ";
-                    }
-                    std::cout << "}\n";
-                    // #endif
 
                     for(uint32_t dim = 0; dim < alpaka::getDim(vec) && curIdx < numDims; ++dim, ++curIdx)
                     {
@@ -478,7 +463,6 @@ namespace alpaka::tune
             alpaka::onHost::FrameSpec<T_Frames, T_Extent, T_Blocks>& frame_spec,
             config::Config<idx_type, NumTuneables> const& config) const
         {
-            constexpr std::size_t startingIdx = 0;
             auto frameTunes = getValuesForFrameTuneables(config);
             static constexpr auto size = std::tuple_size_v<decltype(frameTunes)>;
             if constexpr(size != 0)
@@ -647,7 +631,6 @@ namespace alpaka::tune
             SubsetTuple const& tuneablesSubset) const
         {
             static_assert(NumTuneables == numDims, " Config has the wrong number of parameters!");
-            constexpr std::size_t N = std::tuple_size_v<std::remove_reference_t<SubsetTuple>>;
 
             // compute offsets for all tuneables in the global tuple
             constexpr auto offsets = detail::makeOffsets<T_allTunablesBare>();
@@ -661,7 +644,7 @@ namespace alpaka::tune
                 constexpr auto kind = T::tuneableType;
                 constexpr std::size_t ID = T::tag; // or fullIndex if tag not available
 
-                if constexpr(kind == TunableKind::CTunable)
+                if constexpr(kind == detail::TunableKind::CTunable)
                 {
                     auto valueVariant = alpaka::tune::utils::visitIndexVariant<std::tuple_size_v<typename T0::Values>>(
                         config[offset],
@@ -672,7 +655,7 @@ namespace alpaka::tune
                 }
                 else
                 {
-                    if constexpr(kind == alpaka::tune::TunableKind::TunableMD)
+                    if constexpr(kind == alpaka::tune::detail::TunableKind::TunableMD)
                     {
                         alpaka::Vec<idx_type, T::dim> vec;
                         for(std::size_t j = 0; j < T::dim; ++j)
@@ -683,7 +666,7 @@ namespace alpaka::tune
                     }
                     else
                     {
-                        if constexpr(kind == alpaka::tune::TunableKind::Tunable)
+                        if constexpr(kind == alpaka::tune::detail::TunableKind::Tunable)
                         {
                             // TunableKind: Tuneable
                             alpaka::Vec<idx_type, T::dim> vec;

@@ -52,35 +52,19 @@ namespace alpaka::tune::adjust
         using Vec = std::remove_cvref_t<decltype(maxVal)>;
         using Scalar = typename Vec::type;
 
-#ifdef Debug
-        std::cout << "[TuneStep] minSteps = " << minSteps << ", maxSteps = " << maxSteps << "\n";
-        std::cout << "[TuneStep] maxVal = " << maxVal << ", partitionedVec = " << partitionedVec << "\n";
-#endif
-
         // Early exit if no work
         if(minSteps == 0 || maxSteps == 0)
         {
-#ifdef Debug
-            std::cout << "[EarlyExit] Skipping due to minSteps or maxSteps being 0.\n";
-#endif
             return std::vector<Vec>{};
         }
 
         Vec baseStep = partitionedVec;
         Vec step{};
-
-#ifdef Debug
-        std::cout << "[StepCalc] Starting step computation loop...\n";
-#endif
-
         for(std::size_t i = 0; i < alpaka::getDim(step); ++i)
         {
             Scalar base = baseStep[i];
             if(base == 0)
             {
-#ifdef Debug
-                std::cerr << "[Warning] baseStep[" << i << "] = 0, forcing to 1.\n";
-#endif
                 base = 1;
             }
 
@@ -90,17 +74,7 @@ namespace alpaka::tune::adjust
             Scalar candidate = std::max(nDown * base, base);
             step[i] = candidate;
 
-#ifdef Debug
-            std::cout << "[StepCalc] Dim " << i << ":\n";
-            std::cout << "  baseStep = " << baseStep[i] << ", maxVal = " << maxVal[i] << "\n";
-            std::cout << "  rawStep = " << rawStep << ", divDown = " << divDown << ", nDown = " << nDown << "\n";
-            std::cout << "  Initial step = " << step[i] << "\n";
-#endif
-
             Scalar numSteps = maxVal[i] / step[i];
-#ifdef Debug
-            std::cout << "  numSteps = " << numSteps << " (vs minSteps = " << minSteps << ")\n";
-#endif
 
             if(numSteps < minSteps)
             {
@@ -109,25 +83,14 @@ namespace alpaka::tune::adjust
                 auto nUp = static_cast<Scalar>(std::ceil(divUp));
                 Scalar adjusted = nUp * base;
                 step[i] = std::max(adjusted, Scalar(1));
-
-#ifdef Debug
-                std::cout << "  [Fallback] minStep = " << minStep << ", divUp = " << divUp << ", nUp = " << nUp
-                          << ", adjusted = " << adjusted << ", final fallback step = " << step[i] << "\n";
-#endif
                 if(adjusted >= maxVal[i])
                 {
                     step[i] = std::max(minStep, Scalar(1));
-#ifdef Debug
-                    std::cout << "  [Adjusted] Step too large. Using minStep fallback: " << step[i] << "\n";
-#endif
                 }
             }
 
             if(step[i] == 0)
             {
-#ifdef Debug
-                std::cerr << "[Error] Final step[" << i << "] is 0! Forcing to 1.\n";
-#endif
                 step[i] = 1;
             }
         }
@@ -135,24 +98,11 @@ namespace alpaka::tune::adjust
         std::vector<Vec> values;
         Vec current = step;
 
-#ifdef Debug
-        std::cout << "[ValueGen] Generating values starting from step: " << step << "\n";
-#endif
-
-        while(allTrue(current < maxVal) && values.size() < maxSteps)
+        while(alpaka::tune::utils::allTrue(current < maxVal) && values.size() < maxSteps)
         {
-#ifdef Debug
-            std::cout << "  Adding value: " << current << "\n";
-#endif
             values.emplace_back(current);
             current = current + step;
         }
-
-#ifdef Debug
-        std::cout << "[Result] Generated " << values.size() << " values:\n";
-        std::ranges::for_each(values, [](auto const& v) { std::cout << v << ' '; });
-        std::cout << '\n';
-#endif
 
         return values;
     }
@@ -203,7 +153,7 @@ namespace alpaka::tune::adjust
             {
                 auto base = Spec::NumFramesVecType::all(1);
                 auto factors = primeFactorPartitioning(NrOfNumFrameConfigs, base);
-                auto stride = fs.m_spec.m_numFrames / factors;
+                auto stride = alpaka::divExZero(fs.m_spec.m_numFrames, factors);
                 auto tune = TunableMD<tune::frame::numFrames>{alpaka::IdxRange(stride, fs.m_spec.m_numFrames, stride)};
 
                 return adjustFrames(
@@ -244,7 +194,7 @@ namespace alpaka::tune::adjust
             {
                 auto base = Spec::FrameExtentsVecType::all(1);
                 auto factors = primeFactorPartitioning(NrOfFrameExtentConfigs, base);
-                auto stride = fs.m_spec.m_frameExtent / factors;
+                auto stride = alpaka::divExZero(fs.m_spec.m_frameExtent, factors);
                 auto tune
                     = TunableMD<tune::frame::frameExtent>{alpaka::IdxRange(stride, fs.m_spec.m_numFrames, stride)};
 
@@ -297,7 +247,8 @@ namespace alpaka::tune::adjust
     }
 
     // forward declare
-    static auto adjustThreadSpec(auto& deviceHandle, auto const& executor, auto const& dataBlocking);
+    template<typename FrameModel>
+    static auto adjustThreadSpec(auto& deviceHandle, auto const& executor, FrameModel specTune);
     template<typename T_>
     struct DummyV;
 
@@ -311,10 +262,11 @@ namespace alpaka::tune::adjust
      * @return The adjusted FrameSpec tuning model.
      */
     template<typename T_DeviceHandle, typename T_Exec, typename T_FrameSpecTuningModel>
-    auto adjustFrameSpecTune(T_DeviceHandle device, T_Exec exec, T_FrameSpecTuningModel const& frameSpecTune)
+    auto adjustFrameSpecTune(T_DeviceHandle device, T_Exec exec, T_FrameSpecTuningModel&& frameSpecTune)
     { // always apply current frameTuning
         // adjust thread spec (numBlock,numThreads)
-        auto newSpecTune = adjustThreadSpec(device, exec, frameSpecTune);
+        auto frameCopy = frameSpecTune;
+        auto newSpecTune = adjustThreadSpec(device, exec, std::move(frameCopy));
         // adjust frames (numFrames,frameExtent)
         return adjustFrames(device, exec, newSpecTune);
     }
@@ -346,7 +298,7 @@ namespace alpaka::tune::adjust
                 "Debug static_assert: Template parameters:\n"
                 "T_Device, T_Exec, T_FrameSpec, T_KernelRun");
 
-            auto operator()(T_Device& device, T_Exec const& exec, T_FrameSpecTune&& dataBlocking)
+            auto operator()(T_Device& device, T_Exec const& exec, T_FrameSpecTune dataBlocking)
             {
                 auto j = DummyV<decltype(dataBlocking)>{};
                 // we can not modify kernelRun or dataBlocking since we need to change their signature
@@ -363,21 +315,11 @@ namespace alpaka::tune::adjust
             alpaka::onHost::Device<T_Platform, T_Kind>&
                 device, //@TODO fix this its a bug with that extra wrapped layer
             alpaka::exec::CpuSerial const& executor,
-            T_FrameSpecTuningModel const& frameTuningModel)
+            T_FrameSpecTuningModel frameTuningModel)
         {
             using spec_type = std::remove_cvref_t<decltype(frameTuningModel.m_spec)>;
             using numBlocks_type = typename spec_type::ThreadSpecType::NumBlocksVecType;
             using numThreads_type = typename spec_type::ThreadSpecType::NumThreadsVecType;
-
-            /*
-            *        using type = typename T_NumFrames::type;
-
-        using NumFramesVecType = T_NumFrames;
-        using FrameExtentsVecType = T_FrameExtents;
-        using ThreadExtentsVecType = T_ThreadExtents;
-        using ThreadSpecType = ThreadSpec<T_NumFrames, T_ThreadExtents>;
-
-            */
             auto numThreads = numThreads_type::all(1);
             auto numBlocks = numBlocks_type::all(1);
 
@@ -402,7 +344,7 @@ namespace alpaka::tune::adjust
             alpaka::onHost::Device<T_Platform, T_Kind>&
                 device, //@TODO fix this its a bug with that extra wrapped layer
             alpaka::exec::CpuOmpBlocks const& executor,
-            T_FrameSpecTuningModel&& frameTuningModel)
+            T_FrameSpecTuningModel frameTuningModel)
         {
 #ifdef Debug
             std::cout << " successfully  found trait spec for cpuOmpBlocks: " << onHost::demangledName<T_Platform>()
@@ -434,10 +376,10 @@ namespace alpaka::tune::adjust
                     frameTuningModel.getNumFramesTune(),
                     frameTuningModel.getFrameExtentTune(),
                     std::move(tune)};
-                using device_T = decltype(device);
-                using executor_T = decltype(executor);
-                using frameSpec_T = decltype(neuSpec);
-                return tunerAdjust::Op<device_T, executor_T, decltype(neuSpec)>{}(device, executor, neuSpec);
+                using device_T = std::remove_cvref_t<decltype(device)>;
+                using executor_T = std::remove_cvref_t<decltype(executor)>;
+                using frameSpec_T = std::remove_cvref_t<decltype(neuSpec)>;
+                return tunerAdjust::Op<device_T, executor_T, frameSpec_T>{}(device, executor, std::move(neuSpec));
             }
             else
             {
@@ -454,13 +396,14 @@ namespace alpaka::tune::adjust
         };
     };
 
-    static auto adjustThreadSpec(auto& deviceHandle, auto const& executor, auto const& specTune)
+    template<typename FrameModel>
+    static auto adjustThreadSpec(auto& deviceHandle, auto const& executor, FrameModel specTune)
 
     {
         using bareDevice = std::remove_cvref_t<decltype(deviceHandle)>;
         using bareExecutor = std::remove_cvref_t<decltype(executor)>;
         using bareTune = std::remove_cvref_t<decltype(specTune)>;
-        return tunerAdjust::Op<bareDevice, bareExecutor, bareTune>{}(deviceHandle, executor, specTune);
+        return tunerAdjust::Op<bareDevice, bareExecutor, bareTune>{}(deviceHandle, executor, std::move(specTune));
     }
 
 }; // namespace alpaka::tune::adjust

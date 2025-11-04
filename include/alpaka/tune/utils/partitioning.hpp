@@ -82,27 +82,29 @@ namespace alpaka::tune
         }
         return resultVec;
     }
-    template<typename T_Vec, typename = std::enable_if_t<!std::is_integral_v<T_Vec>>>
-    T_Vec multipleOfPartitioning(const T_Vec& maxVec, const T_Vec& baseVec)
-    {
-            using Scalar = typename T_Vec::type;
-            constexpr auto dim = T_Vec::dim();
 
-            T_Vec resultVec;
-            for (std::size_t i = 0; i < dim; ++i)
+    template<typename T_Vec, typename = std::enable_if_t<!std::is_integral_v<T_Vec>>>
+    T_Vec multipleOfPartitioning(T_Vec const& maxVec, T_Vec const& baseVec)
+    {
+        using Scalar = typename T_Vec::type;
+        constexpr auto dim = T_Vec::dim();
+
+        T_Vec resultVec;
+        for(std::size_t i = 0; i < dim; ++i)
+        {
+            if(baseVec[i] == 0)
             {
-                if (baseVec[i] == 0)
-                {
-                    resultVec[i] = 0;
-                }
-                else
-                {
-                    Scalar steps = maxVec[i] / baseVec[i];
-                    resultVec[i] = baseVec[i] * steps;
-                }
+                resultVec[i] = 0;
             }
-            return resultVec;
+            else
+            {
+                Scalar steps = maxVec[i] / baseVec[i];
+                resultVec[i] = baseVec[i] * steps;
+            }
+        }
+        return resultVec;
     }
+
     /*
      * given a smaller ndim vector returns the the largest multiple of that ndim such that vec.product()<=max
      */

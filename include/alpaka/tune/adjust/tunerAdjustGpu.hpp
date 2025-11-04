@@ -2,28 +2,42 @@
 // Created by tim on 05.03.25.
 //
 
-#ifndef TUNERGPU_H
-#define TUNERGPU_H
-// #define ALPAKA_LANG_CUDA 1
-#if ALPAKA_LANG_CUDA || ALPAKA_LANG_HIP || ALPAKA_LANG_SYCL
+#ifndef TUNERGPU_HPP
+#define TUNERGPU_HPP
+#include "alpaka/api/host/Platform.hpp"
+
+#if defined(ALPAKA_LANG_CUDA) || defined(ALPAKA_LANG_HIP) || defined(ALPAKA_LANG_SYCL)
+
+#    include "alpaka/tune/tunable/frameSpecTuningModel.hpp"
+
 #    include <alpaka/api/unifiedCudaHip/Device.hpp>
 #    include <alpaka/tune/utils/partitioning.hpp>
 
-namespace alpaka::tune
+namespace alpaka::tune::adjust
 {
+    /**
+     * @brief GPU specialization of tunerAdjust::Op for unifiedCudaHip devices.
+     *
+     * Handles adjustment of numThreads and numBlocks for GPU backends (CUDA/HIP/SYCL).
+     * Mirrors CPU implementation but uses device-specific limits (warp size, multiprocessor count, etc.).
+     */
     template<typename T_Platform, typename T_Kind, typename T_Mapping, typename T_FrameSpecTuningModel>
     struct tunerAdjust::Op<alpaka::onHost::Device<T_Platform, T_Kind>, T_Mapping, T_FrameSpecTuningModel>
     {
         auto operator()(
             alpaka::onHost::Device<T_Platform, T_Kind>& device,
             T_Mapping const& executor,
-            T_FrameSpecTuningModel&& frameTuningModel)
+            T_FrameSpecTuningModel frameTuningModel) // <-- copy, not const ref
         {
+#    ifdef Debug
+            std::cout << "[GPU Tuner] Adjusting frame spec for unifiedCudaHip device: "
+                      << alpaka::onHost::demangledName<T_Platform>() << std::endl;
+#    endif
             using Spec = std::remove_cvref_t<decltype(frameTuningModel.m_spec)>;
             using NumBlocks = typename Spec::ThreadSpecType::NumBlocksVecType;
             using NumThreads = typename Spec::ThreadSpecType::NumThreadsVecType;
 
-            // ---------- numThreads tuning (using multipleOfPartitioning) ----------
+            // --- adjust numThreads tune ----------------------------------------------------
             if constexpr(
                 T_FrameSpecTuningModel::hasNumThreadsTune()
                 && alpaka::tune::concepts::shallowTunable<
@@ -35,7 +49,6 @@ namespace alpaka::tune
 
                 auto numThreadsTune = TunableMD<tune::frame::numThreads>{alpaka::IdxRange(begin, end, stride)};
 
-                // keep other tunables as-is
                 auto neuSpec = FrameSpecTuningModel{
                     frameTuningModel.m_spec,
                     frameTuningModel.getNumFramesTune(),
@@ -43,28 +56,27 @@ namespace alpaka::tune
                     frameTuningModel.getNumBlocksTune(),
                     std::move(numThreadsTune)};
 
-                using DevT = decltype(device);
-                using ExecT = decltype(executor);
-                return tunerAdjust::Op<DevT, ExecT, decltype(neuSpec)>{}(device, executor, neuSpec);
+                using DevT = std::remove_cvref_t<decltype(device)>;
+                using ExecT = std::remove_cvref_t<decltype(executor)>;
+                using FrameT = std::remove_cvref_t<decltype(neuSpec)>;
+
+                return tunerAdjust::Op<DevT, ExecT, FrameT>{}(device, executor, std::move(neuSpec));
             }
 
-            // ---------- numBlocks tuning (use boundedPartitionExpansion) ----------
+            // --- adjust numBlocks tune ----------------------------------------------------
             else if constexpr(
                 T_FrameSpecTuningModel::hasNumBlocksTune()
                 && alpaka::tune::concepts::shallowTunable<
                     std::remove_cvref_t<decltype(frameTuningModel.getNumBlocksTune())>>)
             {
-                // seed by multiprocessor count
                 auto partitionedMP
                     = primeFactorPartitioning(device.getDeviceProperties().m_multiProcessorCount, NumBlocks{});
 
-                // generate candidate list using your vector-producing helper
-                // (min/max steps can be adjusted to match your original 4..8 behaviour)
                 auto values = boundedPartitionExpansion<NumBlocks>(
                     frameTuningModel.m_spec.m_numFrames, // max
-                    partitionedMP, // partition base
-                    /*minSteps*/ 4,
-                    /*maxSteps*/ 8);
+                    partitionedMP, // base partition
+                    4, // minSteps
+                    8); // maxSteps
 
                 auto numBlocksTune = TunableMD<tune::frame::numBlocks>{std::move(values)};
 
@@ -75,13 +87,16 @@ namespace alpaka::tune
                     std::move(numBlocksTune),
                     frameTuningModel.getNumThreadsTune()};
 
-                using DevT = decltype(device);
-                using ExecT = decltype(executor);
-                return tunerAdjust::Op<DevT, ExecT, decltype(neuSpec)>{}(device, executor, neuSpec);
+                using DevT = std::remove_cvref_t<decltype(device)>;
+                using ExecT = std::remove_cvref_t<decltype(executor)>;
+                using FrameT = std::remove_cvref_t<decltype(neuSpec)>;
+
+                return tunerAdjust::Op<DevT, ExecT, FrameT>{}(device, executor, std::move(neuSpec));
             }
+
+            // --- fallback: nothing to adjust ----------------------------------------------
             else
             {
-                // ---------- nothing to adjust; pass-through ----------
                 return FrameSpecTuningModel{
                     frameTuningModel.m_spec,
                     frameTuningModel.getNumFramesTune(),
@@ -91,7 +106,8 @@ namespace alpaka::tune
             }
         }
     };
-}; // namespace alpaka::tune
 
-#endif
-#endif // TUNERGPU_H
+} // namespace alpaka::tune::adjust
+
+#endif // ALPAKA_LANG_CUDA || ALPAKA_LANG_HIP || ALPAKA_LANG_SYCL
+#endif // TUNERGPU_HPP

@@ -26,7 +26,7 @@ using namespace alpaka::onHost;
 
 using TestApis = std::decay_t<decltype(allBackends(enabledApis, onHost::example::enabledExecutors))>;
 
-TEMPLATE_LIST_TEST_CASE("CVec frame extent kernel call", "", TestApis)
+TEMPLATE_LIST_TEST_CASE("Session builder with shallow frameExtent+numBlocks", "", TestApis)
 {
     auto cfg = TestType::makeDict();
     auto deviceSpec = cfg[object::deviceSpec];
@@ -109,16 +109,23 @@ TEMPLATE_LIST_TEST_CASE(
 //  - We explicitly define the spaces for numFrames and frameExtent
 //  - We also pass a multi-dim user tunable to the kernel
 // -----------------------------------------------------------------------------
-TEST_CASE("enqueue with user-defined frame tunables + user Vec2 tunable", "[FrameSpecTuningModel][enqueue][user+user]")
+TEMPLATE_LIST_TEST_CASE(
+    "enqueue with user defined frame tunables",
+    "[FrameSpecTuningModel][enqueue][userFrame]",
+    TestApis)
 {
     using namespace alpaka;
     using namespace alpaka::tune;
     using V2u = Vec<uint32_t, 2u>;
-
-    // Device / queue / exec (host serial)
-    onHost::Device dev = onHost::makeDeviceSelector(onHost::DeviceSpec<api::Host, deviceKind::Cpu>{}).makeDevice(0);
-    auto queue = dev.makeQueue();
-    exec::CpuSerial exec{};
+    using namespace alpaka;
+    using namespace alpaka::tune;
+    using V2u = Vec<uint32_t, 2u>;
+    auto cfg = TestType::makeDict();
+    auto deviceSpec = cfg[object::deviceSpec];
+    auto devSelector = onHost::makeDeviceSelector(deviceSpec);
+    onHost::Device device = devSelector.makeDevice(0);
+    Queue queue = device.makeQueue();
+    auto exec = cfg[object::exec];
 
     // Tuning session
     auto session = TuningBuilder{}.withContextSpecifier("sess-user-user").buildSession();
@@ -139,6 +146,41 @@ TEST_CASE("enqueue with user-defined frame tunables + user Vec2 tunable", "[Fram
 
     // Kernel bundle includes the user tunable
     auto kernelBundle = KernelBundle{ExampleKernelB{}, userVecTune};
+
+    // Enqueue/setup path should succeed with user-defined spaces already in the model
+    auto envPtr = alpaka::tune::detail::internal::setup_enqueue(queue, exec, frameModel, kernelBundle, session);
+    REQUIRE(envPtr != nullptr);
+}
+
+TEMPLATE_LIST_TEST_CASE("ALL shallow combinations", "[FrameSpecTuningModel][enqueue][Tuner Decide]", TestApis)
+{
+    using namespace alpaka;
+    using namespace alpaka::tune;
+    using V2u = Vec<uint32_t, 2u>;
+    using namespace alpaka;
+    using namespace alpaka::tune;
+    using V2u = Vec<uint32_t, 2u>;
+    auto cfg = TestType::makeDict();
+    auto deviceSpec = cfg[object::deviceSpec];
+    auto devSelector = onHost::makeDeviceSelector(deviceSpec);
+    onHost::Device device = devSelector.makeDevice(0);
+    Queue queue = device.makeQueue();
+    auto exec = cfg[object::exec];
+
+    // Tuning session
+    auto session = TuningBuilder{}.withContextSpecifier("sess-user-user").buildSession();
+
+    // Frame spec
+    auto spec = onHost::FrameSpec{V2u{1, 1}, V2u{32, 32}};
+    // Build model with explicit (user) frame tunables
+    auto frameModel = FrameSpecTuningModel{spec}
+                          .withNumThreadsTune()
+                          .withNumBlocksTune()
+                          .withNumFramesTune()
+                          .withFrameExtentTune();
+
+    // Kernel bundle includes the user tunable
+    auto kernelBundle = KernelBundle{ExampleKernelA{}};
 
     // Enqueue/setup path should succeed with user-defined spaces already in the model
     auto envPtr = alpaka::tune::detail::internal::setup_enqueue(queue, exec, frameModel, kernelBundle, session);

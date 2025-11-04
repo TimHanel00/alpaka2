@@ -41,9 +41,10 @@ namespace alpaka::tune
         };
 
         template<typename... Args>
-        using GetTFromParameterPack = typename GetTFromArgs<Args...>::type;
+        using GetTunableTypeFromParameterPack = typename GetTFromArgs<Args...>::type;
         template<typename... Args>
-        using constructTunableMD_FromParameterPack = TunableMD<alpaka::uniqueId(), GetTFromParameterPack<Args...>>;
+        using constructTunableMD_FromParameterPack
+            = TunableMD<alpaka::uniqueId(), GetTunableTypeFromParameterPack<Args...>>;
 
 
     } // namespace detail
@@ -187,7 +188,7 @@ namespace alpaka::tune
         template<typename... Args>
         constexpr auto withNumFramesTune(Args... tunableArgs) &&
         {
-            using T = detail::GetTFromParameterPack<Args...>;
+            using T = detail::GetTunableTypeFromParameterPack<Args...>;
             auto tune = alpaka::tune::NumFramesTune<T>{std::forward<Args>(tunableArgs)...};
             return std::move(*this).withNumFramesTune(std::move(tune));
         }
@@ -256,7 +257,7 @@ namespace alpaka::tune
         template<typename... Args>
         constexpr auto withFrameExtentTune(Args&&... tunableArgs) &&
         {
-            using T = detail::GetTFromParameterPack<Args...>;
+            using T = detail::GetTunableTypeFromParameterPack<Args...>;
             auto tune = alpaka::tune::FrameExtentTune<T>{std::forward<Args>(tunableArgs)...};
             return std::move(*this).withFrameExtentTune(std::move(tune));
         }
@@ -327,7 +328,7 @@ namespace alpaka::tune
         template<typename... Args>
         constexpr auto withNumBlocksTune(Args&&... tunableArgs) &&
         {
-            using T = detail::GetTFromParameterPack<Args...>;
+            using T = detail::GetTunableTypeFromParameterPack<Args...>;
             auto tune = alpaka::tune::NumBlocksTune<T>{std::forward<Args>(tunableArgs)...};
             return std::move(*this).withNumBlocksTune(std::move(tune));
         }
@@ -398,7 +399,7 @@ namespace alpaka::tune
         template<typename... Args>
         constexpr auto withNumThreadsTune(Args&&... tunableArgs) &&
         {
-            using T = detail::GetTFromParameterPack<Args...>;
+            using T = detail::GetTunableTypeFromParameterPack<Args...>;
             auto tune = alpaka::tune::NumThreadsTune<T>{std::forward<Args>(tunableArgs)...};
             return std::move(*this).withNumThreadsTune(std::move(tune));
         }

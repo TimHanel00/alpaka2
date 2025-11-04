@@ -39,8 +39,7 @@
 namespace alpaka::tune::IO::detail
 {
 #if ALPAKA_TUNE_HAS_JSON
-    template<typename T_Config, typename T_Descriptor>
-    inline nlohmann::json make_mainContext_json(KernelTuningMetadata<T_Config, T_Descriptor> const& md)
+    inline nlohmann::json make_mainContext_json(KernelTuningMetadata const& md)
     {
         nlohmann::json meta
             = {{"device", md.device},
@@ -64,9 +63,9 @@ namespace alpaka::tune::IO::detail
     }
 
     // SOFT descriptor: numValues, parameters(name/id/kind/valueHash), kernelArgs, specifiers
-    template<typename T_Descriptor, typename T_Config, typename... ModelArgs>
+    template<typename... ModelArgs>
     inline nlohmann::json make_descriptor_json(
-        KernelTuningMetadata<T_Config, T_Descriptor> const& metaData,
+        KernelTuningMetadata const& metaData,
         KernelTuningModel<ModelArgs...> const& model)
     {
         nlohmann::json params = nlohmann::json::array();
@@ -78,7 +77,6 @@ namespace alpaka::tune::IO::detail
             {
                 params.push_back(
                     {{"name", elem.m_name},
-                     {"id", static_cast<std::size_t>(elem.tag)},
                      {"kind", static_cast<std::size_t>(elem.tuneableType)},
                      {"valueHash", static_cast<std::size_t>(elem.valuesToHash())}});
             });
@@ -99,35 +97,54 @@ namespace alpaka::tune::IO::detail
     }
 
     // descriptorID := hash( specifiers[], kernelArgs, parameters(name,id,kind,valueHash), numValues[] )
-    template<typename T_Config, typename T_Descriptor>
-    inline std::string compute_descriptor_id(
-        nlohmann::json const& descriptor,
-        KernelTuningMetadata<T_Config, T_Descriptor> const& md)
+    inline std::string compute_descriptor_id(nlohmann::json const& descriptor, KernelTuningMetadata const& md)
     {
         std::size_t seed = 0;
 
-        // specifiers (order-sensitive; if you need set-equality, sort first)
+
+        // specifiers
         if(descriptor.contains("specifiers") && descriptor["specifiers"].is_array())
-            for(auto const& s : descriptor["specifiers"])
-                tune::detail::hash_combine(seed, s.get<std::string>());
-
-        // kernelArgs
-        tune::detail::hash_combine(seed, descriptor.value("kernelArgs", std::string{}));
-
-        // parameters
-        auto const& params = descriptor["parameters"];
-        for(auto const& p : params)
         {
-            tune::detail::hash_combine(seed, p.value("name", std::string{}));
-            tune::detail::hash_combine(seed, static_cast<std::size_t>(p.value("id", 0ULL)));
-            tune::detail::hash_combine(seed, static_cast<std::size_t>(p.value("kind", 0ULL)));
-            tune::detail::hash_combine(seed, static_cast<std::size_t>(p.value("valueHash", 0ULL)));
+            for(auto const& s : descriptor["specifiers"])
+            {
+                auto str = s.get<std::string>();
+                tune::detail::hash_combine(seed, str);
+            }
         }
 
-        // numValues
-        for(auto const& nv : descriptor["numValues"])
-            tune::detail::hash_combine(seed, static_cast<std::uint64_t>(nv.get<std::uint64_t>()));
+        // kernelArgs
+        {
+            auto kernelArgs = descriptor.value("kernelArgs", std::string{});
 
+            tune::detail::hash_combine(seed, kernelArgs);
+        }
+
+        // parameters
+        if(descriptor.contains("parameters") && descriptor["parameters"].is_array())
+        {
+            for(auto const& p : descriptor["parameters"])
+            {
+                auto name = p.value("name", std::string{});
+                auto kind = static_cast<std::size_t>(p.value("kind", 0ULL));
+                auto valHash = static_cast<std::size_t>(p.value("valueHash", 0ULL));
+
+                tune::detail::hash_combine(seed, name);
+                tune::detail::hash_combine(seed, kind);
+                tune::detail::hash_combine(seed, valHash);
+            }
+        }
+
+
+        // numValues
+        if(descriptor.contains("numValues") && descriptor["numValues"].is_array())
+        {
+            for(auto const& nv : descriptor["numValues"])
+            {
+                auto val = static_cast<std::uint64_t>(nv.get<std::uint64_t>());
+
+                tune::detail::hash_combine(seed, val);
+            }
+        }
         return std::to_string(seed);
     }
 
@@ -289,42 +306,59 @@ namespace alpaka::tune::IO
         }
 
         // READ: returns number of configs loaded (after filtering)
-        template<typename T_MetricInterface, typename... ModelArgs, typename T_Config, typename T_ConfigDescriptor>
+        template<typename T_MetricInterface, typename... ModelArgs, typename T_Config>
         std::size_t read(
             KernelTuningModel<ModelArgs...> const& model,
             alpaka::tune::IO::ActiveHistory<T_Config>& history,
-            KernelTuningMetadata<T_Config, T_ConfigDescriptor> const& metadata,
+            KernelTuningMetadata const& metadata,
             core::peripherals::EnvironmentState<T_Config>& state) noexcept
         {
             if(m_filename.empty())
+            {
+                std::cerr << "[DEBUG] Filename is empty. Returning 0." << std::endl;
                 return 0;
-#if ALPAKA_TUNE_HAS_JSON
+            }
 
+#if ALPAKA_TUNE_HAS_JSON
             using namespace detail;
             using value_type = typename T_Config::value_type;
             static constexpr auto numDimsV = KernelTuningModel<ModelArgs...>::numDims;
 
             std::scoped_lock lk(m_mx);
+
+
             auto root = read_json_file(m_filename);
             if(!root.is_object())
+            {
                 return 0;
+            }
 
             // Identify nodes
             auto mdHard = make_mainContext_json(metadata);
             auto ctxID = compute_context_id(mdHard);
+
             if(!root.contains(ctxID))
+            {
                 return 0;
+            }
 
             auto const& hardNode = root.at(ctxID);
             if(!hardNode.is_object())
+            {
                 return 0;
+            }
 
             auto desc = make_descriptor_json(metadata, model);
             auto descID = compute_descriptor_id(desc, metadata);
+
+
             if(!hardNode.contains(descID))
+            {
                 return 0;
+            }
 
             auto const& soft = hardNode.at(descID);
+
 
             // Load configs
             std::size_t loaded = 0;
@@ -334,11 +368,17 @@ namespace alpaka::tune::IO
                 {
                     ++state.numberOfCheckedConfigs;
                     if(!jcfg.is_object())
+                    {
                         continue;
+                    }
                     if(!jcfg.contains("indices") || !jcfg["indices"].is_array())
+                    {
                         continue;
+                    }
                     if(jcfg["indices"].size() != numDimsV)
+                    {
                         continue;
+                    }
 
                     std::array<value_type, numDimsV> arr{};
                     for(std::size_t i = 0; i < numDimsV; ++i)
@@ -350,7 +390,11 @@ namespace alpaka::tune::IO
                     T_Config cfg(arr);
                     auto& entry = history.getOrCreate(cfg);
                     ++loaded;
+
+
                     int64_t stampTmp = jcfg.value("stamp", 0LL);
+
+
                     if(stampTmp == -1)
                     {
                         entry.state = config::ConfigState::Invalid;
@@ -361,31 +405,36 @@ namespace alpaka::tune::IO
 
                     entry.state = config::ConfigState::Empty;
                     entry.stamp = state.numValidConfigs++;
+
+
                     if(jcfg.contains("measurements") && jcfg["measurements"].is_array()
                        && jcfg["measurements"].size() > 0)
+                    {
                         entry.state = config::ConfigState::Initialized;
+                    }
+
                     for(auto const& m : jcfg["measurements"])
-                        core::peripherals::updateMetrics<false, T_MetricInterface>(
-                            entry,
-                            state,
-                            m.template get<double_t>());
+                    {
+                        auto val = m.template get<double_t>();
+                        core::peripherals::updateMetrics<false, T_MetricInterface>(entry, state, val);
+                    }
                 }
             }
             return loaded;
+
 #else
-            std::cerr << "[Persistent History] Could not read from history-file due to json/nlohmann dependency "
-                         "missing or cmake options!"
+            std::cerr << "[Persistent History] Could not read from history-file due to missing JSON dependency."
                       << std::endl;
             return 0;
 #endif
         }
 
         // WRITE: returns number of configs written
-        template<typename... ModelArgs, typename T_Config, typename T_ConfigDescriptor>
+        template<typename... ModelArgs, typename T_Config>
         std::size_t write(
             KernelTuningModel<ModelArgs...> const& model,
             ActiveHistory<T_Config> const& history,
-            KernelTuningMetadata<T_Config, T_ConfigDescriptor> const& metadata) noexcept
+            KernelTuningMetadata const& metadata) noexcept
 
         {
             if(m_filename.empty())
@@ -401,10 +450,8 @@ namespace alpaka::tune::IO
             // Build hard & soft ids
             auto mdHard = make_mainContext_json(metadata);
             auto ctxID = compute_context_id(mdHard);
-
             auto desc = make_descriptor_json(metadata, model);
             auto descID = compute_descriptor_id(desc, metadata);
-
             // Ensure hard node exists
             auto& ctxNode = root[ctxID];
             if(!ctxNode.is_object())

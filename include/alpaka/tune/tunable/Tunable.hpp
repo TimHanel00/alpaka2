@@ -7,9 +7,9 @@
 #include "alpaka/mem/IdxRange.hpp"
 #include "alpaka/tune/utils/tupleHelper.hpp"
 
-#include <alpaka/concepts.hpp>
 #include <alpaka/tune/tunable/tunableHelper.hpp>
 #include <alpaka/tune/utils/VecUtils.hpp>
+#include <alpaka/tune/utils/hasher.hpp>
 
 #include <algorithm>
 #include <string>
@@ -18,7 +18,7 @@
 namespace alpaka::tune
 {
 
-    template<auto ID, typename T, auto Dim, TunableKind kind, typename T_Storage>
+    template<auto ID, typename T, auto Dim, detail::TunableKind kind, typename T_Storage>
     struct BaseTunable
     {
         using ValueType = T;
@@ -57,15 +57,15 @@ namespace alpaka::tune
     struct CTunable
     {
         static constexpr auto tag = ID;
-        static constexpr auto tuneableType = TunableKind::CTunable;
+        static constexpr auto tuneableType = detail::TunableKind::CTunable;
         static constexpr auto dim = 1u;
         // All CVecs must be compatible
-        static_assert((std::is_trivially_copyable_v<T>, ...), " tunable types must be trivially copyable!");
+        static_assert((std::is_trivially_copyable_v<T> && ...), "tunable types must be trivially copyable!");
         static_assert(sizeof...(T) > 0, "CTunable requires at least one Parameter");
         using Tuple = std::tuple<T...>;
         using Values = Tuple; // this is the constexpr compile-time payload
         using value_type = std::tuple_element_t<0, std::tuple<T...>>;
-        std::string m_name = detail::getNameFromTag_comp<ID>();
+        std::string m_name = detail::getDefaultName<ID, tuneableType>();
         std::optional<uint32_t> startingIndex = std::nullopt;
 
         template<std::size_t I>
@@ -81,8 +81,9 @@ namespace alpaka::tune
         [[nodiscard]] std::size_t valuesToHash() const
         {
             std::size_t seed = 0;
-            (detail::hashType<T>(seed), ...); // hash types
-            std::apply([&](auto... v) { (detail::hash_combine(seed, v), ...); }, Values{}); // hash values
+
+            std::apply([&]<typename... T0>(T0... v) { ((detail::hashType<std::decay_t<T0>>(seed)), ...); }, Values{});
+
             return seed;
         }
 
@@ -138,8 +139,7 @@ namespace alpaka::tune
      * using namespace alpaka::tune;
      * auto tune = Tunable<ID>({foo{}, bar{}});
      * auto learningRateA = Tunable({0.005, 0.02, 0.1});
-     * static constexpr auto learningID=2;
-     * auto learningRateB = Tunable<learningID>(generate::logSpace(1e-6,0.1,2),0,"learningRate");
+     * auto learningRateB = Tunable<alpaka::uniqueID()>(generate::logSpace(1e-6,0.1,2),0,"learningRate");
      * @endcode
      *
      * @tparam ID Identifier for the tuneable ->
@@ -153,16 +153,16 @@ namespace alpaka::tune
     template<
         auto ID = static_cast<uint32_t>(detail::SpecialTuneableID::userDef),
         typename T = alpaka::Vec<uint32_t, 1u>>
-    struct Tunable : public BaseTunable<ID, T, 1u, TunableKind::Tunable, std::vector<T>>
+    struct Tunable : public BaseTunable<ID, T, 1u, detail::TunableKind::Tunable, std::vector<T>>
     {
         static_assert(std::is_trivially_copyable_v<T>, " tunable types must be trivially copyable!");
-        using Base = BaseTunable<ID, T, 1u, TunableKind::Tunable, std::vector<T>>;
+        using Base = BaseTunable<ID, T, 1u, detail::TunableKind::Tunable, std::vector<T>>;
         using T_Storage = typename Base::StorageType;
         T_Storage values;
         using value_type = T;
         /// an index within the tuningSpace
         std::optional<uint32_t> startingIndex = std::nullopt;
-        std::string m_name = detail::getNameFromTag<ID>();
+        std::string m_name = detail::getDefaultName<ID, Base::tuneableType>();
         static constexpr auto dim = 1u;
 
         [[nodiscard]] std::string getName() const override
@@ -182,7 +182,7 @@ namespace alpaka::tune
         };
 
         // we dont need to hash the type as its included in the type of the kernelbundle
-        std::size_t valuesToHash() const
+        [[nodiscard]] std::size_t valuesToHash() const
         {
             std::size_t seed = 0;
             detail::hash_combine(seed, values);
@@ -303,7 +303,7 @@ namespace alpaka::tune
               ID,
               T,
               alpaka::getDim(T{}),
-              TunableKind::TunableMD,
+              detail::TunableKind::TunableMD,
               std::array<std::vector<typename T::type>, alpaka::getDim(T{})>>
     {
         static_assert(std::is_trivially_copyable_v<T>, " tunable types must be trivially copyable!");
@@ -312,7 +312,7 @@ namespace alpaka::tune
             ID,
             T,
             dim,
-            TunableKind::TunableMD,
+            detail::TunableKind::TunableMD,
             std::array<std::vector<typename T::type>, alpaka::getDim(T{})>>;
         using value_type = T;
         using T_Storage = typename Base::StorageType;
@@ -320,7 +320,7 @@ namespace alpaka::tune
         static_assert(dim > 1, "Given alpaka Vector - dimension must be higher then 1, use Tunable instead.");
         T_Storage values{};
         std::optional<alpaka::Vec<idxType, dim>> startingIndex = std::nullopt;
-        std::string m_name = detail::getNameFromTag<ID>();
+        std::string m_name = detail::getDefaultName<ID, Base::tuneableType>();
 
         // this is currently a value copy, coule be improved by using a reference Storage on the Vector Vec<T,dim,Ref>
         T getValueByIndex(alpaka::Vec<idxType, dim> const& vec) const
@@ -336,13 +336,13 @@ namespace alpaka::tune
 
         constexpr TunableMD() = default;
 
-        std::string getName() const override
+        [[nodiscard]] std::string getName() const override
         {
             return m_name;
         }
 
         // we dont need to hash the type as its included in the type of the kernelbundle.
-        std::size_t valuesToHash() const
+        [[nodiscard]] std::size_t valuesToHash() const
         {
             std::size_t seed = 0;
             for(idxType i = 0; i < dim; ++i)
@@ -486,8 +486,9 @@ namespace alpaka::tune
             }
             if(!foundStart)
             {
-                std::cerr << " Warning: starting Value " << startingValue.toString() << " for Tunable"
-                          << this->getName() << " has to be part of its tuning space!" << std::endl;
+                std::cerr << " Warning: starting Value " << startingValue.toString()
+                          << " for Tunable: " << this->getName() << " has to be part of its tuning space!"
+                          << std::endl;
             }
             else
             {

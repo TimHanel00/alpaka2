@@ -178,11 +178,11 @@ TEST_CASE("Entries expose working MetricContainer state", "[ActiveHistory]")
         // pushing a metric on a uninitialized config should throw an exception.
         REQUIRE(exception.what() != nullptr);
     }
-    e.state = config::ConfigState::Empty; //manually initializing
-    // First push -> transitions to WarmUp (no sample recorded yet for median)
+    e.state = config::ConfigState::Empty; // manually initializing
+    // First push -> transitions to WarmUp
     e.pushMetric(100.0);
     REQUIRE(e.state == config::ConfigState::WarmUp);
-    REQUIRE(e.getMeasurements().empty());
+    REQUIRE(!e.getMeasurements().empty());
 
     // Second push -> meets warmUpThreshold (==1), records a sample, transitions to Initialized
     e.pushMetric(110.0);

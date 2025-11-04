@@ -88,8 +88,7 @@ TEST_CASE("PersistentHistory::write creates JSON with expected number of configs
         alpaka::tune::
             CTunable<alpaka::uniqueId(), std::integral_constant<std::size_t, 1>, std::integral_constant<size_t, 2>>{}};
     auto model = alpaka::tune::KernelTuningModel{std::tuple{}, userTuple, compileTuple};
-    auto metaData = alpaka::tune::IO::createKernelDataFromModel(
-        model,
+    auto metaData = alpaka::tune::IO::createTuningMetaData(
         "CPU-0",
         /*executor*/ "serial",
         alpaka::KernelBundle{DummyKernel{}, 2, 3, 5},
@@ -126,8 +125,7 @@ TEST_CASE(
         std::integral_constant<std::size_t, 1>,
         std::integral_constant<std::size_t, 2>>{}};
     auto model = alpaka::tune::KernelTuningModel{std::tuple{}, userTuple, compileTuple};
-    auto meta = alpaka::tune::IO::createKernelDataFromModel(
-        model,
+    auto meta = alpaka::tune::IO::createTuningMetaData(
         "CPU-1",
         "serial",
         alpaka::KernelBundle{DummyKernel{}, 2, 3, 5},
@@ -179,6 +177,10 @@ TEST_CASE(
     CHECK(env.numValidConfigs == 2);
 }
 
+static constexpr auto IDa = alpaka::uniqueId();
+static constexpr auto IDb = alpaka::uniqueId();
+static constexpr auto IDc = alpaka::uniqueId();
+
 TEST_CASE(
     "PersistentHistory with pure CTunable model (multi-dim) round-trip + specifier isolation",
     "[PersistentHistory][CTunable][read][write]")
@@ -196,9 +198,7 @@ TEST_CASE(
     // --- Pure CTunable model with 3 independent CTunables (=> 3 dims total)
     // Each CTunable is 1-D; three of them => Config arity 3 matches model.numDims
     using U32 = std::uint32_t;
-    constexpr auto IDa = alpaka::uniqueId();
-    constexpr auto IDb = alpaka::uniqueId();
-    constexpr auto IDc = alpaka::uniqueId();
+
 
     auto compileTuple = std::tuple{
         alpaka::tune::CTunable<IDa, alpaka::CVec<U32, 1>, alpaka::CVec<U32, 2>>{}, // dim #0: 2 values
@@ -212,8 +212,7 @@ TEST_CASE(
     auto model = alpaka::tune::KernelTuningModel{std::tuple{}, /*user*/ std::tuple{}, compileTuple};
 
     // Metadata (+ specifiers set A)
-    auto metaA = alpaka::tune::IO::createKernelDataFromModel(
-        model,
+    auto metaA = alpaka::tune::IO::createTuningMetaData(
         "CPU-CT-only",
         "serial",
         alpaka::KernelBundle{DummyKernel{}, 2, 3, 5},
@@ -233,8 +232,8 @@ TEST_CASE(
     using T_Metric = alpaka::tune::metricInterface::Timing;
 
     auto loaded_same = ph.read<T_Metric>(model, histR_same, metaA, env_same);
-    REQUIRE(loaded_same == 3); // we wrote 3 -> load 3 records (invalid gets state=Invalid, 0 samples)
-    REQUIRE(histR_same.size() == 3);
+    CHECK(loaded_same == 3); // we wrote 3 -> load 3 records (invalid gets state=Invalid, 0 samples)
+    CHECK(histR_same.size() == 3);
     CHECK(env_same.numberOfCheckedConfigs == 3);
     CHECK(env_same.numValidConfigs == 2); // two non-invalid got stamps
 
@@ -259,8 +258,7 @@ TEST_CASE(
     }
 
     // --- Read with DIFFERENT specifiers (same hard metadata but different soft-descriptor → 0 loads)
-    auto metaB = alpaka::tune::IO::createKernelDataFromModel(
-        model,
+    auto metaB = alpaka::tune::IO::createTuningMetaData(
         "CPU-CT-only",
         "serial",
         alpaka::KernelBundle{DummyKernel{}, 2, 3, 5},
@@ -279,7 +277,7 @@ TEST_CASE(
 }
 
 #else
-TEST_CASE("PersistentHistory read/write are skipped without JSON support", "[PersistentHistory][nojson]")
+TEST_CASE("PersistentHistory is skipped without JSON support", "[PersistentHistory][nojson]")
 {
     SUCCEED("ALPAKA_TUNE_HAS_JSON == 0 -> skipping persistent history tests.");
 }

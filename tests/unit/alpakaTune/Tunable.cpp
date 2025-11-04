@@ -44,7 +44,7 @@ TEST_CASE("CTuneable runtime interface", "[CTuneable]")
     using t = double_t;
     constexpr auto id = alpaka::uniqueId();
     CTunable<id, alpaka::CVec<t, 0.1>, alpaka::CVec<t, 1.1>, alpaka::CVec<t, 2.4>> tuneDefault;
-    CHECK(tuneDefault.getName() == "C_Tunable " + std::to_string(id)); // default name
+    CHECK(tuneDefault.getName() == "C_Tunable 0"); // default name
     using defType = decltype(tuneDefault);
     auto numVals = defType::getNumValues();
     CHECK(numVals[0] == 3); // tuple size

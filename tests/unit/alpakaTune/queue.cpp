@@ -54,10 +54,11 @@ TEST_CASE("ConfigQueue removes fullFlag records automatically", "[ConfigQueue]")
 
     TestRecord r1(c1);
     TestRecord r2(c2);
-    r1.state = config::ConfigState::Retired;
-    r2.state = config::ConfigState::Retired;
+
     queue.push_back(r1);
     queue.push_back(r2);
+    r1.state = config::ConfigState::Retired;
+    r2.state = config::ConfigState::Retired;
     REQUIRE(queue.size() == 2);
 
     auto recOpt = queue.get();
@@ -68,17 +69,6 @@ TEST_CASE("ConfigQueue removes fullFlag records automatically", "[ConfigQueue]")
     REQUIRE(queue.empty()); // r1 and r2 indirectly removed
 }
 
-//
-// TEST_CASE("ConfigQueue handles empty state gracefully", "[ConfigQueue]")
-// {
-//     ConfigQueue<TestRecord> queue;
-//     REQUIRE(queue.empty());
-//
-//     uint32_t index;
-//     bool fullFlag = false;
-// };
-//
-// // doesnt work
 TEST_CASE("ConfigQueue random access and cleanup", "[ConfigQueue]")
 {
     ConfigQueue<DummyRecord> queue;

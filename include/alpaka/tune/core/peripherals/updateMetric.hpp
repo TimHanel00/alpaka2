@@ -75,11 +75,6 @@ namespace alpaka::tune::core::peripherals
         if(!stored.state == config::ConfigState::Retired)
             return;
         best = compareGetBest<T_MetricInterface>(best, stored);
-#ifdef Debug
-        std::cout << "[Best Config before]" << "," << before.toString() << "," << before.getMedian() << std::endl;
-        std::cout << "[NewConfig]" << "," << stored.toString() << "," << stored.getMedian() << std::endl;
-        std::cout << "[Best Config]" << "," << best.toString() << "," << best.getMedian() << std::endl;
-#endif
     }
 
     template<bool kruskalWallisSkip, typename T_MetricInterface, typename T_Config>
@@ -109,7 +104,7 @@ namespace alpaka::tune::core::peripherals
         {
             if(stored.state == config::ConfigState::CICriteriaReached)
             {
-                stored.state == config::ConfigState::Retired;
+                stored.state = config::ConfigState::Retired;
             }
             return;
         }

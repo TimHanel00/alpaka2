@@ -6,7 +6,7 @@
 #define TRAITS_HPP
 
 #include <alpaka/tune/interfaces/MetricInterface.hpp>
-#include <alpaka/tune/utils/tupleHelper.hpp>
+#include <alpaka/tune/tunable/Tunable.hpp>
 
 namespace alpaka::tune::trait
 {
