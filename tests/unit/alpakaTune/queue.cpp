@@ -84,9 +84,7 @@ TEST_CASE("ConfigQueue random access and cleanup", "[ConfigQueue]")
         records.emplace_back(record);
         queue.push_back(records.back());
     }
-    uint32_t index = 0;
     REQUIRE(queue.size() == 10);
-
     // Mark some configs as full and ensure they're removed
     records[3].state = config::ConfigState::Retired;
     records[5].state = config::ConfigState::Retired;
@@ -95,6 +93,5 @@ TEST_CASE("ConfigQueue random access and cleanup", "[ConfigQueue]")
     // Trigger cleanup
     for(int i = 0; i < 1000; ++i)
         queue.get();
-    index = 0;
     REQUIRE(queue.size() == 7);
 };

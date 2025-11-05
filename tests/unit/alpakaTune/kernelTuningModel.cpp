@@ -25,12 +25,10 @@ using namespace alpaka::tune; // Tunable, TunableMD, CTunable, frame, TunableKin
 TEST_CASE("KernelTuningModel - construct models of varying dimensionality", "[KTM][construction]")
 {
     // 1D: only one user scalar tuneable
-    using U1 = std::tuple<Tunable<1001>>;
     using F1 = std::tuple<>;
     using C1 = std::tuple<>;
-
-    U1 u1{Tunable<alpaka::uniqueId()>({16u, 32u, 64u}, 32u, "tileX")};
-    KernelTuningModel<F1, U1, C1> m1{F1{}, u1, C1{}};
+    auto u1 = std::tuple{Tunable<alpaka::uniqueId()>({16u, 32u, 64u}, 32u, "tileX")};
+    KernelTuningModel m1{F1{}, u1, C1{}};
 
     using C2 = std::tuple<>;
 

@@ -45,10 +45,10 @@ TEST_CASE("builder enables tuneable and get*Tune returns stored object", "[Frame
     REQUIRE(tuned.hasNumThreadsTune());
 
     // get* checks (returned tuneables should match what was provided)
-    auto nf = tuned.getNumFramesTune();
-    auto fe = tuned.getFrameExtentTune();
-    auto nb = tuned.getNumBlocksTune();
-    auto nt = tuned.getNumThreadsTune();
+    [[maybe_unused]] auto nf = tuned.getNumFramesTune();
+    [[maybe_unused]] auto fe = tuned.getFrameExtentTune();
+    [[maybe_unused]] auto nb = tuned.getNumBlocksTune();
+    [[maybe_unused]] auto nt = tuned.getNumThreadsTune();
 
     REQUIRE(nf.getName() == numFramesTune.getName());
     REQUIRE(fe.getName() == frameExtentTune.getName());
@@ -77,10 +77,10 @@ TEST_CASE(
     REQUIRE(tuned.hasNumThreadsTune());
 
     // getTune calls should compile and return a tuneable-like object
-    auto nf = tuned.getNumFramesTune();
-    auto fe = tuned.getFrameExtentTune();
-    auto nb = tuned.getNumBlocksTune();
-    auto nt = tuned.getNumThreadsTune();
+    [[maybe_unused]] auto nf = tuned.getNumFramesTune();
+    [[maybe_unused]] auto fe = tuned.getFrameExtentTune();
+    [[maybe_unused]] auto nb = tuned.getNumBlocksTune();
+    [[maybe_unused]] auto nt = tuned.getNumThreadsTune();
 
     // minimal runtime checks — we just assert these are distinct types (compile-time check in templates)
     STATIC_REQUIRE(!std::is_same_v<decltype(nf), bool>);
@@ -101,7 +101,7 @@ TEST_CASE("partial enabling only allows get for enabled tuneables", "[FrameSpecT
     REQUIRE(partial.hasNumThreadsTune());
 
     // Only getNumThreadsTune should compile; others should trigger static_assert if used.
-    auto nt = partial.getNumThreadsTune();
+    [[maybe_unused]] auto nt = partial.getNumThreadsTune();
     STATIC_REQUIRE(!std::is_same_v<decltype(nt), bool>);
 }
 
@@ -120,8 +120,8 @@ TEST_CASE("rvalue-qualified builder chaining and getter correctness", "[FrameSpe
     REQUIRE_FALSE(tuned.hasNumThreadsTune());
 
     // should compile and return tuneable-like objects
-    auto nf = tuned.getNumFramesTune();
-    auto fe = tuned.getFrameExtentTune();
+    [[maybe_unused]] auto nf = tuned.getNumFramesTune();
+    [[maybe_unused]] auto fe = tuned.getFrameExtentTune();
     STATIC_REQUIRE(!std::is_same_v<decltype(nf), bool>);
     STATIC_REQUIRE(!std::is_same_v<decltype(fe), bool>);
 }
@@ -141,8 +141,8 @@ TEST_CASE("end-to-end: custom tuneables are preserved through chaining", "[Frame
     REQUIRE_FALSE(tuned.hasNumFramesTune());
     REQUIRE_FALSE(tuned.hasNumBlocksTune());
 
-    auto fe = tuned.getFrameExtentTune();
-    auto nt = tuned.getNumThreadsTune();
+    [[maybe_unused]] auto fe = tuned.getFrameExtentTune();
+    [[maybe_unused]] auto nt = tuned.getNumThreadsTune();
 
     REQUIRE(fe.getName() == frameExtentTune.getName());
     REQUIRE(nt.getName() == numThreadsTune.getName());
