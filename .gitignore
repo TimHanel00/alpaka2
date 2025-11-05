@@ -4,7 +4,8 @@
 /docs/doxygen
 /docs/doxygen_dev
 /docs/cheatsheet/cheatsheet.pdf
-
+.build_cmake/
+_deps/
 **/build*/
 
 # tmp files

@@ -47,6 +47,7 @@
 #include "alpaka/onHost/logger/logger.hpp"
 #include "alpaka/onHost/mem/stdContainer.hpp"
 #include "alpaka/tag.hpp"
+#include "alpaka/tune/api.hpp"
 #include "alpaka/utility.hpp"
 
 /** main alpaka namespace.

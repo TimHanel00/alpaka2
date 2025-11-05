@@ -13,7 +13,18 @@ cmake_minimum_required(VERSION 3.25)
 ################################################################################
 
 alpaka_install_catch2()
+option(alpaka_TUNER "Enable the alpaka tuning mechanism." OFF)
+if(alpaka_TUNER)
+    include(${_alpaka_ROOT_DIR}/cmake/tuner.cmake)
 
+    set(ALPAKA_TUNER_VALUE 1)
+else()
+    set(ALPAKA_TUNER_VALUE 0)
+endif()
+target_compile_definitions(
+    alpaka_target_headers
+    INTERFACE ALPAKA_CMAKE_TARGET_HEADERS ALPAKA_TUNER=${ALPAKA_TUNER_VALUE}
+)
 #------------------------------------------------------------------------------
 # Search for sub folders in the given folder.
 # Creates a Catch2 test executable for each .cpp file in each sub folder.
