@@ -31,7 +31,18 @@ if(
 )
     include(${_alpaka_CMAKE_DIR}/alpakaCommon.cmake)
 endif()
+option(alpaka_TUNER "Enable the alpaka tuning mechanism." OFF)
+if(alpaka_TUNER)
+    include(${_alpaka_ROOT_DIR}/cmake/tuner.cmake)
 
+    set(ALPAKA_TUNER_VALUE 1)
+else()
+    set(ALPAKA_TUNER_VALUE 0)
+endif()
+target_compile_definitions(
+    alpaka_target_headers
+    INTERFACE ALPAKA_CMAKE_TARGET_HEADERS ALPAKA_TUNER=${ALPAKA_TUNER_VALUE}
+)
 if(alpaka_TESTING)
     include(CTest)
     enable_testing()
