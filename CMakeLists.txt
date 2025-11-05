@@ -25,44 +25,44 @@ include(${_alpaka_ROOT_DIR}/cmake/finalize.cmake)
 # name - name of the variable or target
 # ... - parameter to appended to the variable or target 'name'
 function(alpaka_set_compiler_options scope type name)
-    if (scope STREQUAL HOST)
+    if(scope STREQUAL HOST)
         set(alpaka_COMPILER_OPTIONS_HOST ${alpaka_COMPILER_OPTIONS_HOST} ${ARGN} PARENT_SCOPE)
-    elseif (scope STREQUAL DEVICE)
+    elseif(scope STREQUAL DEVICE)
         set(alpaka_COMPILER_OPTIONS_DEVICE ${alpaka_COMPILER_OPTIONS_DEVICE} ${ARGN} PARENT_SCOPE)
-    elseif (scope STREQUAL HOST_DEVICE)
+    elseif(scope STREQUAL HOST_DEVICE)
         set(alpaka_COMPILER_OPTIONS_HOST ${alpaka_COMPILER_OPTIONS_HOST} ${ARGN} PARENT_SCOPE)
         set(alpaka_COMPILER_OPTIONS_DEVICE ${alpaka_COMPILER_OPTIONS_DEVICE} ${ARGN} PARENT_SCOPE)
-    else ()
+    else()
         message(
-                FATAL_ERROR
-                "alpaka_set_compiler_option 'scope' unknown, value must be 'HOST', 'DEVICE', or 'HOST_DEVICE'."
+            FATAL_ERROR
+            "alpaka_set_compiler_option 'scope' unknown, value must be 'HOST', 'DEVICE', or 'HOST_DEVICE'."
         )
-    endif ()
-    if (type STREQUAL "list")
+    endif()
+    if(type STREQUAL "list")
         set(${name} ${${name}} ${ARGN} PARENT_SCOPE)
-    elseif (type STREQUAL "var")
-        foreach (arg IN LISTS ARGN)
+    elseif(type STREQUAL "var")
+        foreach(arg IN LISTS ARGN)
             set(tmp "${tmp} ${arg}")
-        endforeach ()
+        endforeach()
         set(${name} "${${name}} ${tmp}" PARENT_SCOPE)
-    elseif (type STREQUAL "target")
-        foreach (arg IN LISTS ARGN)
+    elseif(type STREQUAL "target")
+        foreach(arg IN LISTS ARGN)
             target_compile_options(${name} INTERFACE ${arg})
-        endforeach ()
-    else ()
+        endforeach()
+    else()
         message(
-                FATAL_ERROR
-                "alpaka_set_compiler_option 'type=${type}' unknown, value must be 'list', 'var', or 'target'."
+            FATAL_ERROR
+            "alpaka_set_compiler_option 'type=${type}' unknown, value must be 'list', 'var', or 'target'."
         )
-    endif ()
+    endif()
 endfunction()
 
 # Compiler options
 macro(alpaka_compiler_option name description default)
-    if (NOT DEFINED alpaka_${name})
+    if(NOT DEFINED alpaka_${name})
         set(alpaka_${name} ${default} CACHE STRING "${description}")
         set_property(CACHE alpaka_${name} PROPERTY STRINGS "DEFAULT;ON;OFF")
-    endif ()
+    endif()
 endmacro()
 
 # Check if compiler supports required C++ standard.
@@ -73,13 +73,13 @@ function(checkCompilerCXXSupport language min_cxx_standard)
     string(TOUPPER "${language}" language_upper_case)
     string(TOLOWER "${language}" language_lower_case)
 
-    if (NOT "${language_lower_case}_std_${min_cxx_standard}" IN_LIST CMAKE_${language_upper_case}_COMPILE_FEATURES)
+    if(NOT "${language_lower_case}_std_${min_cxx_standard}" IN_LIST CMAKE_${language_upper_case}_COMPILE_FEATURES)
         message(
-                FATAL_ERROR
-                "The ${language_upper_case} compiler does not support C++ ${min_cxx_standard}. \
+            FATAL_ERROR
+            "The ${language_upper_case} compiler does not support C++ ${min_cxx_standard}. \
         Please upgrade your compiler or use alpaka 3.0 which supports C++20."
         )
-    endif ()
+    endif()
 endfunction()
 
 set(alpaka_CXX_STANDARD 20 CACHE STRING "C++ standard")
@@ -100,16 +100,15 @@ alpaka_compiler_option(FTZ "Set flush to zero" DEFAULT)
 
 alpaka_compiler_option(RELOCATABLE_DEVICE_CODE "Enable relocatable device code for CUDA, HIP and SYCL devices" DEFAULT)
 
-if (${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
+if(${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
     set(alpaka_GCC_CONCEPT_DEPTH
-            5
-            CACHE STRING
-            "Setup for GCC: How many nested concepts are displayed in the event of an error?"
+        5
+        CACHE STRING
+        "Setup for GCC: How many nested concepts are displayed in the event of an error?"
     )
-endif ()
+endif()
 
-
-if (NOT TARGET alpaka)
+if(NOT TARGET alpaka)
     ## target: alpaka::header
     add_library(alpaka_target_headers INTERFACE)
     add_library(alpaka::headers ALIAS alpaka_target_headers)
@@ -122,60 +121,60 @@ if (NOT TARGET alpaka)
     add_library(alpaka::host ALIAS alpaka_target_headers)
 
     target_include_directories(
-            alpaka_target_headers
-            INTERFACE $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+        alpaka_target_headers
+        INTERFACE $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     )
     target_compile_features(alpaka_target_headers INTERFACE cxx_std_${alpaka_CXX_STANDARD})
 
     target_link_libraries(alpaka INTERFACE alpaka_target_headers)
-endif ()
+endif()
 option(alpaka_TUNER "Enable the alpaka tuning mechanism." OFF)
-if (alpaka_TUNER)
+if(alpaka_TUNER)
     include(${_alpaka_ROOT_DIR}/cmake/tuner.cmake)
 
     set(ALPAKA_TUNER_VALUE 1)
-else ()
+else()
     set(ALPAKA_TUNER_VALUE 0)
-endif ()
-target_compile_definitions(alpaka_target_headers INTERFACE
-        ALPAKA_CMAKE_TARGET_HEADERS
-        ALPAKA_TUNER=${ALPAKA_TUNER_VALUE}
+endif()
+target_compile_definitions(
+    alpaka_target_headers
+    INTERFACE ALPAKA_CMAKE_TARGET_HEADERS ALPAKA_TUNER=${ALPAKA_TUNER_VALUE}
 )
 ## GCC compiler
-if (${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
+if(${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
     alpaka_set_compiler_options(HOST target alpaka_target_headers "-fconcepts-diagnostics-depth=${alpaka_GCC_CONCEPT_DEPTH}")
-endif ()
+endif()
 
 ## OpenMP
-if (alpaka_DEP_OMP)
+if(alpaka_DEP_OMP)
     find_package(OpenMP REQUIRED COMPONENTS CXX)
     target_link_libraries(alpaka_target_headers INTERFACE OpenMP::OpenMP_CXX)
     message(STATUS "OpenMP found: ${OpenMP_CXX_VERSION}")
-endif ()
+endif()
 
 set(alpaka_COUNT_API_DEPS 0)
-if (alpaka_DEP_CUDA)
+if(alpaka_DEP_CUDA)
     math(EXPR alpaka_COUNT_API_DEPS "${alpaka_COUNT_API_DEPS} + 1")
-endif ()
-if (alpaka_DEP_HIP)
+endif()
+if(alpaka_DEP_HIP)
     math(EXPR alpaka_COUNT_API_DEPS "${alpaka_COUNT_API_DEPS} + 1")
-endif ()
-if (alpaka_DEP_ONEAPI)
+endif()
+if(alpaka_DEP_ONEAPI)
     math(EXPR alpaka_COUNT_API_DEPS "${alpaka_COUNT_API_DEPS} + 1")
-endif ()
+endif()
 
-if ((NOT alpaka_SUPPRESS_TARGET_WARNING) AND alpaka_COUNT_API_DEPS GREATER 1)
+if((NOT alpaka_SUPPRESS_TARGET_WARNING) AND alpaka_COUNT_API_DEPS GREATER 1)
     message(
-            WARNING
-            "More than one dependency of alpaka_DEP_CUDA, alpaka_DEP_HIP, or alpaka_DEP_ONEAPI is activated. \
+        WARNING
+        "More than one dependency of alpaka_DEP_CUDA, alpaka_DEP_HIP, or alpaka_DEP_ONEAPI is activated. \
      The cmake taget 'alpaka::alpaka' and 'alpaka' will therefore not linked against any of these. \
      Please link your app against alpaka::cuda, alpaka::hip, or alpaka::oneapi directly. \
      This warning can be suppressed by setting 'alpaka_SUPPRESS_TARGET_WARNING'."
     )
-endif ()
+endif()
 
 ## CUDA
-if (alpaka_DEP_CUDA)
+if(alpaka_DEP_CUDA)
     check_language(CUDA)
 
     enable_language(CUDA)
@@ -189,73 +188,73 @@ if (alpaka_DEP_CUDA)
     alpaka_set_compiler_options(DEVICE target alpaka_target_cuda "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:--expt-relaxed-constexpr>")
 
     option(alpaka_CUDA_EXPT_EXTENDED_LAMBDA "Enable CUDA extended lambda support " ON)
-    if (alpaka_CUDA_EXPT_EXTENDED_LAMBDA)
+    if(alpaka_CUDA_EXPT_EXTENDED_LAMBDA)
         alpaka_set_compiler_options(DEVICE target alpaka_target_cuda "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:--extended-lambda>")
-    endif ()
+    endif()
 
     alpaka_compiler_option(CUDA_SHOW_REGISTER "Show kernel registers and create device ASM" DEFAULT)
 
-    if (alpaka_CUDA_SHOW_REGISTER STREQUAL ON)
+    if(alpaka_CUDA_SHOW_REGISTER STREQUAL ON)
         alpaka_set_compiler_options(DEVICE target alpaka_target_cuda "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:-Xptxas -v>")
-    endif ()
+    endif()
 
     alpaka_compiler_option(CUDA_KEEP_FILES "Keep all intermediate files that are generated during internal compilation steps 'CMakeFiles/<targetname>.dir'" DEFAULT)
-    if (alpaka_CUDA_KEEP_FILES STREQUAL ON)
+    if(alpaka_CUDA_KEEP_FILES STREQUAL ON)
         alpaka_set_compiler_options(DEVICE target alpaka_target_cuda "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:--keep>")
-    endif ()
+    endif()
 
     option(
-            alpaka_CUDA_SHOW_CODELINES
-            "Show kernel lines in cuda-gdb and cuda-memcheck. If alpaka_CUDA_KEEP_FILES is enabled source code will be inlined in ptx."
-            OFF
+        alpaka_CUDA_SHOW_CODELINES
+        "Show kernel lines in cuda-gdb and cuda-memcheck. If alpaka_CUDA_KEEP_FILES is enabled source code will be inlined in ptx."
+        OFF
     )
-    if (alpaka_CUDA_SHOW_CODELINES)
+    if(alpaka_CUDA_SHOW_CODELINES)
         alpaka_set_compiler_options(DEVICE target alpaka_target_cuda "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:--source-in-ptx -lineinfo>")
 
         # This is shaky - We currently don't have a way of checking for the host compiler ID.
         # See https://gitlab.kitware.com/cmake/cmake/-/issues/20901
-        if (NOT MSVC)
+        if(NOT MSVC)
             alpaka_set_compiler_options(DEVICE target alpaka_target_cuda "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:-Xcompiler -rdynamic>")
-        endif ()
+        endif()
         set(alpaka_CUDA_KEEP_FILES ON CACHE BOOL "activate keep files" FORCE)
-    endif ()
+    endif()
 
-    if (alpaka_FAST_MATH STREQUAL ON)
+    if(alpaka_FAST_MATH STREQUAL ON)
         alpaka_set_compiler_options(DEVICE target alpaka_target_cuda "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:--use_fast_math>")
-    endif ()
+    endif()
 
-    if (alpaka_FTZ STREQUAL ON)
+    if(alpaka_FTZ STREQUAL ON)
         alpaka_set_compiler_options(DEVICE target alpaka_target_cuda "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:--ftz=true>")
-    elseif (alpaka_FTZ STREQUAL OFF)
+    elseif(alpaka_FTZ STREQUAL OFF)
         alpaka_set_compiler_options(DEVICE target alpaka_target_cuda "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:--ftz=false>")
-    endif ()
+    endif()
 
-    if (alpaka_DEP_OMP)
-        if (NOT MSVC)
+    if(alpaka_DEP_OMP)
+        if(NOT MSVC)
             alpaka_set_compiler_options(DEVICE target alpaka_target_cuda "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:-Xcompiler -fopenmp>")
 
             # See https://github.com/alpaka-group/alpaka/issues/1755
-            if ((${CMAKE_CXX_COMPILER_ID} STREQUAL "Clang") AND (${CMAKE_CXX_COMPILER_VERSION} VERSION_GREATER_EQUAL 13))
+            if((${CMAKE_CXX_COMPILER_ID} STREQUAL "Clang") AND (${CMAKE_CXX_COMPILER_VERSION} VERSION_GREATER_EQUAL 13))
                 message(STATUS "clang >= 13 detected. Force-setting OpenMP to version 4.5.")
                 alpaka_set_compiler_options(DEVICE target alpaka_target_cuda "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:-Xcompiler -fopenmp-version=45>")
-            endif ()
-        else ()
+            endif()
+        else()
             alpaka_set_compiler_options(DEVICE target alpaka_target_cuda "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:-Xcompiler /openmp>")
-        endif ()
-    endif ()
+        endif()
+    endif()
 
     target_compile_definitions(alpaka_target_cuda INTERFACE ALPAKA_CMAKE_TARGET_CUDA)
     target_link_libraries(alpaka_target_cuda INTERFACE alpaka::headers)
 
-    if (alpaka_COUNT_API_DEPS EQUAL 1)
+    if(alpaka_COUNT_API_DEPS EQUAL 1)
         target_link_libraries(alpaka INTERFACE alpaka_target_cuda)
-    endif ()
-endif ()
+    endif()
+endif()
 
-if (alpaka_DEP_HIP)
+if(alpaka_DEP_HIP)
     check_language(HIP)
 
-    if (CMAKE_HIP_COMPILER)
+    if(CMAKE_HIP_COMPILER)
         enable_language(HIP)
         find_package(hip REQUIRED)
 
@@ -270,15 +269,15 @@ if (alpaka_DEP_HIP)
         # the next minor level, e.g. 6.1, would have to be used.
         set(_hip_MAJOR_MINOR_VERSION "${hip_VERSION_MAJOR}.${hip_VERSION_MINOR}")
 
-        if (
-                ${_hip_MAJOR_MINOR_VERSION} VERSION_LESS ${_alpaka_HIP_MIN_VER}
-                OR ${_hip_MAJOR_MINOR_VERSION} VERSION_GREATER ${_alpaka_HIP_MAX_VER}
+        if(
+            ${_hip_MAJOR_MINOR_VERSION} VERSION_LESS ${_alpaka_HIP_MIN_VER}
+            OR ${_hip_MAJOR_MINOR_VERSION} VERSION_GREATER ${_alpaka_HIP_MAX_VER}
         )
             message(
-                    WARNING
-                    "HIP ${_hip_MAJOR_MINOR_VERSION} is not official supported by alpaka. Supported versions: ${_alpaka_HIP_MIN_VER} - ${_alpaka_HIP_MAX_VER}"
+                WARNING
+                "HIP ${_hip_MAJOR_MINOR_VERSION} is not official supported by alpaka. Supported versions: ${_alpaka_HIP_MIN_VER} - ${_alpaka_HIP_MAX_VER}"
             )
-        endif ()
+        endif()
 
         add_library(alpaka_target_hip INTERFACE)
         target_link_libraries(alpaka_target_hip INTERFACE alpaka_target_headers)
@@ -291,41 +290,41 @@ if (alpaka_DEP_HIP)
         alpaka_set_compiler_options(HOST_DEVICE target alpaka_target_hip "$<$<COMPILE_LANGUAGE:CXX>:-D__HIP_PLATFORM_AMD__>")
 
         alpaka_compiler_option(HIP_KEEP_FILES "Keep all intermediate files that are generated during internal compilation steps 'CMakeFiles/<targetname>.dir'" OFF)
-        if (alpaka_HIP_KEEP_FILES)
+        if(alpaka_HIP_KEEP_FILES)
             alpaka_set_compiler_options(HOST_DEVICE target alpaka_target_hip "$<$<COMPILE_LANGUAGE:HIP>:SHELL:-save-temps>")
-        endif ()
+        endif()
 
-        if (alpaka_FAST_MATH STREQUAL ON)
+        if(alpaka_FAST_MATH STREQUAL ON)
             alpaka_set_compiler_options(DEVICE target alpaka_target_hip "$<$<COMPILE_LANGUAGE:HIP>:SHELL:-ffast-math>")
-        elseif (alpaka_MATH STREQUAL OFF)
+        elseif(alpaka_MATH STREQUAL OFF)
             alpaka_set_compiler_options(DEVICE target alpaka_target_hip "$<$<COMPILE_LANGUAGE:HIP>:SHELL:-fno-fast-math>")
-        endif ()
+        endif()
 
-        if (alpaka_FTZ STREQUAL ON)
+        if(alpaka_FTZ STREQUAL ON)
             alpaka_set_compiler_options(DEVICE target alpaka_target_hip "$<$<COMPILE_LANGUAGE:HIP>:SHELL:-fgpu-flush-denormals-to-zero>")
-        elseif (alpaka_FTZ STREQUAL OFF)
+        elseif(alpaka_FTZ STREQUAL OFF)
             alpaka_set_compiler_options(DEVICE target alpaka_target_hip "$<$<COMPILE_LANGUAGE:HIP>:SHELL:-fno-gpu-flush-denormals-to-zero>")
-        endif ()
+        endif()
 
-        if (alpaka_RELOCATABLE_DEVICE_CODE STREQUAL ON)
+        if(alpaka_RELOCATABLE_DEVICE_CODE STREQUAL ON)
             alpaka_set_compiler_options(DEVICE target alpaka_target_hip "$<$<COMPILE_LANGUAGE:HIP>:SHELL:-fgpu-rdc>")
             target_link_options(alpaka_target_hip INTERFACE "$<$<LINK_LANGUAGE:HIP>:SHELL:-fgpu-rdc --hip-link>")
-        elseif (alpaka_RELOCATABLE_DEVICE_CODE STREQUAL OFF)
+        elseif(alpaka_RELOCATABLE_DEVICE_CODE STREQUAL OFF)
             alpaka_set_compiler_options(DEVICE target alpaka_target_hip "$<$<COMPILE_LANGUAGE:HIP>:SHELL:-fno-gpu-rdc>")
-        endif ()
-    else ()
+        endif()
+    else()
         message(FATAL_ERROR "Optional alpaka dependency HIP could not be found!")
-    endif ()
+    endif()
 
     target_compile_definitions(alpaka_target_hip INTERFACE ALPAKA_CMAKE_TARGET_HIP)
     target_link_libraries(alpaka_target_hip INTERFACE alpaka::headers)
 
-    if (alpaka_COUNT_API_DEPS EQUAL 1)
+    if(alpaka_COUNT_API_DEPS EQUAL 1)
         target_link_libraries(alpaka INTERFACE alpaka_target_hip)
-    endif ()
-endif ()
+    endif()
+endif()
 
-if (alpaka_DEP_ONEAPI)
+if(alpaka_DEP_ONEAPI)
     find_package(IntelSYCL REQUIRED)
 
     add_library(alpaka_target_oneapi INTERFACE)
@@ -333,129 +332,129 @@ if (alpaka_DEP_ONEAPI)
     target_link_libraries(alpaka_target_oneapi INTERFACE alpaka_target_headers)
     target_link_libraries(alpaka_target_oneapi INTERFACE IntelSYCL::SYCL_CXX)
 
-    if (alpaka_RELOCATABLE_DEVICE_CODE STREQUAL ON)
+    if(alpaka_RELOCATABLE_DEVICE_CODE STREQUAL ON)
         alpaka_set_compiler_options(DEVICE alpaka_target_oneapi alpaka "-fsycl-rdc")
         target_link_options(alpaka_target_oneapi INTERFACE "-fsycl-rdc")
-    elseif (alpaka_RELOCATABLE_DEVICE_CODE STREQUAL OFF)
+    elseif(alpaka_RELOCATABLE_DEVICE_CODE STREQUAL OFF)
         alpaka_set_compiler_options(DEVICE alpaka_target_oneapi alpaka "-fno-sycl-rdc")
         target_link_options(alpaka_target_oneapi INTERFACE "-fno-sycl-rdc")
-    endif ()
+    endif()
 
     option(alpaka_ONEAPI_Cpu "Enable oneApi AMD Gpu support in examples/benchmarks and tests" ON)
     option(alpaka_ONEAPI_IntelGpu "Enable oneAPI Intel Gpu support in examples/benchmarks and tests" ON)
     option(alpaka_ONEAPI_NvidiaGpu "Enable oneAPI NVIDIA Gpu support in examples/benchmarks and tests" OFF)
     option(alpaka_ONEAPI_AmdGpu "Enable oneAPI AMD Gpu support in examples/benchmarks and tests" OFF)
 
-    if (alpaka_ONEAPI_Cpu)
+    if(alpaka_ONEAPI_Cpu)
         set(alpaka_ONEAPI_Cpu_ARCH "" CACHE STRING "OneAPI Cpu architecture")
         list(APPEND custom_SYCL_TARGETS spir64_x86_64)
-        if (alpaka_ONEAPI_Cpu_ARCH)
+        if(alpaka_ONEAPI_Cpu_ARCH)
             target_link_options(
-                    alpaka_target_oneapi
-                    INTERFACE -Xsycl-target-backend=spir64_x86_64 -march=${alpaka_ONEAPI_Cpu_ARCH}
+                alpaka_target_oneapi
+                INTERFACE -Xsycl-target-backend=spir64_x86_64 -march=${alpaka_ONEAPI_Cpu_ARCH}
             )
-        endif ()
-    else ()
+        endif()
+    else()
         target_compile_definitions(alpaka_target_oneapi INTERFACE ALPAKA_DISABLE_OneApi_Cpu)
-    endif ()
+    endif()
 
-    if (alpaka_ONEAPI_IntelGpu)
+    if(alpaka_ONEAPI_IntelGpu)
         # spir64 is required for Intel GPUs
         list(APPEND custom_SYCL_TARGETS spir64)
-    else ()
+    else()
         target_compile_definitions(alpaka_target_oneapi INTERFACE ALPAKA_DISABLE_OneApi_IntelGpu)
-    endif ()
+    endif()
 
-    if (alpaka_ONEAPI_NvidiaGpu)
+    if(alpaka_ONEAPI_NvidiaGpu)
         set(alpaka_ONEAPI_NvidiaGpu_ARCH "80" CACHE STRING "OneApi NVIDIA GPU architecture")
 
         alpaka_set_compiler_options(HOST_DEVICE target alpaka_target_oneapi -Xsycl-target-backend=nvptx64-nvidia-cuda --offload-arch=sm_${alpaka_ONEAPI_NvidiaGpu_ARCH})
         target_link_options(
-                alpaka_target_oneapi
-                INTERFACE -Xsycl-target-backend=nvptx64-nvidia-cuda --offload-arch=sm_${alpaka_ONEAPI_NvidiaGpu_ARCH}
+            alpaka_target_oneapi
+            INTERFACE -Xsycl-target-backend=nvptx64-nvidia-cuda --offload-arch=sm_${alpaka_ONEAPI_NvidiaGpu_ARCH}
         )
 
         list(APPEND custom_SYCL_TARGETS nvptx64-nvidia-cuda)
-    else ()
+    else()
         target_compile_definitions(alpaka_target_oneapi INTERFACE ALPAKA_DISABLE_OneApi_NvidiaGpu)
-    endif ()
+    endif()
 
-    if (alpaka_ONEAPI_AmdGpu)
+    if(alpaka_ONEAPI_AmdGpu)
         set(alpaka_ONEAPI_AmdGpu_ARCH "gfx1100" CACHE STRING "OneApi AMD GPU architectures")
 
         # bug if cuda and hip is used within one system: https://github.com/intel/llvm/issues/15632
         alpaka_set_compiler_options(HOST_DEVICE target alpaka_target_oneapi -Xsycl-target-backend=amdgcn-amd-amdhsa --offload-arch=${alpaka_ONEAPI_AmdGpu_ARCH})
         target_link_options(
-                alpaka_target_oneapi
-                INTERFACE -Xsycl-target-backend=amdgcn-amd-amdhsa --offload-arch=${alpaka_ONEAPI_AmdGpu_ARCH}
+            alpaka_target_oneapi
+            INTERFACE -Xsycl-target-backend=amdgcn-amd-amdhsa --offload-arch=${alpaka_ONEAPI_AmdGpu_ARCH}
         )
         list(APPEND custom_SYCL_TARGETS amdgcn-amd-amdhsa)
-    else ()
+    else()
         target_compile_definitions(alpaka_target_oneapi INTERFACE ALPAKA_DISABLE_OneApi_AmdGpu)
-    endif ()
+    endif()
 
-    if (custom_SYCL_TARGETS)
+    if(custom_SYCL_TARGETS)
         # to enable compilation for multiple GPU architectures, we need to create a list of GPU targets
         list(JOIN custom_SYCL_TARGETS "," custom_SYCL_TARGETS_CONCAT)
         alpaka_set_compiler_options(HOST_DEVICE target alpaka_target_oneapi INTERFACE "-fsycl-targets=${custom_SYCL_TARGETS_CONCAT}")
         target_link_options(alpaka_target_oneapi INTERFACE "-fsycl-targets=${custom_SYCL_TARGETS_CONCAT}")
-    endif ()
+    endif()
 
-    if (alpaka_FAST_MATH STREQUAL ON)
+    if(alpaka_FAST_MATH STREQUAL ON)
         alpaka_set_compiler_options(DEVICE target alpaka_target_oneapi "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-ffast-math>")
-    elseif (alpaka_MATH STREQUAL OFF)
+    elseif(alpaka_MATH STREQUAL OFF)
         alpaka_set_compiler_options(DEVICE target alpaka_target_oneapi "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-fno-fast-math>")
-    endif ()
+    endif()
 
-    if (alpaka_FTZ STREQUAL ON)
+    if(alpaka_FTZ STREQUAL ON)
         alpaka_set_compiler_options(DEVICE target alpaka_target_oneapi "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-ftz>")
-    elseif (alpaka_FTZ STREQUAL OFF)
+    elseif(alpaka_FTZ STREQUAL OFF)
         alpaka_set_compiler_options(DEVICE target alpaka_target_oneapi "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-no-ftz>")
-    endif ()
+    endif()
 
     target_compile_definitions(alpaka_target_oneapi INTERFACE ALPAKA_CMAKE_TARGET_ONEAPI)
     target_link_libraries(alpaka_target_oneapi INTERFACE alpaka::headers)
 
-    if (alpaka_COUNT_API_DEPS EQUAL 1)
+    if(alpaka_COUNT_API_DEPS EQUAL 1)
         target_link_libraries(alpaka INTERFACE alpaka_target_oneapi)
-    endif ()
-endif ()
+    endif()
+endif()
 
 ## search for atomic ref
 
 # Check for C++20 std::atomic_ref first
 try_compile(
-        alpaka_HAS_STD_ATOMIC_REF # Result stored here
-        "${PROJECT_BINARY_DIR}/alpakaFeatureTests" # Binary directory for output file
-        SOURCES
+    alpaka_HAS_STD_ATOMIC_REF # Result stored here
+    "${PROJECT_BINARY_DIR}/alpakaFeatureTests" # Binary directory for output file
+    SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/tests/StdAtomicRef.cpp" # Source file
-        CXX_STANDARD 20
-        CXX_STANDARD_REQUIRED TRUE
-        CXX_EXTENSIONS FALSE
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED TRUE
+    CXX_EXTENSIONS FALSE
 )
-if (alpaka_HAS_STD_ATOMIC_REF AND (NOT alpaka_ACC_CPU_DISABLE_ATOMIC_REF))
+if(alpaka_HAS_STD_ATOMIC_REF AND (NOT alpaka_ACC_CPU_DISABLE_ATOMIC_REF))
     message(STATUS "std::atomic_ref<T> found")
     target_compile_definitions(alpaka_target_headers INTERFACE ALPAKA_HAS_STD_ATOMIC_REF)
-else ()
+else()
     message(STATUS "std::atomic_ref<T> NOT found")
-endif ()
+endif()
 
-if (NOT alpaka_HAS_STD_ATOMIC_REF)
-    if (Boost_ATOMIC_FOUND)
+if(NOT alpaka_HAS_STD_ATOMIC_REF)
+    if(Boost_ATOMIC_FOUND)
         message(STATUS "boost::atomic_ref<T> found")
         target_link_libraries(alpaka_target_headers INTERFACE Boost::atomic)
-    else ()
+    else()
         message(STATUS "boost::atomic_ref<T> NOT found")
-    endif ()
-endif ()
+    endif()
+endif()
 
-if ((NOT alpaka_HAS_STD_ATOMIC_REF) AND (NOT Boost_ATOMIC_FOUND))
+if((NOT alpaka_HAS_STD_ATOMIC_REF) AND (NOT Boost_ATOMIC_FOUND))
     message(
-            STATUS
-            "atomic_ref<T> or boost::atomic_ref<T> was not found or manually disabled. Falling back to lock-based CPU atomics."
+        STATUS
+        "atomic_ref<T> or boost::atomic_ref<T> was not found or manually disabled. Falling back to lock-based CPU atomics."
     )
     target_compile_definitions(alpaka_target_headers INTERFACE ALPAKA_DISABLE_ATOMIC_ATOMICREF)
-endif ()
+endif()
 
 # alpaka IDE target to make source browsable/editable in IDEs
 file(GLOB_RECURSE alpakaSources "${CMAKE_CURRENT_SOURCE_DIR}/include/**")
@@ -468,53 +467,53 @@ option(alpaka_BENCHMARKS "Enable/Disable benchmarks" OFF)
 option(alpaka_EXAMPLES "Enable/Disable examples" OFF)
 option(alpaka_HEADERCHECKS "Enable/Disable header check tests" OFF)
 
-if (alpaka_TESTING)
+if(alpaka_TESTING)
     include(CTest)
     enable_testing()
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/tests")
-endif ()
+endif()
 
-if (alpaka_DOCS)
+if(alpaka_DOCS)
     include(CTest)
     enable_testing()
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/docs/snippets")
-endif ()
+endif()
 
-if (alpaka_BENCHMARKS)
+if(alpaka_BENCHMARKS)
     enable_testing()
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/benchmark")
-endif ()
+endif()
 
-if (alpaka_EXAMPLES)
+if(alpaka_EXAMPLES)
     enable_testing()
     add_subdirectory(example)
-endif ()
+endif()
 
-if (alpaka_HEADERCHECKS)
+if(alpaka_HEADERCHECKS)
     enable_testing()
     add_subdirectory(headerCheck)
-endif ()
+endif()
 
 option(alpaka_EXEC_CpuSerial "Enable/Disable serial executor in examples/benchmarks and tests" ON)
-if (NOT alpaka_EXEC_CpuSerial)
+if(NOT alpaka_EXEC_CpuSerial)
     target_compile_definitions(alpaka_target_headers INTERFACE ALPAKA_DISABLE_EXEC_CpuSerial)
-endif ()
+endif()
 option(alpaka_EXEC_CpuOmpBlocks "Enable/Disable OpenMP blocks executor in examples/benchmarks and tests" ON)
-if (NOT alpaka_EXEC_CpuOmpBlocks)
+if(NOT alpaka_EXEC_CpuOmpBlocks)
     target_compile_definitions(alpaka_target_headers INTERFACE ALPAKA_DISABLE_EXEC_CpuOmpBlocks)
-endif ()
+endif()
 option(alpaka_EXEC_GpuCuda "Enable/Disable CUDA executor in examples/benchmarks and tests" ON)
-if (NOT alpaka_EXEC_GpuCuda)
+if(NOT alpaka_EXEC_GpuCuda)
     target_compile_definitions(alpaka_target_headers INTERFACE ALPAKA_DISABLE_EXEC_GpuCuda)
-endif ()
+endif()
 option(alpaka_EXEC_GpuHip "Enable/Disable HIP executor in examples/benchmarks and tests" ON)
-if (NOT alpaka_EXEC_GpuHip)
+if(NOT alpaka_EXEC_GpuHip)
     target_compile_definitions(alpaka_target_headers INTERFACE ALPAKA_DISABLE_EXEC_GpuHip)
-endif ()
+endif()
 option(alpaka_EXEC_OneApi "Enable/Disable Intel OneAPI SYCL executor in examples/benchmarks and tests" ON)
-if (NOT alpaka_EXEC_OneApi)
+if(NOT alpaka_EXEC_OneApi)
     target_compile_definitions(alpaka_target_headers INTERFACE ALPAKA_DISABLE_EXEC_OneApi)
-endif ()
+endif()
 
 # These options are used in the alpaka_finalize call
 option(alpaka_ASAN "Enable/Disable linking the address sanitizer for cpu targets" OFF)
@@ -522,53 +521,53 @@ option(alpaka_TSAN "Enable/Disable linking the thread sanitizer for cpu targets"
 option(alpaka_LSAN "Enable/Disable linking the memory leak sanitizer for cpu targets" OFF)
 option(alpaka_UBSAN "Enable/Disable linking the undefined behavior sanitizer for cpu targets" OFF)
 
-if (alpaka_TSAN)
+if(alpaka_TSAN)
     message(
-            WARNING
-            "Thread sanitizer enabled: You should reduce mmap rnd bits to avoid compile issues: call as root 'sysctl vm.mmap_rnd_bits=28'"
+        WARNING
+        "Thread sanitizer enabled: You should reduce mmap rnd bits to avoid compile issues: call as root 'sysctl vm.mmap_rnd_bits=28'"
     )
-endif ()
+endif()
 
 set(alpaka_LOG "OFF" CACHE STRING "Set how the logging should be compiled into alpaka")
 set_property(CACHE alpaka_LOG PROPERTY STRINGS "static;dynamic;OFF")
 
-if (${alpaka_LOG} STREQUAL "OFF")
+if(${alpaka_LOG} STREQUAL "OFF")
     set(alpaka_LOG_ENABLED OFF)
-else ()
+else()
     set(alpaka_LOG_ENABLED ON)
-endif ()
-if (alpaka_LOG_ENABLED)
-    if (${alpaka_LOG} STREQUAL "static")
+endif()
+if(alpaka_LOG_ENABLED)
+    if(${alpaka_LOG} STREQUAL "static")
         target_compile_definitions(alpaka_target_headers INTERFACE ALPAKA_LOG_STATIC)
-    endif ()
+    endif()
 
-    if (${alpaka_LOG} STREQUAL "dynamic")
+    if(${alpaka_LOG} STREQUAL "dynamic")
         target_compile_definitions(alpaka_target_headers INTERFACE ALPAKA_LOG_DYNAMIC)
-    endif ()
+    endif()
 
     option(alpaka_LOG_INDENT "Enable/Disable call stack indention for logging" ON)
-    if (alpaka_LOG_INDENT)
+    if(alpaka_LOG_INDENT)
         target_compile_definitions(alpaka_target_headers INTERFACE ALPAKA_LOG_INDENT)
-    endif ()
+    endif()
 
     set(alpaka_LOG_DETAIL "short" CACHE STRING "Set how the logging should be compiled into alpaka")
     set_property(CACHE alpaka_LOG_DETAIL PROPERTY STRINGS "short;long")
-    if (${alpaka_LOG_DETAIL} STREQUAL "short")
+    if(${alpaka_LOG_DETAIL} STREQUAL "short")
         target_compile_definitions(alpaka_target_headers INTERFACE ALPAKA_LOG_DETAIL_SHORT)
-    elseif (${alpaka_LOG_DETAIL} STREQUAL "long")
+    elseif(${alpaka_LOG_DETAIL} STREQUAL "long")
         target_compile_definitions(alpaka_target_headers INTERFACE ALPAKA_LOG_DETAIL_LONG)
-    endif ()
+    endif()
 
     option(alpaka_LOG_FUNCTIONS "Enable/Disable logging of function entry and exit" ON)
-    if (alpaka_LOG_FUNCTIONS)
+    if(alpaka_LOG_FUNCTIONS)
         target_compile_definitions(alpaka_target_headers INTERFACE ALPAKA_ENABLE_LOG_FUNCTIONS)
-    endif ()
+    endif()
 
     option(alpaka_LOG_INFO "Enable/Disable logging of additional information" ON)
-    if (alpaka_LOG_INFO)
+    if(alpaka_LOG_INFO)
         target_compile_definitions(alpaka_target_headers INTERFACE ALPAKA_ENABLE_LOG_INFO)
-    endif ()
-    if (${alpaka_LOG} STREQUAL "static")
+    endif()
+    if(${alpaka_LOG} STREQUAL "static")
         # Set default options for each log level (Device, Event, Memory, Queue, Kernel)
         option(alpaka_LOG_STATIC_Device "Enable Device logging" ON)
         option(alpaka_LOG_STATIC_Event "Enable Event logging" ON)
@@ -580,36 +579,36 @@ if (alpaka_LOG_ENABLED)
         set(alpaka_LOG_STATIC_LVL_MASK 0)
 
         # Set bit mask based on user-selected options
-        if (alpaka_LOG_STATIC_Device)
+        if(alpaka_LOG_STATIC_Device)
             math(EXPR alpaka_LOG_STATIC_LVL_MASK "${alpaka_LOG_STATIC_LVL_MASK} | 1")
-        endif ()
+        endif()
 
-        if (alpaka_LOG_STATIC_Event)
+        if(alpaka_LOG_STATIC_Event)
             math(EXPR alpaka_LOG_STATIC_LVL_MASK "${alpaka_LOG_STATIC_LVL_MASK} | 2")
-        endif ()
+        endif()
 
-        if (alpaka_LOG_STATIC_Memory)
+        if(alpaka_LOG_STATIC_Memory)
             math(EXPR alpaka_LOG_STATIC_LVL_MASK "${alpaka_LOG_STATIC_LVL_MASK} | 4")
-        endif ()
+        endif()
 
-        if (alpaka_LOG_STATIC_Queue)
+        if(alpaka_LOG_STATIC_Queue)
             math(EXPR alpaka_LOG_STATIC_LVL_MASK "${alpaka_LOG_STATIC_LVL_MASK} | 8")
-        endif ()
+        endif()
 
-        if (alpaka_LOG_STATIC_Kernel)
+        if(alpaka_LOG_STATIC_Kernel)
             math(EXPR alpaka_LOG_STATIC_LVL_MASK "${alpaka_LOG_STATIC_LVL_MASK} | 16")
-        endif ()
+        endif()
 
         # Convert bitmask string to a numeric value
         math(EXPR alpaka_LOG_STATIC_LVL_MASK_VALUE "${alpaka_LOG_STATIC_LVL_MASK}")
 
         # Pass the bit mask to the C++ code via target_compile_definitions
         target_compile_definitions(
-                alpaka_target_headers
-                INTERFACE ALPAKA_LOG_STATIC_LVL_MASK=${alpaka_LOG_STATIC_LVL_MASK_VALUE}
+            alpaka_target_headers
+            INTERFACE ALPAKA_LOG_STATIC_LVL_MASK=${alpaka_LOG_STATIC_LVL_MASK_VALUE}
         )
 
         # Print the final bit mask value (for debugging purposes)
         message(STATUS "define ALPAKA_LOG_STATIC_LVL_MASK is set to: ${alpaka_LOG_STATIC_LVL_MASK_VALUE}")
-    endif ()
-endif ()
+    endif()
+endif()

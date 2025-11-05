@@ -29,18 +29,18 @@ TEST_CASE("KernelTuningModel - construct models of varying dimensionality", "[KT
     using F1 = std::tuple<>;
     using C1 = std::tuple<>;
 
-    U1 u1{Tunable<1001>({16u, 32u, 64u}, 32u, "tileX")};
+    U1 u1{Tunable<alpaka::uniqueId()>({16u, 32u, 64u}, 32u, "tileX")};
     KernelTuningModel<F1, U1, C1> m1{F1{}, u1, C1{}};
 
     using C2 = std::tuple<>;
 
-    auto u2 = std::tuple{Tunable<2001, uint32_t>{{1u, 2u}, 2u, "algoVariant"}};
+    auto u2 = std::tuple{Tunable<alpaka::uniqueId(), uint32_t>{{1u, 2u}, 2u, "algoVariant"}};
     auto f2 = std::tuple{TunableMD<tune::frame::numBlocks>({{2u, 3u}, {4u, 5u}}, std::nullopt, "Blocks")};
     KernelTuningModel m2{f2, u2, C2{}};
 
     // 4D: frame: NumFrames (Vec<2>) + FrameExtent (Vec<2>), user: scalar (1D), compile-time: scalar (1D)
 
-    auto u3 = std::tuple{Tunable<3001>{{4u, 8u, 16u}, 8u, "tileY"}};
+    auto u3 = std::tuple{Tunable<alpaka::uniqueId()>{{4u, 8u, 16u}, 8u, "tileY"}};
     auto f3 = std::tuple{
         TunableMD<tune::frame::numFrames>{{{1u, 1u}, {2u, 1u}, {3u, 1u}}},
         TunableMD<tune::frame::frameExtent>{{64u, 32u}, {128u, 64u}}};
@@ -188,7 +188,7 @@ TEST_CASE("KernelTuningModel - getValuesFor* subsets return the right slice", "[
 {
     auto m = KernelTuningModel{
         std::tuple{TunableMD<tune::frame::numFrames>{{{1u, 1u}, {2u, 3u}}, std::nullopt, "NF"}},
-        std::tuple{Tunable<10, uint32_t>{{5u, 10u}, 10u, "u"}},
+        std::tuple{Tunable<alpaka::uniqueId(), uint32_t>{{5u, 10u}, 10u, "u"}},
         std::tuple{CTunable<1000u, CVec<double, 1.0>, CVec<double, 2.5>>{}}};
     static_assert(decltype(m)::numDims == 4);
 
@@ -268,7 +268,7 @@ TEST_CASE("KernelTuningModel - applyToFrameSpec writes fields correctly", "[KTM]
 // // // ------------------------------------------------------------
 TEST_CASE("ConfigDescriptor - create/get empty configs and normalized conversion", "[ConfigDescriptor]")
 {
-    KernelTuningModel m{{}, std::tuple{Tunable<90001, uint32_t>{{11u, 22u, 33u}, 22u, "U"}}, {}};
+    KernelTuningModel m{{}, std::tuple{Tunable<alpaka::uniqueId(), uint32_t>{{11u, 22u, 33u}, 22u, "U"}}, {}};
 
     // Descriptor wraps KTM
     ConfigDescriptor desc{m};
@@ -311,11 +311,11 @@ TEST_CASE("KernelTuningModel - getConfigSubset_CompileTuneables returns correct 
     auto frame
         = std::tuple{tune::Tunable<tune::frame::numBlocks, uint32_t>{{{1u}, {2u}, {4u}}, std::nullopt, "numBlocks"}};
 
-    auto user = std::tuple{tune::Tunable<42, uint32_t>{{10u, 20u, 30u}, 20u, "userParam"}};
+    auto user = std::tuple{tune::Tunable<alpaka::uniqueId(), uint32_t>{{10u, 20u, 30u}, 20u, "userParam"}};
 
     using CT = std::tuple<
-        tune::CTunable<9001, CVec<double, 1.0>, CVec<double, 2.0>>,
-        tune::CTunable<9002, CVec<double, 3.0>, CVec<double, 4.0>>>;
+        tune::CTunable<alpaka::uniqueId(), CVec<double, 1.0>, CVec<double, 2.0>>,
+        tune::CTunable<alpaka::uniqueId(), CVec<double, 3.0>, CVec<double, 4.0>>>;
 
     KernelTuningModel model{frame, user, CT{}};
 

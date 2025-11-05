@@ -385,7 +385,8 @@ namespace alpaka::tune::strategy
     void callRandomSearch(
         T_metricInterface& metricInterface, // the user specified metricInterface
         KernelTuningModelView<T_TuningModel>& model,
-        ConfigStorage<T_Config>& config_storage, // this already returns the Config for a specific kernel backend Config
+        ConfigStorage<T_Config>&
+            config_storage, // this already returns the Config for a specific kernel backend Config
         EnvironmentState<T_Config>& environmentState);
 
     // -----------------------------------------------------------------------------
@@ -605,8 +606,8 @@ namespace alpaka::tune::strategy
                     {
                         auto const& vals = p.getValues();
                         std::size_t n = vals.size();
-                        std::size_t idx
-                            = static_cast<std::size_t>(std::round(pool_[sel].vec(i) * std::max<std::size_t>(1, n - 1)));
+                        std::size_t idx = static_cast<std::size_t>(
+                            std::round(pool_[sel].vec(i) * std::max<std::size_t>(1, n - 1)));
                         p.index = std::min(idx, n - 1);
                         p.value = vals[p.index];
                         ++i;
@@ -617,6 +618,6 @@ namespace alpaka::tune::strategy
             history.getOrCreate(model.toConfig()); // ensure entry exists
         }
     };
-} //namespace alpaka::tune::strategy
-#endif //BAYESIANOPTIMIZER_H
+} // namespace alpaka::tune::strategy
+#    endif // BAYESIANOPTIMIZER_H
 #endif
