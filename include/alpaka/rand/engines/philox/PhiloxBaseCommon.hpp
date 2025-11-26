@@ -4,11 +4,11 @@
 
 #pragma once
 
-#include "alpaka/rand/Philox/PhiloxStateless.hpp"
+#include "alpaka/rand/engines/philox/PhiloxStateless.hpp"
 
-#include <utility>
+#include <alpaka/rand/engines/philox/PhiloxState.hpp>
 
-namespace alpaka::rand::engine
+namespace alpaka::rand::internal::engine
 {
     /** Common class for Philox family engines
      *
@@ -29,10 +29,22 @@ namespace alpaka::rand::engine
     public:
         using Counter = typename PhiloxStateless<TParams>::Counter;
         using Key = typename PhiloxStateless<TParams>::Key;
+        /// State type
+        using State = PhiloxState<Counter, Key>;
 
+        /// Internal engine state
+        State state;
         /// Distribution container type
         template<typename TDistributionResultScalar>
         using ResultContainer = typename alpaka::Vec<TDistributionResultScalar, TParams::counterSize>;
+        ALPAKA_FN_HOST_ACC
+        PhiloxBaseCommon() = default;
+
+        ALPAKA_FN_HOST_ACC
+        PhiloxBaseCommon(Counter c, Key k, Counter r, std::uint32_t n = 0u)
+            : state{std::move(c), std::move(k), std::move(r), n}
+        {
+        }
 
     protected:
         /** Advance the \a counter to the next state
@@ -41,21 +53,13 @@ namespace alpaka::rand::engine
          *
          * @param counter reference to the counter which is to be advanced
          */
-        ALPAKA_FN_HOST_ACC void advanceCounter(Counter& counter)
+        template<typename T, auto N>
+        ALPAKA_FN_HOST_ACC void advanceCounter(alpaka::Vec<T, N>& counter)
         {
-            counter[0]++;
-            /* 128-bit carry */
-            if(counter[0] == 0)
+            for(auto i = 0; i < N; ++i)
             {
-                counter[1]++;
-                if(counter[1] == 0)
-                {
-                    counter[2]++;
-                    if(counter[2] == 0)
-                    {
-                        counter[3]++;
-                    }
-                }
+                if(++counter[i] != 0)
+                    break;
             }
         }
 
@@ -67,10 +71,10 @@ namespace alpaka::rand::engine
          */
         ALPAKA_FN_HOST_ACC void skip4(uint64_t offset)
         {
-            Counter& counter = static_cast<TImpl*>(this)->state.counter;
+            Counter& counter = this->state.counter;
             Counter temp = counter;
-            counter[0] += low32Bits(offset);
-            counter[1] += high32Bits(offset) + (counter[0] < temp[0] ? 1 : 0);
+            counter[0] += helper::low32Bits(offset);
+            counter[1] += helper::high32Bits(offset) + (counter[0] < temp[0] ? 1 : 0);
             counter[2] += (counter[0] < temp[1] ? 1u : 0u);
             counter[3] += (counter[0] < temp[2] ? 1u : 0u);
         }
@@ -83,10 +87,10 @@ namespace alpaka::rand::engine
          */
         ALPAKA_FN_HOST_ACC void skipSubsequence(uint64_t subsequence)
         {
-            Counter& counter = static_cast<TImpl*>(this)->state.counter;
+            Counter& counter = this->state.counter;
             Counter temp = counter;
-            counter[2] += low32Bits(subsequence);
-            counter[3] += high32Bits(subsequence) + (counter[2] < temp[2] ? 1 : 0);
+            counter[2] += helper::low32Bits(subsequence);
+            counter[3] += helper::high32Bits(subsequence) + (counter[2] < temp[2] ? 1 : 0);
         }
     };
-} // namespace alpaka::rand::engine
+} // namespace alpaka::rand::internal::engine

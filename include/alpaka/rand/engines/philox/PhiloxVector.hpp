@@ -4,29 +4,14 @@
 
 #pragma once
 
-#include "alpaka/rand/Philox/MultiplyAndSplit64to32.hpp"
-#include "alpaka/rand/Philox/PhiloxBaseCommon.hpp"
+#include "alpaka/rand/engines/philox/PhiloxBaseCommon.hpp"
+#include "alpaka/rand/engines/philox/multiplyAndSplit64to32.hpp"
 
 #include <utility>
 
-namespace alpaka::rand::engine
+namespace alpaka::rand::internal::engine
 {
-    /** Philox state for vector generator
-     *
-     * @tparam TCounter Type of the Counter array
-     * @tparam TKey Type of the Key array
-     */
-    template<typename TCounter, typename TKey>
-    struct PhiloxStateVector
-    {
-        using Counter = TCounter;
-        using Key = TKey;
 
-        /// Counter array
-        Counter counter;
-        /// Key array
-        Key key;
-    };
 
     /** Philox engine generating a vector of numbers
      *
@@ -46,13 +31,9 @@ namespace alpaka::rand::engine
         using Counter = typename Base::Counter;
         /// Key type
         using Key = typename Base::Key;
-        /// State type
-        using State = PhiloxStateVector<Counter, Key>;
 
         template<typename TDistributionResultScalar>
         using ResultContainer = typename Base::template ResultContainer<TDistributionResultScalar>;
-
-        State state;
 
     protected:
         /** Get the next array of random numbers and advance internal state
@@ -61,8 +42,8 @@ namespace alpaka::rand::engine
          */
         ALPAKA_FN_HOST_ACC auto nextVector()
         {
-            this->advanceCounter(state.counter);
-            return this->nRounds(state.counter, state.key);
+            this->advanceCounter(this->state.counter);
+            return this->nRounds(this->state.counter, this->state.key);
         }
 
         /** Skips the next \a offset vectors
@@ -83,7 +64,7 @@ namespace alpaka::rand::engine
          * @param offset Skip \a offset numbers form the start of the subsequence
          */
         ALPAKA_FN_HOST_ACC PhiloxVector(uint64_t seed = 0, uint64_t subsequence = 0, uint64_t offset = 0)
-            : state{{0, 0, 0, 0}, {low32Bits(seed), high32Bits(seed)}}
+            : Base({0, 0, 0, 0}, {helper::low32Bits(seed), helper::high32Bits(seed)}, {0, 0, 0, 0}, 0)
         {
             this->skipSubsequence(subsequence);
             skip(offset);
@@ -99,4 +80,4 @@ namespace alpaka::rand::engine
             return nextVector();
         }
     };
-} // namespace alpaka::rand::engine
+} // namespace alpaka::rand::internal::engine

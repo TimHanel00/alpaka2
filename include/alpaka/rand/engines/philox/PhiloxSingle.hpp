@@ -4,34 +4,14 @@
 
 #pragma once
 
-#include "alpaka/rand/Philox/MultiplyAndSplit64to32.hpp"
-#include "alpaka/rand/Philox/PhiloxBaseCommon.hpp"
+#include <alpaka/rand/engines/philox/PhiloxBaseCommon.hpp>
+#include <alpaka/rand/engines/philox/multiplyAndSplit64to32.hpp>
 
 #include <utility>
 
-namespace alpaka::rand::engine
+namespace alpaka::rand::internal::engine
 {
-    /** Philox state for single value engine
-     *
-     * @tparam TCounter Type of the Counter array
-     * @tparam TKey Type of the Key array
-     */
-    template<typename TCounter, typename TKey>
-    struct PhiloxStateSingle
-    {
-        using Counter = TCounter;
-        using Key = TKey;
 
-        /// Counter array
-        Counter counter;
-        /// Key array
-        Key key;
-        /// Intermediate result array
-        Counter result;
-        /// Pointer to the active intermediate result element
-        std::uint32_t position;
-        // TODO: Box-Muller states
-    };
 
     /** Philox engine generating a single number
      *
@@ -52,11 +32,7 @@ namespace alpaka::rand::engine
         using Counter = typename Base::Counter;
         /// Key type
         using Key = typename Base::Key;
-        /// State type
-        using State = PhiloxStateSingle<Counter, Key>;
 
-        /// Internal engine state
-        State state;
 
     protected:
         /** Advance internal counter to the next value
@@ -66,9 +42,9 @@ namespace alpaka::rand::engine
          */
         ALPAKA_FN_HOST_ACC void advanceState()
         {
-            this->advanceCounter(state.counter);
-            state.result = this->nRounds(state.counter, state.key);
-            state.position = 0;
+            this->advanceCounter(this->state.counter);
+            this->state.result = this->nRounds(this->state.counter, this->state.key);
+            this->state.position = 0;
         }
 
         /** Get the next random number and advance internal state
@@ -82,9 +58,8 @@ namespace alpaka::rand::engine
         ALPAKA_FN_HOST_ACC auto nextNumber()
         {
             // Element zero will always contain the next valid random number.
-            auto result = state.result[0];
-            state.position++;
-            if(state.position == TParams::counterSize)
+            auto result = this->state.result[this->state.position++];
+            if(this->state.position == TParams::counterSize)
             {
                 advanceState();
             }
@@ -95,9 +70,11 @@ namespace alpaka::rand::engine
                 // \todo Check if this shifting of the result vector is decreasing CPU performance.
                 //       If so this optimization for GPUs (mostly NVIDIA) should be moved into
                 //       PhiloxBaseCudaArray.
-                state.result[0] = state.result[1];
-                state.result[1] = state.result[2];
-                state.result[2] = state.result[3];
+
+                //
+                this->state.result[0] = this->state.result[1];
+                this->state.result[1] = this->state.result[2];
+                this->state.result[2] = this->state.result[3];
             }
 
             return result;
@@ -107,16 +84,16 @@ namespace alpaka::rand::engine
         ALPAKA_FN_HOST_ACC void skip(uint64_t offset)
         {
             static_assert(TParams::counterSize == 4, "Only counterSize is supported.");
-            state.position = static_cast<decltype(state.position)>(state.position + (offset & 3));
-            offset += state.position < 4 ? 0 : 4;
-            state.position -= state.position < 4 ? 0 : 4u;
-            for(auto numShifts = state.position; numShifts > 0; --numShifts)
+            this->state.position = static_cast<decltype(this->state.position)>(this->state.position + (offset & 3));
+            offset += this->state.position < 4 ? 0 : 4;
+            this->state.position -= this->state.position < 4 ? 0 : 4u;
+            for(auto numShifts = this->state.position; numShifts > 0; --numShifts)
             {
                 // Shift state results to allow hard coded access to element zero.
                 // This will avoid high register usage on NVIDIA devices.
-                state.result[0] = state.result[1];
-                state.result[1] = state.result[2];
-                state.result[2] = state.result[3];
+                this->state.result[0] = this->state.result[1];
+                this->state.result[1] = this->state.result[2];
+                this->state.result[2] = this->state.result[3];
             }
             this->skip4(offset / 4);
         }
@@ -129,7 +106,7 @@ namespace alpaka::rand::engine
          * @param offset Skip \a offset numbers form the start of the subsequence
          */
         ALPAKA_FN_HOST_ACC PhiloxSingle(uint64_t seed = 0, uint64_t subsequence = 0, uint64_t offset = 0)
-            : state{{0, 0, 0, 0}, {low32Bits(seed), high32Bits(seed)}, {0, 0, 0, 0}, 0}
+            : Base({0, 0, 0, 0}, {helper::low32Bits(seed), helper::high32Bits(seed)}, {0, 0, 0, 0})
         {
             this->skipSubsequence(subsequence);
             skip(offset);
@@ -145,4 +122,4 @@ namespace alpaka::rand::engine
             return nextNumber();
         }
     };
-} // namespace alpaka::rand::engine
+} // namespace alpaka::rand::internal::engine
