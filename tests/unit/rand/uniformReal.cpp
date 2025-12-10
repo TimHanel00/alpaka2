@@ -5,7 +5,6 @@
 
 #include <alpaka/alpaka.hpp>
 #include <alpaka/meta/CartesianProduct.hpp>
-#include <alpaka/meta/TypeListOps.hpp>
 #include <alpaka/onHost/example/executors.hpp>
 
 #include <catch2/catch_template_test_macros.hpp>
@@ -35,8 +34,9 @@ struct UniformRealKernel
         T_Floating maxF) const
     {
         rand::distribution::UniformReal distribution(minF, maxF, T_Interval{});
-
-        auto linearGridThreadIndex = alpaka::linearize(acc[layer::thread].count(), acc[layer::thread].idx());
+        concepts::Vector auto gridThreadCount = acc.getExtentsOf(onAcc::origin::grid, onAcc::unit::threads);
+        concepts::Vector auto gridThreadIdx = acc.getIdxWithin(onAcc::origin::grid, onAcc::unit::threads);
+        auto linearGridThreadIndex = alpaka::linearize(gridThreadCount, gridThreadIdx);
         // checks to prevent overflow are unnecessary in this case
         std::unsigned_integral auto seedTx = seed + linearGridThreadIndex;
         T_Engine engine(seedTx);
@@ -192,9 +192,6 @@ constexpr void forEach(Tuple&& tuple, F&& f)
     std::apply([&]<typename... T0>(T0&&... elems) { (f(std::forward<T0>(elems)), ...); }, std::forward<Tuple>(tuple));
 }
 
-template<typename T>
-struct Dummy;
-
 template<typename T_Api, typename T_Engines>
 void testMainDispatch()
 {
@@ -238,10 +235,8 @@ TEMPLATE_LIST_TEST_CASE("UniformReal on std engines", "", TestBackends)
     using namespace alpaka;
     auto cfg = TestType::makeDict();
     auto exec = cfg[object::exec];
-    using T_ExecType = ALPAKA_TYPEOF(exec);
-    using T_SupportedHostExecutors = Tuple<exec::CpuSerial, exec::CpuOmpBlocks, exec::CpuTbbBlocks>;
     using T_Engines = Tuple<std::mt19937, std::mt19937_64>;
-    if constexpr(meta::Contains<T_SupportedHostExecutors, T_ExecType>::value)
+    if constexpr(cfg[object::deviceKind] == deviceKind::cpu)
     {
         testMainDispatch<TestType, T_Engines>();
     }
