@@ -14,6 +14,30 @@
 /** Functionality which is usable on the host CPU controller thread. */
 namespace alpaka::onHost
 {
+    namespace internal
+    {
+        template<onHost::concepts::Backend T_Backend>
+        struct MakeDevice::Op<T_Backend>
+        {
+            auto operator()(T_Backend const& backend, uint32_t idx) const
+            {
+                auto deviceSelector = onHost::makeDeviceSelector(backend[object::deviceSpec]);
+                return internal::makeDevice(deviceSelector, idx);
+            }
+        };
+    } // namespace internal
+
+    /** Create a device from an object which can select or provide devices.
+     *
+     * @param any can be a platform, device selector, device specification, or backend
+     * @param idx device index (default = 0)
+     * @return device
+     */
+    inline constexpr decltype(auto) makeDevice(auto&& any, uint32_t idx = 0)
+    {
+        return internal::makeDevice(ALPAKA_FORWARD(any), idx);
+    }
+
     /** @{
      * @name Query extents
      */

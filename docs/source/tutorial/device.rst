@@ -48,6 +48,14 @@ Calling ``makeDevice()`` using the device index to obtain the device only succee
     :end-before: END-TUTORIAL-devHandleCount
     :dedent:
 
+For simple cases, ``makeDevice`` can also be used as a free function with a ``DeviceSpec`` or a ``Backend`` dictionary.
+
+  .. literalinclude:: ../../snippets/example/020_device.cpp
+    :language: cpp
+    :start-after: BEGIN-TUTORIAL-devMakeDeviceHelper
+    :end-before: END-TUTORIAL-devMakeDeviceHelper
+    :dedent:
+
 The device with the api ``host`` and the device kind ``cpu`` which represents your host system CPU is always available, therefore you have a shortcut interface function available.
 
   .. literalinclude:: ../../snippets/example/020_device.cpp

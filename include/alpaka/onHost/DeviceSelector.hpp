@@ -68,6 +68,27 @@ namespace alpaka::onHost
         DeviceSpec<T_Api, T_DeviceKind> m_deviceSpec;
     };
 
+    namespace internal
+    {
+        template<alpaka::concepts::Api T_Api, alpaka::concepts::DeviceKind T_DeviceKind>
+        struct MakeDevice::Op<DeviceSelector<T_Api, T_DeviceKind>>
+        {
+            auto operator()(DeviceSelector<T_Api, T_DeviceKind>& deviceSelector, uint32_t idx) const
+            {
+                return deviceSelector.makeDevice(idx);
+            }
+        };
+
+        template<alpaka::concepts::Api T_Api, alpaka::concepts::DeviceKind T_DeviceKind>
+        struct MakeDevice::Op<DeviceSpec<T_Api, T_DeviceKind>>
+        {
+            auto operator()(DeviceSpec<T_Api, T_DeviceKind> const& deviceSpec, uint32_t idx) const
+            {
+                return DeviceSelector{deviceSpec}.makeDevice(idx);
+            }
+        };
+    } // namespace internal
+
     /** create an object to get access to devices */
     template<typename T_Api, alpaka::concepts::DeviceKind T_DeviceKind>
     inline auto makeDeviceSelector(DeviceSpec<T_Api, T_DeviceKind> deviceSpec)

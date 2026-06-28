@@ -52,15 +52,20 @@ namespace alpaka::onHost
 
         struct MakeDevice
         {
-            template<typename T_Platform>
+            template<typename T_Any>
             struct Op
             {
-                auto operator()(auto& platform, uint32_t idx) const
+                auto operator()(T_Any& platform, uint32_t idx) const
                 {
                     return platform.makeDevice(idx);
                 }
             };
         };
+
+        constexpr decltype(auto) makeDevice(auto&& any, uint32_t idx)
+        {
+            return MakeDevice::Op<ALPAKA_TYPEOF(any)>{}(any, idx);
+        }
 
         struct GetDevice
         {

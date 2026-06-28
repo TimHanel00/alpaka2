@@ -7,6 +7,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <iostream>
+#include <tuple>
 
 using namespace alpaka;
 
@@ -46,6 +47,24 @@ TEST_CASE("show host devices", "[docs]")
         std::cout << "  - warp size         " << computeDevSelector.getDeviceProperties(i).warpSize << "\n";
     }
     // END-TUTORIAL-devProperties
+}
+
+TEST_CASE("make device convenience helpers", "[docs]")
+{
+    // BEGIN-TUTORIAL-devMakeDeviceHelper
+    auto deviceSpec = onHost::DeviceSpec{api::host, deviceKind::cpu};
+    {
+        onHost::Device deviceFromSpec = onHost::makeDevice(deviceSpec);
+        unused(deviceFromSpec);
+    }
+
+    onHost::concepts::Backend auto backend
+        = std::get<0>(onHost::allBackends(onHost::enabledDeviceSpecs, exec::enabledExecutors));
+    {
+        onHost::Device deviceFromBackend = onHost::makeDevice(backend);
+        unused(deviceFromBackend);
+    }
+    // END-TUTORIAL-devMakeDeviceHelper
 }
 
 TEST_CASE("host device", "[docs]")
