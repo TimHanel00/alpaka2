@@ -4,15 +4,24 @@
 
 #pragma once
 
+#include "alpaka/api/trait.hpp"
 #include "alpaka/concepts.hpp"
+#include "alpaka/core/Dict.hpp"
 #include "alpaka/internal/interface.hpp"
 #include "alpaka/onHost/internal/interface.hpp"
+#include "alpaka/tag.hpp"
+#include "alpaka/utility.hpp"
 
 #include <concepts>
 #include <string>
+#include <type_traits>
+#include <utility>
 
 namespace alpaka::onHost
 {
+    template<alpaka::concepts::Api T_Api, alpaka::concepts::DeviceKind T_DeviceKind>
+    struct DeviceSpec;
+
     namespace internal::concepts
     {
         template<typename T>
@@ -51,6 +60,12 @@ namespace alpaka::onHost
             typename T::element_type;
             requires Device<typename T::element_type>;
         };
+
+        template<typename T>
+        using BackendDeviceSpec = std::remove_cvref_t<decltype(std::declval<T const&>()[alpaka::object::deviceSpec])>;
+
+        template<typename T>
+        using BackendExecutor = std::remove_cvref_t<decltype(std::declval<T const&>()[alpaka::object::exec])>;
     } // namespace internal::concepts
 
     namespace concepts
@@ -66,6 +81,17 @@ namespace alpaka::onHost
             typename T::element_type;
             requires alpaka::concepts::HasStaticName<typename T::element_type>;
         };
+
+        /** Dictionary describing a backend configuration.
+         *
+         * A backend is the combination of a device specification and an executor, as returned by
+         * alpaka::onHost::allBackends().
+         */
+        template<typename T>
+        concept Backend = alpaka::concepts::SpecializationOf<T, alpaka::Dict> && requires(T const& backend) {
+            backend[object::deviceSpec];
+            backend[object::exec];
+        } && alpaka::concepts::SpecializationOf<internal::concepts::BackendDeviceSpec<T>, onHost::DeviceSpec> && alpaka::concepts::Executor<internal::concepts::BackendExecutor<T>>;
     } // namespace concepts
 
 } // namespace alpaka::onHost

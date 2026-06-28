@@ -221,6 +221,13 @@ Kernel
 Executor
 --------
 
+.. _backend:
+
+Backend
+-------
+
+A ``Backend`` is a configuration dictionary, typically returned by ``onHost::allBackends(...)``, that provides a ``DeviceSpec`` and an ``Executor`` and may contain additional configuration entries.
+
 .. _thread_spec:
 
 Thread Spec

@@ -273,7 +273,7 @@ namespace alpaka::onHost
      *
      * A backend is the combination of a device specification and an executor.
      * Each dictionary stores a `deviceSpec`(query: foo[object::deviceSpec]) entry and an `exec`(query:
-     * foo[object::exec]) entry for the corresponding executor.
+     * foo[object::exec]) entry for the corresponding executor and fulfills onHost::concepts::Backend.
      *
      * @param deviceSpec the device specification to associate with the executors
      * @param listOfExecutors tuple of executor types

@@ -4,6 +4,7 @@
 
 #include "alpaka/api/api.hpp"
 #include "alpaka/onHost/DeviceSelector.hpp"
+#include "alpaka/onHost/concepts.hpp"
 
 #include <functional>
 #include <tuple>
@@ -33,9 +34,10 @@ namespace alpaka::onHost
     // @param callable callable which can be invoked with the backend
     // @return disjunction of all invocation results
     //
-    inline auto executeForEachIfHasDevice(auto&& callable, auto const& tupleOfBackends)
+    template<concepts::Backend... T_Backends>
+    inline auto executeForEachIfHasDevice(auto&& callable, std::tuple<T_Backends...> const& tupleOfBackends)
     {
-        auto exe = [=](auto const& backend)
+        auto exe = [=](concepts::Backend auto const& backend)
         {
             auto devSelector = onHost::makeDeviceSelector(backend[object::deviceSpec]);
             if(devSelector.isAvailable())
@@ -46,7 +48,9 @@ namespace alpaka::onHost
         };
         // Execute the callable once for each enabled accelerator.
         // Pass the tag as first argument to the callable.
-        return std::apply([=](auto const&... backends) { return (exe(backends) || ...); }, tupleOfBackends);
+        return std::apply(
+            [=](concepts::Backend auto const&... backends) { return (exe(backends) || ...); },
+            tupleOfBackends);
     }
 
     template<onHost::concepts::DeviceSpec... T_DeviceSpecs>

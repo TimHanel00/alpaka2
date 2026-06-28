@@ -7,10 +7,10 @@
 #include <alpaka/api/trait.hpp>
 #include <alpaka/onHost/Device.hpp>
 #include <alpaka/onHost/DeviceSelector.hpp>
+#include <alpaka/onHost/concepts.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <optional>
 #include <tuple>
 
 namespace alpaka::test
@@ -36,7 +36,7 @@ namespace alpaka::test
      * @param cfg Test configuration. An entry of the list returned from alpaka::onHost::allBackends().
      * @return The device 0 if available. Otherwise, SKIP() the test.
      */
-    [[nodiscard]] auto getDeviceOrSkipTest(auto const& cfg)
+    [[nodiscard]] auto getDeviceOrSkipTest(onHost::concepts::Backend auto const& cfg)
         -> decltype(onHost::makeDeviceSelector(cfg[object::deviceSpec]).makeDevice(0))
     {
         auto deviceSpec = cfg[object::deviceSpec];
@@ -77,7 +77,7 @@ namespace alpaka::test
      * @param cfg Test configuration. An entry of the list returned from alpaka::onHost::allBackends().
      * @return A std::tuple with the device 0 and an executor. If no device is available, SKIP() the test.
      */
-    [[nodiscard]] auto getDeviceExecutorOrSkipTest(auto const& cfg) -> std::
+    [[nodiscard]] auto getDeviceExecutorOrSkipTest(onHost::concepts::Backend auto const& cfg) -> std::
         tuple<decltype(onHost::makeDeviceSelector(cfg[object::deviceSpec]).makeDevice(0)), decltype(cfg[object::exec])>
     {
         auto device = alpaka::test::getDeviceOrSkipTest(cfg);
