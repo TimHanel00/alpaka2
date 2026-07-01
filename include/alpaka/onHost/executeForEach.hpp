@@ -1,8 +1,9 @@
-/* Copyright 2023 Jeffrey Kelling, Bernhard Manfred Gruber, Jan Stephan, Aurora Perego, Andrea Bocci
+/* Copyright 2023 Jeffrey Kelling, Bernhard Manfred Gruber, Jan Stephan, Aurora Perego, Andrea Bocci, Tim Hanel
  * SPDX-License-Identifier: MPL-2.0
  */
 
 #include "alpaka/api/api.hpp"
+#include "alpaka/interface.hpp"
 #include "alpaka/onHost/DeviceSelector.hpp"
 
 #include <functional>
@@ -33,9 +34,10 @@ namespace alpaka::onHost
     // @param callable callable which can be invoked with the backend
     // @return disjunction of all invocation results
     //
-    inline auto executeForEachIfHasDevice(auto&& callable, auto const& tupleOfBackends)
+    template<alpaka::concepts::Backend... T_Backends>
+    inline auto executeForEachIfHasDevice(auto&& callable, std::tuple<T_Backends...> const& tupleOfBackends)
     {
-        auto exe = [=](auto const& backend)
+        auto exe = [=](alpaka::concepts::Backend auto const& backend)
         {
             auto devSelector = onHost::makeDeviceSelector(backend[object::deviceSpec]);
             if(devSelector.isAvailable())
