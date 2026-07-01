@@ -70,6 +70,27 @@ namespace alpaka
             return GetApi::Op<ALPAKA_TYPEOF(*anyHandle.get())>{}(*anyHandle.get());
         }
 
+        template<typename T_Any>
+        struct GetExecutor::Op
+        {
+            inline constexpr auto operator()(auto&& any) const -> decltype(any.getExecutor())
+            {
+                return any.getExecutor();
+            }
+        };
+
+        template<typename T_Any>
+        inline constexpr auto getExecutor(T_Any&& any) -> decltype(GetExecutor::Op<std::decay_t<T_Any>>{}(any))
+        {
+            return GetExecutor::Op<std::decay_t<T_Any>>{}(ALPAKA_FORWARD(any));
+        }
+
+        template<typename T_Any>
+        inline constexpr auto getExecutor(onHost::Handle<T_Any>&& anyHandle)
+        {
+            return GetExecutor::Op<ALPAKA_TYPEOF(*anyHandle.get())>{}(*anyHandle.get());
+        }
+
         struct GetDeviceType
         {
             template<typename T_Any>

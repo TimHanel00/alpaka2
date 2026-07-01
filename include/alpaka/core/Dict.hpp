@@ -7,6 +7,7 @@
 #include "alpaka/Tuple.hpp"
 #include "alpaka/core/common.hpp"
 #include "alpaka/core/util.hpp"
+#include "alpaka/tag.hpp"
 #include "alpaka/unused.hpp"
 #include "alpaka/utility.hpp"
 
@@ -165,6 +166,19 @@ namespace alpaka
 
     template<typename... T_Keys, typename... T_Values>
     ALPAKA_FN_HOST_ACC Dict(DictEntry<T_Keys, T_Values> const&...) -> Dict<DictEntry<T_Keys, T_Values>...>;
+
+    namespace internal
+    {
+        template<typename... T_Entries>
+        requires(KeyIdx<ALPAKA_TYPEOF(object::exec), Dict<T_Entries...>>::value != -1)
+        struct GetExecutor::Op<Dict<T_Entries...>>
+        {
+            inline constexpr auto operator()(auto&& any) const
+            {
+                return any[object::exec];
+            }
+        };
+    } // namespace internal
 
 } // namespace alpaka
 

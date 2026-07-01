@@ -72,6 +72,11 @@ namespace alpaka::onAcc
             return T_Storage::operator[](object::deviceKind);
         }
 
+        constexpr auto getExecutor() const
+        {
+            return T_Storage::operator[](object::exec);
+        }
+
         /** Check if a frame spec was used to enqueue the kernel
          *
          * To be able to use the result as constexpr value you must call the static function via the type

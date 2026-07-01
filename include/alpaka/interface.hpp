@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "alpaka/api/trait.hpp"
 #include "alpaka/concepts.hpp"
 #include "alpaka/internal/interface.hpp"
 #include "alpaka/tag.hpp"
@@ -12,6 +13,25 @@
 
 namespace alpaka
 {
+    /** Get the executor associated with an object
+     *
+     * @param any object carrying an executor, e.g. an accelerator or backend dictionary
+     * @return executor tag
+     *
+     * @{
+     */
+    inline constexpr auto getExecutor(auto&& any) -> decltype(alpaka::internal::getExecutor(ALPAKA_FORWARD(any)))
+    {
+        return alpaka::internal::getExecutor(ALPAKA_FORWARD(any));
+    }
+
+    inline constexpr auto getExecutor(alpaka::concepts::HasGet auto&& any)
+        -> decltype(alpaka::internal::getExecutor(*any.get()))
+    {
+        return alpaka::internal::getExecutor(*any.get());
+    }
+
+    /** @} */
 
     /** Get the API an object depends on
      *
@@ -32,6 +52,13 @@ namespace alpaka
 
     namespace concepts
     {
+        /** Concept to check if the given type implements the `getExecutor(T x)` function returning an
+         * alpaka::concepts::Executor
+         */
+        template<typename T_Any>
+        concept HasExecutor = requires(T_Any&& any) {
+            { getExecutor(any) } -> alpaka::concepts::Executor;
+        };
         /** Concept to check if the given type implements the `getApi(T x)` function returning an alpaka::concepts::Api
          */
         template<typename T_Any>
