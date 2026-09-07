@@ -198,6 +198,33 @@ TEMPLATE_LIST_TEST_CASE("OmpCollectiveQueue", "[queue][OmpCollectiveQueue]", Tes
 
     std::apply([&](auto const&... extent) { (runTest(queue, exec, extent), ...); }, extents);
 }
+
+TEMPLATE_LIST_TEST_CASE("OmpCollectiveQueue public operations", "[queue][OmpCollectiveQueue]", TestBackends)
+{
+    // Exercise the public facade: missing backend operations must fail this normal test's build.
+    auto device = test::getDeviceOrSkipTest(TestType::makeDict());
+    auto queue = device.makeQueue(queueKind::ompCollective);
+
+    SECTION("isEmpty")
+    {
+        // A fresh queue is empty; the collective dispatch must return the parent's bool.
+        CHECK(queue.isEmpty());
+    }
+    SECTION("native handle")
+    {
+        // Copies share one queue, so both handles must identify the same native queue.
+        auto alias = queue;
+        CHECK(queue.getNativeHandle() == alias.getNativeHandle());
+    }
+    SECTION("native function")
+    {
+        // Native submission must be wired through the collective backend too.
+        bool called = false;
+        queue.enqueueNativeFn([&](auto) { called = true; });
+        // Outside a parallel region, the collective queue is blocking.
+        CHECK(called);
+    }
+}
 #else
 TEST_CASE("OmpCollectiveQueue", "[queue][OmpCollectiveQueue]")
 {
